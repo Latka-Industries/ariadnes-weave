@@ -31,5 +31,11 @@ jobs:
       - name: clippy
         run: cargo clippy --all-targets -- -D warnings
 
+      - name: clippy (icons)
+        run: cargo clippy --all-targets --features icons -- -D warnings
+
       - name: test
         run: cargo test
+
+      - name: test (icons)
+        run: cargo test --features icons

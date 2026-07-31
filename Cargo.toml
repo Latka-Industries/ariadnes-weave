@@ -20,7 +20,7 @@ default = []
 cjk = []
 # Sealed emoji fallback face(s). Off by default; may need color-font emit later.
 emoji = []
-# Font Awesome Free icon faces in the sealed pack (modest size).
+# Font Awesome Free Solid/Regular/Brands TTFs (SIL OFL; see fonts/LICENSE-FontAwesome.txt).
 icons = []
 
 [dependencies]

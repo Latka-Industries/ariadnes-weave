@@ -41,6 +41,15 @@ pub enum FaceId {
     SerifBoldItalic,
     /// Liberation Mono Regular (code).
     MonoRegular,
+    /// Font Awesome Free Solid (`icons` feature).
+    #[cfg(feature = "icons")]
+    IconSolid,
+    /// Font Awesome Free Regular (`icons` feature).
+    #[cfg(feature = "icons")]
+    IconRegular,
+    /// Font Awesome Free Brands (`icons` feature).
+    #[cfg(feature = "icons")]
+    IconBrands,
 }
 
 impl FaceId {
@@ -85,6 +94,12 @@ impl FaceId {
             Self::MonoRegular => {
                 include_bytes!("../fonts/LiberationMono-Regular.ttf")
             }
+            #[cfg(feature = "icons")]
+            Self::IconSolid => include_bytes!("../fonts/fa-solid-900.ttf"),
+            #[cfg(feature = "icons")]
+            Self::IconRegular => include_bytes!("../fonts/fa-regular-400.ttf"),
+            #[cfg(feature = "icons")]
+            Self::IconBrands => include_bytes!("../fonts/fa-brands-400.ttf"),
         }
     }
 
@@ -99,6 +114,12 @@ impl FaceId {
             Self::SerifItalic => "LiberationSerif-Italic",
             Self::SerifBoldItalic => "LiberationSerif-BoldItalic",
             Self::MonoRegular => "LiberationMono",
+            #[cfg(feature = "icons")]
+            Self::IconSolid => "FontAwesome6Free-Solid",
+            #[cfg(feature = "icons")]
+            Self::IconRegular => "FontAwesome6Free-Regular",
+            #[cfg(feature = "icons")]
+            Self::IconBrands => "FontAwesome6Brands-Regular",
         }
     }
 
@@ -113,6 +134,12 @@ impl FaceId {
             Self::SerifItalic => b"SI",
             Self::SerifBoldItalic => b"SBI",
             Self::MonoRegular => b"M",
+            #[cfg(feature = "icons")]
+            Self::IconSolid => b"IS",
+            #[cfg(feature = "icons")]
+            Self::IconRegular => b"IR",
+            #[cfg(feature = "icons")]
+            Self::IconBrands => b"IB",
         }
     }
 
@@ -439,5 +466,36 @@ mod tests {
             "subset {} vs full {full}",
             prepared.data.len()
         );
+    }
+
+    #[cfg(feature = "icons")]
+    #[test]
+    fn shapes_and_subsets_fa_solid_house() {
+        // Font Awesome Free 6 solid "house" (Private Use Area).
+        const HOUSE: &str = "\u{f015}";
+        let glyphs = shape_text(FaceId::IconSolid, HOUSE, 16.0).expect("shape");
+        assert_eq!(glyphs.len(), 1);
+        assert_ne!(glyphs[0].gid, 0);
+        assert!(shaped_width(&glyphs) > 0.0);
+
+        let mut set = BTreeMap::new();
+        collect_glyph_set(FaceId::IconSolid, HOUSE, &mut set);
+        note_shaped_glyphs(&glyphs, &mut set);
+        let prepared = prepare_subset(FaceId::IconSolid, &set).expect("subset");
+        let remapped = prepared.remap_glyph(glyphs[0]);
+        assert_ne!(remapped.gid, 0);
+        assert!(prepared.data.len() < FaceId::IconSolid.ttf_bytes().len());
+    }
+
+    #[cfg(feature = "icons")]
+    #[test]
+    fn shapes_fa_brands_and_regular() {
+        // Brands "github" / Regular "user" — common Free codepoints.
+        let brands = shape_text(FaceId::IconBrands, "\u{f09b}", 14.0).expect("brands");
+        assert_eq!(brands.len(), 1);
+        assert_ne!(brands[0].gid, 0);
+        let regular = shape_text(FaceId::IconRegular, "\u{f007}", 14.0).expect("regular");
+        assert_eq!(regular.len(), 1);
+        assert_ne!(regular[0].gid, 0);
     }
 }

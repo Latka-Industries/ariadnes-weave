@@ -21,7 +21,7 @@ pub(super) fn prepare_subsets(glyph_sets: &GlyphSets) -> Result<SubsetMap, Weave
     Ok(subsets)
 }
 
-/// Embed Type0 subsets; returns face → Type0 object ref (BTreeMap for determinism).
+/// Embed Type0 subsets; returns face → Type0 object ref (`BTreeMap` for determinism).
 pub(super) fn embed_fonts(
     pdf: &mut Pdf,
     subsets: &SubsetMap,
@@ -170,7 +170,7 @@ pub(super) struct WritePageDictArgs<'a> {
 }
 
 impl WritePageDictArgs<'_> {
-    /// Emit the page object; only attaches image XObjects used on this page.
+    /// Emit the page object; only attaches image `XObjects` used on this page.
     pub(super) fn run(self) {
         let Self {
             pdf,
