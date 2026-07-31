@@ -5,7 +5,7 @@
 //! ```
 
 use ariadnes_weave::{
-    emit_pdf, BreakHint, ListItem, PrintBlock, PrintDocument, PrintMeta, PrintProfileId, TextRun,
+    BreakHint, ListItem, PrintBlock, PrintDocument, PrintMeta, PrintProfileId, TextRun, emit_pdf,
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

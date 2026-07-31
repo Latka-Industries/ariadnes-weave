@@ -1,8 +1,8 @@
 //! Richer prose sample: list / code / quote / page breaks (Liberation TTFs).
 
 use ariadnes_weave::{
-    emit_pdf, BreakHint, InlineStyle, ListItem, PrintBlock, PrintDocument, PrintMeta,
-    PrintProfileId, TextRun,
+    BreakHint, InlineStyle, ListItem, PrintBlock, PrintDocument, PrintMeta, PrintProfileId,
+    TextRun, emit_pdf,
 };
 
 fn prose_doc() -> PrintDocument {

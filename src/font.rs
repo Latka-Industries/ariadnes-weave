@@ -116,7 +116,10 @@ pub fn shape_text(
 ) -> Result<Vec<ShapedGlyph>, WeaveError> {
     let data = face_id.ttf_bytes();
     let rb = RbFace::from_slice(data, 0).ok_or_else(|| {
-        WeaveError::Font(format!("rustybuzz failed to parse {}", face_id.postscript_name()))
+        WeaveError::Font(format!(
+            "rustybuzz failed to parse {}",
+            face_id.postscript_name()
+        ))
     })?;
     let units = rb.units_per_em() as f32;
     let mut buffer = UnicodeBuffer::new();
@@ -253,8 +256,8 @@ pub fn write_embedded_font(
     glyph_set: &BTreeMap<u16, String>,
     ids: FontObjIds,
 ) -> Result<(), WeaveError> {
-    let ttf = TtfFace::parse(font_data, 0)
-        .map_err(|e| WeaveError::Font(format!("ttf-parser: {e:?}")))?;
+    let ttf =
+        TtfFace::parse(font_data, 0).map_err(|e| WeaveError::Font(format!("ttf-parser: {e:?}")))?;
     let units = f32::from(ttf.units_per_em());
     let to_font_units = |v: f32| (v / units) * 1000.0;
 
@@ -287,10 +290,7 @@ pub fn write_embedded_font(
     }
 
     let mut flags = FontFlags::empty();
-    flags.set(
-        FontFlags::SERIF,
-        matches!(face_id, FaceId::SerifRegular),
-    );
+    flags.set(FontFlags::SERIF, matches!(face_id, FaceId::SerifRegular));
     flags.set(FontFlags::FIXED_PITCH, ttf.is_monospaced());
     flags.set(
         FontFlags::ITALIC,
@@ -312,9 +312,7 @@ pub fn write_embedded_font(
     let descender = to_font_units(f32::from(
         ttf.typographic_descender().unwrap_or(ttf.descender()),
     ));
-    let cap_height = to_font_units(f32::from(
-        ttf.capital_height().unwrap_or(ttf.ascender()),
-    ));
+    let cap_height = to_font_units(f32::from(ttf.capital_height().unwrap_or(ttf.ascender())));
     let stem_v = 10.0 + 0.244 * (f32::from(ttf.weight().to_number()) - 50.0);
 
     {
@@ -334,11 +332,13 @@ pub fn write_embedded_font(
     let cmap_bytes = cmap.finish();
     pdf.cmap(ids.cmap, cmap_bytes.as_slice());
 
-    let compressed =
-        compress_to_vec_zlib(font_data, CompressionLevel::DefaultLevel as u8);
+    let compressed = compress_to_vec_zlib(font_data, CompressionLevel::DefaultLevel as u8);
     pdf.stream(ids.data, &compressed)
         .filter(Filter::FlateDecode)
-        .pair(Name(b"Length1"), i32::try_from(font_data.len()).unwrap_or(i32::MAX));
+        .pair(
+            Name(b"Length1"),
+            i32::try_from(font_data.len()).unwrap_or(i32::MAX),
+        );
 
     Ok(())
 }

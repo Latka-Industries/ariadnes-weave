@@ -44,8 +44,8 @@ impl PreparedImage {
 /// Returns [`WeaveError::BadImage`] for unsupported formats or decode failures.
 pub fn prepare_image(image: &PrintImage) -> Result<PreparedImage, WeaveError> {
     let format = guess_format(image)?;
-    let dynamic = image::load_from_memory(&image.bytes)
-        .map_err(|e| WeaveError::BadImage(e.to_string()))?;
+    let dynamic =
+        image::load_from_memory(&image.bytes).map_err(|e| WeaveError::BadImage(e.to_string()))?;
 
     match format {
         ImageFormat::Jpeg => prepare_jpeg(image.bytes.clone(), &dynamic),

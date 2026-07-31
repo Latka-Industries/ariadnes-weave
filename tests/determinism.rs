@@ -68,7 +68,10 @@ fn sha256_hex(bytes: &[u8]) -> String {
 fn emit_is_byte_identical_across_runs() {
     let a = emit_pdf(&hello_doc()).expect("emit a");
     let b = emit_pdf(&hello_doc()).expect("emit b");
-    assert_eq!(a, b, "PDF bytes must be deterministic for fixed IR + profile");
+    assert_eq!(
+        a, b,
+        "PDF bytes must be deterministic for fixed IR + profile"
+    );
 }
 
 #[test]
@@ -76,8 +79,7 @@ fn hello_print_v0_sha256_fixture() {
     let bytes = emit_pdf(&hello_doc()).expect("emit");
     let hash = sha256_hex(&bytes);
     // Pin: bump intentionally when emit layout/fonts change.
-    const EXPECTED: &str =
-        "51833aefd9a209573fc7e15f653f71b8396ffed6b0759dee118d45d8156828b7";
+    const EXPECTED: &str = "51833aefd9a209573fc7e15f653f71b8396ffed6b0759dee118d45d8156828b7";
     assert_eq!(hash, EXPECTED);
 }
 
@@ -90,7 +92,6 @@ fn manuscript_h1_starts_new_page() {
         "manuscript@0 should page-break before second H1; got {page_dicts} page dicts"
     );
     let hash = sha256_hex(&bytes);
-    const EXPECTED: &str =
-        "dfeac558dba14dca3b0b24cea641c0de87b08422d329b7e6322b46c76b9e328c";
+    const EXPECTED: &str = "dfeac558dba14dca3b0b24cea641c0de87b08422d329b7e6322b46c76b9e328c";
     assert_eq!(hash, EXPECTED);
 }
