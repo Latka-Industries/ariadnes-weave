@@ -308,8 +308,8 @@ fn collect_lines(
             }
             PrintBlock::Math { display, latex } => {
                 let seg = segments.last_mut().expect("segment");
-                let prefix = if *display { "[math] " } else { "[math] " };
-                let line = format!("{prefix}{latex}");
+                let _ = display; // layout differs later; placeholder text is shared for now
+                let line = format!("[math] {latex}");
                 ensure_encodable(&line)?;
                 seg.1.push(LaidLine::plain(
                     line,
@@ -384,12 +384,11 @@ fn push_styled_runs(
             }
             let take = avail_chars.max(1).min(remaining.len());
             let mut split_at = take;
-            if take < remaining.len() {
-                if let Some(rel) = remaining[..split_at].rfind(char::is_whitespace)
-                    && rel > 0
-                {
-                    split_at = rel;
-                }
+            if take < remaining.len()
+                && let Some(rel) = remaining[..split_at].rfind(char::is_whitespace)
+                && rel > 0
+            {
+                split_at = rel;
             }
             // Ensure we advance at least one char if no whitespace break.
             if split_at == 0 {
