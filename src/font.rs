@@ -21,7 +21,7 @@ const SYSTEM_INFO: SystemInfo = SystemInfo {
 const CMAP_NAME: Name = Name(b"Custom");
 
 /// Which bundled face to use.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum FaceId {
     /// Liberation Sans Regular.
     SansRegular,

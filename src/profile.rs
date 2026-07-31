@@ -20,6 +20,8 @@ pub struct ProfileMetrics {
     pub code_size: f32,
     /// Prefer Liberation Serif for unstyled body runs (`manuscript@0`).
     pub serif_body: bool,
+    /// Force a page break before each H1 after the first content on a page.
+    pub force_h1_page_break: bool,
 }
 
 impl ProfileMetrics {
@@ -51,6 +53,7 @@ pub fn resolve_metrics(profile: &PrintProfileId) -> Result<ProfileMetrics, Weave
             body_leading: 11.0 * 1.4,
             code_size: 9.0,
             serif_body: false,
+            force_h1_page_break: false,
         }),
         ("manuscript", 0) => Ok(ProfileMetrics {
             // US Letter, larger margins, double-spaced body (beta-reader-ish).
@@ -61,6 +64,7 @@ pub fn resolve_metrics(profile: &PrintProfileId) -> Result<ProfileMetrics, Weave
             body_leading: 12.0 * 2.0,
             code_size: 10.0,
             serif_body: true,
+            force_h1_page_break: true,
         }),
         _ => Err(WeaveError::UnsupportedProfile {
             name: profile.name.clone(),

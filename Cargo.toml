@@ -27,6 +27,7 @@ ttf-parser = "0.25.1"
 
 [dev-dependencies]
 anyhow = "1.0.104"
+sha2 = "0.10"
 tempfile = "3.27.0"
 
 [profile.release]

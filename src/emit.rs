@@ -1,6 +1,6 @@
 //! Liberation TTF emit from print IR (Type0 + rustybuzz shaping).
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 use pdf_writer::{Content, Name, Pdf, Rect, Ref, Str, TextStr};
 
@@ -17,7 +17,8 @@ use crate::ir::{
 use crate::profile::{self, ProfileMetrics};
 
 type GlyphSet = BTreeMap<u16, String>;
-type GlyphSets = HashMap<FaceId, GlyphSet>;
+type GlyphSets = BTreeMap<FaceId, GlyphSet>;
+type SubsetMap = BTreeMap<FaceId, PreparedSubset>;
 
 /// Emit PDF bytes from a print document.
 pub fn emit_pdf(doc: &PrintDocument) -> Result<Vec<u8>, WeaveError> {
@@ -33,7 +34,7 @@ pub fn emit_pdf(doc: &PrintDocument) -> Result<Vec<u8>, WeaveError> {
 
     let mut pages = paginate_items(&segments, metrics.content_height());
 
-    let mut subsets: HashMap<FaceId, PreparedSubset> = HashMap::new();
+    let mut subsets = SubsetMap::new();
     for (&face_id, set) in &glyph_sets {
         subsets.insert(face_id, prepare_subset(face_id, set)?);
     }
@@ -46,7 +47,7 @@ pub fn emit_pdf(doc: &PrintDocument) -> Result<Vec<u8>, WeaveError> {
     let page_tree_id = Ref::new(2);
     let mut next_id = 3_i32;
 
-    let mut font_refs: HashMap<FaceId, Ref> = HashMap::new();
+    let mut font_refs: BTreeMap<FaceId, Ref> = BTreeMap::new();
     for (&face_id, subset) in &subsets {
         let ids = FontObjIds {
             type0: Ref::new(next_id),
@@ -170,7 +171,7 @@ fn image_resource_name(idx: usize) -> Vec<u8> {
     format!("Im{idx}").into_bytes()
 }
 
-fn remap_pages(pages: &mut [Vec<LaidItem>], subsets: &HashMap<FaceId, PreparedSubset>) {
+fn remap_pages(pages: &mut [Vec<LaidItem>], subsets: &SubsetMap) {
     for page in pages {
         for item in page {
             if let LaidItem::Text(line) = item {
@@ -264,7 +265,7 @@ type LayoutDoc = (Vec<LayoutSegment>, Vec<PreparedImage>, GlyphSets);
 fn collect_layout(doc: &PrintDocument, metrics: &ProfileMetrics) -> Result<LayoutDoc, WeaveError> {
     let mut segments: Vec<(ForcedBreak, Vec<LaidItem>)> = vec![(ForcedBreak::None, Vec::new())];
     let mut images: Vec<PreparedImage> = Vec::new();
-    let mut glyph_sets: GlyphSets = HashMap::new();
+    let mut glyph_sets: GlyphSets = BTreeMap::new();
 
     for block in &doc.blocks {
         match block {
@@ -278,7 +279,15 @@ fn collect_layout(doc: &PrintDocument, metrics: &ProfileMetrics) -> Result<Layou
                 runs,
                 break_before,
             } => {
-                if matches!(break_before, BreakHint::Page | BreakHint::PageAlways) {
+                let profile_h1_break =
+                    metrics.force_h1_page_break && *level == 1;
+                let hint_break =
+                    matches!(break_before, BreakHint::Page | BreakHint::PageAlways);
+                if (profile_h1_break || hint_break)
+                    && segments
+                        .last()
+                        .is_some_and(|(_, items)| !items.is_empty())
+                {
                     segments.push((ForcedBreak::Always, Vec::new()));
                 }
                 let font_size = profile::heading_size(*level, metrics);
@@ -809,7 +818,7 @@ fn build_page_content(
     metrics: &ProfileMetrics,
     page_no: usize,
     page_count: usize,
-    subsets: &HashMap<FaceId, PreparedSubset>,
+    subsets: &SubsetMap,
 ) -> Result<Vec<u8>, WeaveError> {
     let mut content = Content::new();
     let mut y = metrics.page_h - metrics.margin;
