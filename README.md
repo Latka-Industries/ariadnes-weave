@@ -1,5 +1,8 @@
 # ariadnes-weave
 
+[![Crates.io](https://img.shields.io/crates/v/ariadnes-weave.svg)](https://crates.io/crates/ariadnes-weave)
+[![docs.rs](https://img.shields.io/docsrs/ariadnes-weave)](https://docs.rs/ariadnes-weave)
+![Build](https://github.com/Latka-Industries/ariadnes-weave/workflows/Build/badge.svg)
 ![Rust](https://img.shields.io/badge/rust-1.95-orange.svg)
 
 Native deterministic print engine for [Tessera](https://github.com/Latka-Industries/tessera):
