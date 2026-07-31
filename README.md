@@ -36,9 +36,13 @@ Not yet: real math/deck layout, float placement.
 ```bash
 mise trust   # rust 1.95 via .mise.toml
 cargo test
+cargo clippy --all-targets -- -D warnings
 cargo run --example prose
 # tmp/hello_world.pdf, tmp/prose_sample.pdf, tmp/prose_example.pdf
 ```
+
+CI (`.github/workflows/ci.yml`): `cargo fmt --check`, clippy `-D warnings`, and `cargo test`
+(including SHA-256 fixtures in `tests/determinism.rs`).
 
 ## API
 

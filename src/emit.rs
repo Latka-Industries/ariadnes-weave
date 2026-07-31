@@ -148,13 +148,8 @@ pub fn emit_pdf(doc: &PrintDocument) -> Result<Vec<u8>, WeaveError> {
             }
         }
 
-        let content_bytes = build_page_content(
-            page_items,
-            &metrics,
-            page_idx + 1,
-            page_count,
-            &subsets,
-        )?;
+        let content_bytes =
+            build_page_content(page_items, &metrics, page_idx + 1, page_count, &subsets)?;
         pdf.stream(content_id, &content_bytes);
     }
 
@@ -283,20 +278,15 @@ fn collect_layout(doc: &PrintDocument, metrics: &ProfileMetrics) -> Result<Layou
                 runs,
                 break_before,
             } => {
-                let profile_h1_break =
-                    metrics.force_h1_page_break && *level == 1;
-                let hint_break =
-                    matches!(break_before, BreakHint::Page | BreakHint::PageAlways);
+                let profile_h1_break = metrics.force_h1_page_break && *level == 1;
+                let hint_break = matches!(break_before, BreakHint::Page | BreakHint::PageAlways);
                 if (profile_h1_break || hint_break)
-                    && segments
-                        .last()
-                        .is_some_and(|(_, items)| !items.is_empty())
+                    && segments.last().is_some_and(|(_, items)| !items.is_empty())
                 {
                     segments.push((ForcedBreak::Always, Vec::new()));
                 }
                 let font_size = profile::heading_size(*level, metrics);
-                let glue =
-                    matches!(break_before, BreakHint::KeepWithNext) || *level <= 2;
+                let glue = matches!(break_before, BreakHint::KeepWithNext) || *level <= 2;
                 let seg = segments.last_mut().expect("segment");
                 push_styled_runs(
                     &mut seg.1,
@@ -622,18 +612,17 @@ fn push_styled_runs(
     let mut current_spans: Vec<LaidSpan> = Vec::new();
     let mut current_width = 0.0_f32;
 
-    let flush_line =
-        |spans: &mut Vec<LaidSpan>, dest: &mut Vec<LaidItem>, glue: bool| {
-            if spans.is_empty() {
-                return;
-            }
-            dest.push(LaidItem::Text(LaidLine {
-                spans: std::mem::take(spans),
-                leading: layout.leading,
-                glue_after: glue,
-                indent: layout.indent,
-            }));
-        };
+    let flush_line = |spans: &mut Vec<LaidSpan>, dest: &mut Vec<LaidItem>, glue: bool| {
+        if spans.is_empty() {
+            return;
+        }
+        dest.push(LaidItem::Text(LaidLine {
+            spans: std::mem::take(spans),
+            leading: layout.leading,
+            glue_after: glue,
+            indent: layout.indent,
+        }));
+    };
 
     for run in runs {
         let face = resolve_face(&run.style, metrics, layout.mode);
@@ -650,6 +639,23 @@ fn push_styled_runs(
             if current_width + w > max_width && !current_spans.is_empty() {
                 flush_line(&mut current_spans, out, false);
                 current_width = 0.0;
+            }
+            if w > max_width && current_spans.is_empty() {
+                // Hard-break tokens wider than the content box (URLs, long code).
+                for piece in hard_break_text(face, chunk, layout.font_size, max_width)? {
+                    let glyphs = shape_text(face, &piece, layout.font_size)?;
+                    let set = glyph_sets.entry(face).or_default();
+                    collect_glyph_set(face, &piece, set);
+                    note_shaped_glyphs(&glyphs, set);
+                    current_spans.push(LaidSpan {
+                        face,
+                        font_size: layout.font_size,
+                        glyphs,
+                    });
+                    flush_line(&mut current_spans, out, false);
+                    current_width = 0.0;
+                }
+                continue;
             }
             let set = glyph_sets.entry(face).or_default();
             collect_glyph_set(face, chunk, set);
@@ -670,6 +676,35 @@ fn push_styled_runs(
     Ok(())
 }
 
+/// Split `text` into pieces that each fit within `max_width` points.
+fn hard_break_text(
+    face: FaceId,
+    text: &str,
+    font_size: f32,
+    max_width: f32,
+) -> Result<Vec<String>, WeaveError> {
+    let mut pieces = Vec::new();
+    let mut buf = String::new();
+    for ch in text.chars() {
+        let mut trial = buf.clone();
+        trial.push(ch);
+        let tw = shaped_width(&shape_text(face, &trial, font_size)?);
+        if tw > max_width && !buf.is_empty() {
+            pieces.push(std::mem::take(&mut buf));
+            buf.push(ch);
+        } else {
+            buf.push(ch);
+        }
+    }
+    if !buf.is_empty() {
+        pieces.push(buf);
+    }
+    if pieces.is_empty() {
+        pieces.push(String::new());
+    }
+    Ok(pieces)
+}
+
 /// Take the next whitespace-delimited chunk (word + trailing spaces).
 fn next_wrap_chunk(s: &str) -> (&str, &str) {
     let mut chars = s.char_indices();
@@ -677,9 +712,7 @@ fn next_wrap_chunk(s: &str) -> (&str, &str) {
         return ("", "");
     };
     if first.is_whitespace() {
-        let end = s
-            .find(|c: char| !c.is_whitespace())
-            .unwrap_or(s.len());
+        let end = s.find(|c: char| !c.is_whitespace()).unwrap_or(s.len());
         return (&s[..end], &s[end..]);
     }
     let word_end = s.find(char::is_whitespace).unwrap_or(s.len());
@@ -930,7 +963,8 @@ mod tests {
         let img: ImageBuffer<Rgb<u8>, Vec<u8>> =
             ImageBuffer::from_fn(32, 24, |x, y| Rgb([x as u8 * 7, y as u8 * 9, 180]));
         let mut buf = std::io::Cursor::new(Vec::new());
-        img.write_to(&mut buf, ImageFormat::Png).expect("encode png");
+        img.write_to(&mut buf, ImageFormat::Png)
+            .expect("encode png");
         buf.into_inner()
     }
 
@@ -950,6 +984,25 @@ mod tests {
             "expected subsetted PDF < 80KB, got {}",
             bytes.len()
         );
+    }
+
+    #[test]
+    fn hard_breaks_overlong_token() {
+        let long = "A".repeat(80);
+        let doc = PrintDocument {
+            meta: PrintMeta {
+                title: "Long".into(),
+                doc_kind: "note".into(),
+                language: None,
+                source_doc_id: None,
+            },
+            profile: PrintProfileId::print_v0(),
+            blocks: vec![PrintBlock::Paragraph {
+                runs: vec![TextRun::plain(long)],
+            }],
+        };
+        let bytes = emit_pdf(&doc).expect("emit overlong");
+        assert!(bytes.starts_with(b"%PDF-"));
     }
 
     #[test]
