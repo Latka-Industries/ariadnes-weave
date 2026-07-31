@@ -1,6 +1,6 @@
 [package]
 name = "ariadnes-weave"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 rust-version = "1.95"
 authors = ["AHurowitz <latkaindustries@gmail.com>"]
@@ -13,6 +13,15 @@ categories = ["encoding", "text-processing", "graphics"]
 
 [lib]
 path = "src/lib.rs"
+
+[features]
+default = []
+# Sealed CJK fallback faces (large; e.g. Noto CJK). Off by default.
+cjk = []
+# Sealed emoji fallback face(s). Off by default; may need color-font emit later.
+emoji = []
+# Font Awesome Free icon faces in the sealed pack (modest size).
+icons = []
 
 [dependencies]
 image = { version = "0.25.9", default-features = false, features = ["png", "jpeg"] }

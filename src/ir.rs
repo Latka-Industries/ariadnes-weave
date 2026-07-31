@@ -59,6 +59,15 @@ impl PrintProfileId {
         }
     }
 
+    /// Construct `deck@0` (16:9 landscape, large type for slides).
+    #[must_use]
+    pub fn deck_v0() -> Self {
+        Self {
+            name: "deck".into(),
+            version: 0,
+        }
+    }
+
     /// Display as `name@version`.
     #[must_use]
     pub fn as_label(&self) -> String {
@@ -119,7 +128,7 @@ pub enum PrintBlock {
         /// Placement hint.
         placement: FigurePlacement,
     },
-    /// Math (LaTeX source; emit may placeholder until THI-291).
+    /// Math (LaTeX source; emit prettifies common tokens, not full TeX).
     Math {
         /// Display vs inline.
         display: bool,

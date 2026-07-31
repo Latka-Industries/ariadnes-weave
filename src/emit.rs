@@ -287,6 +287,8 @@ struct LaidLine {
     glue_after: bool,
     /// Left indent inside the content box (points).
     indent: f32,
+    /// Center the line within the content box (ignores indent).
+    center: bool,
 }
 
 impl LaidLine {
@@ -296,6 +298,7 @@ impl LaidLine {
             leading,
             glue_after: false,
             indent: 0.0,
+            center: false,
         }
     }
 
@@ -319,7 +322,12 @@ impl LaidLine {
             leading,
             glue_after: false,
             indent: 0.0,
+            center: false,
         })
+    }
+
+    fn width(&self) -> f32 {
+        self.spans.iter().map(|s| shaped_width(&s.glyphs)).sum()
     }
 }
 
@@ -350,6 +358,7 @@ enum LaidItem {
         img_idx: usize,
         width: f32,
         height: f32,
+        glue_after: bool,
     },
     Table(LaidTable),
 }
@@ -366,7 +375,16 @@ impl LaidItem {
     fn glue_after(&self) -> bool {
         match self {
             Self::Text(line) => line.glue_after,
-            Self::Image { .. } | Self::Table(_) => false,
+            Self::Image { glue_after, .. } => *glue_after,
+            Self::Table(_) => false,
+        }
+    }
+
+    fn set_glue_after(&mut self, glue: bool) {
+        match self {
+            Self::Text(line) => line.glue_after = glue,
+            Self::Image { glue_after, .. } => *glue_after = glue,
+            Self::Table(_) => {}
         }
     }
 }
@@ -432,19 +450,12 @@ fn layout_block(
             caption,
             placement,
         } => {
-            let _ = placement;
-            let _ = FigurePlacement::Flow;
-            push_figure(segments, images, image, alt, caption, metrics, glyph_sets)?;
-        }
-        PrintBlock::Math { display: _, latex } => {
-            layout_placeholder(
-                &format!("[math] {latex}"),
-                FaceId::MonoRegular,
-                metrics.code_size,
-                metrics.code_size * 1.25,
-                segments,
-                glyph_sets,
+            push_figure(
+                segments, images, image, alt, caption, *placement, metrics, glyph_sets,
             )?;
+        }
+        PrintBlock::Math { display, latex } => {
+            layout_math(*display, latex, metrics, segments, glyph_sets)?;
         }
         PrintBlock::Slide { layout_id, regions } => {
             layout_slide(layout_id, regions, metrics, segments, glyph_sets)?;
@@ -551,22 +562,6 @@ fn layout_code(
     Ok(())
 }
 
-fn layout_placeholder(
-    line: &str,
-    face: FaceId,
-    font_size: f32,
-    leading: f32,
-    segments: &mut [LayoutSegment],
-    glyph_sets: &mut GlyphSets,
-) -> Result<(), WeaveError> {
-    let seg = segments.last_mut().expect("segment");
-    seg.1.push(LaidItem::Text(LaidLine::shaped(
-        face, line, font_size, leading, glyph_sets,
-    )?));
-    seg.1.push(LaidItem::Text(LaidLine::gap(10.0)));
-    Ok(())
-}
-
 #[derive(Debug, Clone, Copy)]
 enum FaceMode {
     Body,
@@ -596,29 +591,46 @@ struct RunLayout {
     indent: f32,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn push_figure(
     segments: &mut [LayoutSegment],
     images: &mut Vec<PreparedImage>,
     image: &PrintImage,
     alt: &str,
     caption: &[TextRun],
+    placement: FigurePlacement,
     metrics: &ProfileMetrics,
     glyph_sets: &mut GlyphSets,
 ) -> Result<(), WeaveError> {
+    let float_near = matches!(placement, FigurePlacement::FloatNear);
+    let seg = segments.last_mut().expect("segment");
+    if float_near {
+        // Keep the figure with the preceding block when possible.
+        if let Some(prev) = seg
+            .1
+            .iter_mut()
+            .rev()
+            .find(|item| !matches!(item, LaidItem::Text(line) if line.spans.is_empty()))
+        {
+            prev.set_glue_after(true);
+        }
+    }
+
     let Ok(prepared) = prepare_image(image) else {
-        let seg = segments.last_mut().expect("segment");
         let label = if alt.is_empty() {
             "[figure]".into()
         } else {
             format!("[figure: {alt}]")
         };
-        seg.1.push(LaidItem::Text(LaidLine::shaped(
+        let mut line = LaidLine::shaped(
             FaceId::SansItalic,
             &label,
             metrics.body_size,
             metrics.body_leading,
             glyph_sets,
-        )?));
+        )?;
+        line.glue_after = !caption.is_empty() || float_near;
+        seg.1.push(LaidItem::Text(line));
         if caption.is_empty() {
             seg.1.push(LaidItem::Text(LaidLine::gap(10.0)));
         } else {
@@ -644,11 +656,11 @@ fn push_figure(
     let img_idx = images.len();
     images.push(prepared);
 
-    let seg = segments.last_mut().expect("segment");
     seg.1.push(LaidItem::Image {
         img_idx,
         width: w,
         height: h,
+        glue_after: !caption.is_empty() || float_near,
     });
     if caption.is_empty() {
         seg.1.push(LaidItem::Text(LaidLine::gap(6.0)));
@@ -669,6 +681,161 @@ fn push_figure(
         )?;
     }
     Ok(())
+}
+
+fn layout_math(
+    display: bool,
+    latex: &str,
+    metrics: &ProfileMetrics,
+    segments: &mut [LayoutSegment],
+    glyph_sets: &mut GlyphSets,
+) -> Result<(), WeaveError> {
+    let pretty = prettify_latex_math(latex);
+    let face = if metrics.serif_body {
+        FaceId::SerifItalic
+    } else {
+        FaceId::SansItalic
+    };
+    let font_size = if display {
+        metrics.body_size * 1.15
+    } else {
+        metrics.body_size
+    };
+    let leading = font_size * 1.4;
+    let seg = segments.last_mut().expect("segment");
+    if display {
+        seg.1.push(LaidItem::Text(LaidLine::gap(8.0)));
+    }
+    let mut line = LaidLine::shaped(face, &pretty, font_size, leading, glyph_sets)?;
+    line.center = display;
+    seg.1.push(LaidItem::Text(line));
+    if display {
+        seg.1.push(LaidItem::Text(LaidLine::gap(12.0)));
+    } else {
+        seg.1.push(LaidItem::Text(LaidLine::gap(4.0)));
+    }
+    Ok(())
+}
+
+/// Light LaTeX-math prettifier (delimiters + common tokens). Not a TeX engine.
+fn prettify_latex_math(latex: &str) -> String {
+    let mut s = latex.trim().to_string();
+    for wrap in ["$$", "$", "\\[", "\\]", "\\(", "\\)"] {
+        if let Some(stripped) = s.strip_prefix(wrap) {
+            s = stripped.to_string();
+        }
+        if let Some(stripped) = s.strip_suffix(wrap) {
+            s = stripped.to_string();
+        }
+    }
+    s = s.trim().to_string();
+    let replacements = [
+        ("\\times", "×"),
+        ("\\cdot", "·"),
+        ("\\pm", "±"),
+        ("\\leq", "≤"),
+        ("\\geq", "≥"),
+        ("\\neq", "≠"),
+        ("\\approx", "≈"),
+        ("\\infty", "∞"),
+        ("\\rightarrow", "→"),
+        ("\\leftarrow", "←"),
+        ("\\Rightarrow", "⇒"),
+        ("\\alpha", "α"),
+        ("\\beta", "β"),
+        ("\\gamma", "γ"),
+        ("\\delta", "δ"),
+        ("\\epsilon", "ε"),
+        ("\\theta", "θ"),
+        ("\\lambda", "λ"),
+        ("\\mu", "μ"),
+        ("\\pi", "π"),
+        ("\\sigma", "σ"),
+        ("\\phi", "φ"),
+        ("\\omega", "ω"),
+        ("\\sum", "∑"),
+        ("\\prod", "∏"),
+        ("\\int", "∫"),
+        ("\\sqrt", "√"),
+        ("\\ldots", "…"),
+        ("\\dots", "…"),
+        ("\\ ", " "),
+        ("\\,", " "),
+        ("\\;", " "),
+        ("\\!", ""),
+        ("{", ""),
+        ("}", ""),
+    ];
+    for (from, to) in replacements {
+        s = s.replace(from, to);
+    }
+    // Very light superscripts / subscripts for single digits or letters.
+    s = apply_script_chars(&s, '^', true);
+    s = apply_script_chars(&s, '_', false);
+    if s.is_empty() { "[math]".into() } else { s }
+}
+
+fn apply_script_chars(input: &str, marker: char, super_script: bool) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == marker
+            && let Some(&next) = chars.peek()
+        {
+            let mapped = if super_script {
+                to_superscript(next)
+            } else {
+                to_subscript(next)
+            };
+            if let Some(rep) = mapped {
+                out.push(rep);
+                chars.next();
+                continue;
+            }
+        }
+        out.push(ch);
+    }
+    out
+}
+
+fn to_superscript(ch: char) -> Option<char> {
+    Some(match ch {
+        '0' => '⁰',
+        '1' => '¹',
+        '2' => '²',
+        '3' => '³',
+        '4' => '⁴',
+        '5' => '⁵',
+        '6' => '⁶',
+        '7' => '⁷',
+        '8' => '⁸',
+        '9' => '⁹',
+        '+' => '⁺',
+        '-' => '⁻',
+        'n' => 'ⁿ',
+        'i' => 'ⁱ',
+        _ => return None,
+    })
+}
+
+fn to_subscript(ch: char) -> Option<char> {
+    Some(match ch {
+        '0' => '₀',
+        '1' => '₁',
+        '2' => '₂',
+        '3' => '₃',
+        '4' => '₄',
+        '5' => '₅',
+        '6' => '₆',
+        '7' => '₇',
+        '8' => '₈',
+        '9' => '₉',
+        '+' => '₊',
+        '-' => '₋',
+        'n' => 'ₙ',
+        'i' => 'ᵢ',
+        _ => return None,
+    })
 }
 
 fn push_table(
@@ -769,6 +936,7 @@ fn wrap_plain_text(
                 leading,
                 glue_after: false,
                 indent: 0.0,
+                center: false,
             });
             current_width = 0.0;
         }
@@ -787,6 +955,7 @@ fn wrap_plain_text(
                     leading,
                     glue_after: false,
                     indent: 0.0,
+                    center: false,
                 });
             }
             continue;
@@ -807,6 +976,7 @@ fn wrap_plain_text(
             leading,
             glue_after: false,
             indent: 0.0,
+            center: false,
         });
     }
     Ok(lines)
@@ -825,10 +995,16 @@ fn layout_slide(
     }
 
     let seg = segments.last_mut().expect("segment");
+    let title_scale = if metrics.is_deck { 1.45 } else { 1.8 };
+    let title_gap = if metrics.is_deck { 20.0 } else { 16.0 };
     let (titles, rest): (Vec<_>, Vec<_>) = regions.iter().partition(|r| {
         let slot = r.slot.to_ascii_lowercase();
         slot == "title" || slot == "heading" || slot.ends_with(".title")
     });
+
+    if metrics.is_deck {
+        seg.1.push(LaidItem::Text(LaidLine::gap(12.0)));
+    }
 
     if titles.is_empty() && rest.is_empty() {
         seg.1.push(LaidItem::Text(LaidLine::shaped(
@@ -852,9 +1028,9 @@ fn layout_slide(
                 metrics,
                 glyph_sets,
                 RunLayout {
-                    font_size: metrics.body_size * 1.8,
-                    leading: metrics.body_size * 2.2,
-                    gap_after: 16.0,
+                    font_size: metrics.body_size * title_scale,
+                    leading: metrics.body_size * title_scale * 1.2,
+                    gap_after: title_gap,
                     glue_last_content: false,
                     mode: FaceMode::Heading,
                     indent: 0.0,
@@ -864,9 +1040,9 @@ fn layout_slide(
         for region in rest {
             let slot = region.slot.to_ascii_lowercase();
             let (size, gap, mode, strong) = if slot == "subtitle" || slot.ends_with(".subtitle") {
-                (metrics.body_size * 1.25, 12.0, FaceMode::Body, false)
+                (metrics.body_size * 1.15, 14.0, FaceMode::Body, false)
             } else {
-                (metrics.body_size, 10.0, FaceMode::Body, false)
+                (metrics.body_size, 12.0, FaceMode::Body, false)
             };
             if !matches!(slot.as_str(), "body" | "content" | "text") && !region.slot.is_empty() {
                 push_styled_runs(
@@ -943,6 +1119,7 @@ fn push_styled_runs(
             leading: layout.leading,
             glue_after: glue,
             indent: layout.indent,
+            center: false,
         }));
     };
 
@@ -1223,7 +1400,11 @@ fn build_page_content(
                     continue;
                 }
                 content.begin_text();
-                let mut x = metrics.margin + line.indent;
+                let mut x = if line.center {
+                    metrics.margin + (metrics.content_width() - line.width()) / 2.0
+                } else {
+                    metrics.margin + line.indent
+                };
                 for span in &line.spans {
                     content.set_font(Name(resource_name(span.face)), span.font_size);
                     content.set_text_matrix([1.0, 0.0, 0.0, 1.0, x, y]);
@@ -1237,6 +1418,7 @@ fn build_page_content(
                 img_idx,
                 width,
                 height,
+                glue_after: _,
             } => {
                 y -= *height;
                 if y < metrics.margin + 18.0 {
@@ -1637,5 +1819,92 @@ mod tests {
         assert!(s.contains("/Subtype /Image") || s.contains("/Subtype/Image"));
         std::fs::create_dir_all("tmp").ok();
         std::fs::write("tmp/figure_sample.pdf", &bytes).ok();
+    }
+
+    #[test]
+    fn deck_v0_is_landscape_16x9() {
+        let metrics = profile::resolve_metrics(&PrintProfileId::deck_v0()).expect("deck");
+        assert!(metrics.is_deck);
+        assert!((metrics.page_w / metrics.page_h - 16.0 / 9.0).abs() < 0.01);
+        let doc = PrintDocument {
+            meta: PrintMeta {
+                title: "Deck".into(),
+                doc_kind: "deck".into(),
+                language: None,
+                source_doc_id: None,
+            },
+            profile: PrintProfileId::deck_v0(),
+            blocks: vec![PrintBlock::Slide {
+                layout_id: "title-body".into(),
+                regions: vec![
+                    SlideRegionContent {
+                        slot: "title".into(),
+                        text: "Landscape deck".into(),
+                    },
+                    SlideRegionContent {
+                        slot: "body".into(),
+                        text: "Large type on 16:9.".into(),
+                    },
+                ],
+            }],
+        };
+        let bytes = emit_pdf(&doc).expect("emit deck");
+        assert!(bytes.starts_with(b"%PDF-"));
+        std::fs::create_dir_all("tmp").ok();
+        std::fs::write("tmp/deck_sample.pdf", &bytes).ok();
+    }
+
+    #[test]
+    fn math_prettify_and_emit() {
+        assert_eq!(prettify_latex_math(r"$E = mc^2$"), "E = mc²");
+        assert!(prettify_latex_math(r"\alpha + \beta").contains('α'));
+        let doc = PrintDocument {
+            meta: PrintMeta {
+                title: "Math".into(),
+                doc_kind: "note".into(),
+                language: None,
+                source_doc_id: None,
+            },
+            profile: PrintProfileId::print_v0(),
+            blocks: vec![PrintBlock::Math {
+                display: true,
+                latex: r"E = mc^2".into(),
+            }],
+        };
+        let bytes = emit_pdf(&doc).expect("emit math");
+        assert!(bytes.starts_with(b"%PDF-"));
+        let s = String::from_utf8_lossy(&bytes);
+        assert!(s.contains("LiberationSans-Italic") || s.contains("LiberationSerif-Italic"));
+    }
+
+    #[test]
+    fn float_near_figure_emits() {
+        let png = tiny_png_bytes();
+        let doc = PrintDocument {
+            meta: PrintMeta {
+                title: "Float".into(),
+                doc_kind: "note".into(),
+                language: None,
+                source_doc_id: None,
+            },
+            profile: PrintProfileId::print_v0(),
+            blocks: vec![
+                PrintBlock::Paragraph {
+                    runs: vec![TextRun::plain("See the figure nearby.")],
+                },
+                PrintBlock::Figure {
+                    image: PrintImage {
+                        bytes: png,
+                        media_type: "image/png".into(),
+                        width_px: Some(32),
+                        height_px: Some(24),
+                    },
+                    alt: "swatch".into(),
+                    caption: vec![TextRun::plain("Caption.")],
+                    placement: FigurePlacement::FloatNear,
+                },
+            ],
+        };
+        assert!(emit_pdf(&doc).expect("emit").starts_with(b"%PDF-"));
     }
 }

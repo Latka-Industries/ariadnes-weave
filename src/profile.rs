@@ -22,6 +22,8 @@ pub struct ProfileMetrics {
     pub serif_body: bool,
     /// Force a page break before each H1 after the first content on a page.
     pub force_h1_page_break: bool,
+    /// Deck/slide page geometry (landscape, larger type).
+    pub is_deck: bool,
 }
 
 impl ProfileMetrics {
@@ -54,6 +56,7 @@ pub fn resolve_metrics(profile: &PrintProfileId) -> Result<ProfileMetrics, Weave
             code_size: 9.0,
             serif_body: false,
             force_h1_page_break: false,
+            is_deck: false,
         }),
         ("manuscript", 0) => Ok(ProfileMetrics {
             // US Letter, larger margins, double-spaced body (beta-reader-ish).
@@ -65,6 +68,19 @@ pub fn resolve_metrics(profile: &PrintProfileId) -> Result<ProfileMetrics, Weave
             code_size: 10.0,
             serif_body: true,
             force_h1_page_break: true,
+            is_deck: false,
+        }),
+        ("deck", 0) => Ok(ProfileMetrics {
+            // 16:9 widescreen (13.333" × 7.5" at 72 pt/in).
+            page_w: 960.0,
+            page_h: 540.0,
+            margin: 40.0,
+            body_size: 22.0,
+            body_leading: 22.0 * 1.35,
+            code_size: 16.0,
+            serif_body: false,
+            force_h1_page_break: false,
+            is_deck: true,
         }),
         _ => Err(WeaveError::UnsupportedProfile {
             name: profile.name.clone(),

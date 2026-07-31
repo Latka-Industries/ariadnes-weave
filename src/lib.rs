@@ -25,3 +25,12 @@ pub use profile::{ProfileMetrics, resolve_metrics};
 
 /// Crate version string (useful in PDF producer / fixture pins).
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Sealed CJK fallback pack compiled in (`--features cjk`).
+pub const FEATURE_CJK: bool = cfg!(feature = "cjk");
+
+/// Sealed emoji fallback pack compiled in (`--features emoji`).
+pub const FEATURE_EMOJI: bool = cfg!(feature = "emoji");
+
+/// Font Awesome Free icon faces compiled in (`--features icons`).
+pub const FEATURE_ICONS: bool = cfg!(feature = "icons");
