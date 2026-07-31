@@ -41,7 +41,7 @@ pub struct PrintProfileId {
 }
 
 impl PrintProfileId {
-    /// Construct `print@0` (MVP stub: A4 + default margins, Helvetica).
+    /// Construct `print@0` (A4 + Liberation Sans body).
     pub fn print_v0() -> Self {
         Self {
             name: "print".into(),
@@ -49,7 +49,7 @@ impl PrintProfileId {
         }
     }
 
-    /// Construct `manuscript@0` (stub id; metrics land in THI-294).
+    /// Construct `manuscript@0` (US Letter, double-space, Liberation Serif body).
     pub fn manuscript_v0() -> Self {
         Self {
             name: "manuscript".into(),

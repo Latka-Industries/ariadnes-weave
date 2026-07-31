@@ -18,9 +18,9 @@ pub enum WeaveError {
     #[error("unsupported print block: {0}")]
     UnsupportedBlock(&'static str),
 
-    /// Text could not be encoded for a PDF standard font (WinAnsi / ASCII subset).
-    #[error("text not encodable with MVP Helvetica path: {0}")]
-    UnencodableText(String),
+    /// Bundled font parse / shape / embed failure.
+    #[error("font error: {0}")]
+    Font(String),
 
     /// Image bytes could not be decoded or are an unsupported format.
     #[error("unsupported or invalid image: {0}")]

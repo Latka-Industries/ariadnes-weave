@@ -11,25 +11,26 @@ Tessera `docs/print_ir.md` / D21).
 
 ## Status
 
-**Prose emit (post THI-289):** print IR + standard-font `emit_pdf` for:
+**Prose emit:** print IR + Liberation TTF `emit_pdf` for:
 
 * Blocks: `Heading` / `Paragraph` / `List` / `Code` / `Quote` / `Break`
-* Inline faces: Helvetica / Bold / Oblique / BoldOblique + Courier for `code`
+* Faces: Liberation Sans (R/B/I/BI), Serif body for `manuscript@0`, Mono for `code`
+* Shaping: `rustybuzz` + Type0 / CIDFontType2 / Identity-H embedding
 * Profiles: `print@0` (A4) and `manuscript@0` (US Letter, double-spaced body)
 * Forced page breaks + keep-with-next glue for H1/H2; page-number footers
 * `Table` → ASCII grid; `Figure` → embedded PNG/JPEG XObject; `Math`/`Slide` placeholders
 
-Not yet: bundled TTFs / rustybuzz shaping, real math/deck layout, float placement.
+Not yet: subsetting, real math/deck layout, float placement.
 
 | Later | Where |
 | --- | --- |
-| Real pagination, `print@1` / `manuscript@1`, bundled TTFs | THI-294 |
+| Richer pagination / `print@1` / `manuscript@1` | THI-294 |
 | Tessera `.tes` → print tree | THI-290 |
 | Deterministic fixtures / CI | THI-292 |
-| Tables, figures, math | THI-291 |
+| Richer tables / figures / math | THI-291 |
 
-**Bricks:** `pdf-writer` + `rustybuzz` + `ttf-parser` (shaping/TTF wired later;
-Helvetica path does not need them yet). Not cosmic-text / krilla for v0.
+**Bricks:** `pdf-writer` + `rustybuzz` + `ttf-parser`. Fonts under `fonts/`
+(Liberation, SIL Open Font License). Not cosmic-text / krilla for v0.
 
 ```bash
 mise trust   # rust 1.95 via .mise.toml

@@ -18,8 +18,8 @@ pub struct ProfileMetrics {
     pub body_leading: f32,
     /// Code block size.
     pub code_size: f32,
-    /// Approximate glyph width factor × font size (Helvetica-ish).
-    pub char_width_factor: f32,
+    /// Prefer Liberation Serif for unstyled body runs (`manuscript@0`).
+    pub serif_body: bool,
 }
 
 impl ProfileMetrics {
@@ -50,7 +50,7 @@ pub fn resolve_metrics(profile: &PrintProfileId) -> Result<ProfileMetrics, Weave
             body_size: 11.0,
             body_leading: 11.0 * 1.4,
             code_size: 9.0,
-            char_width_factor: 0.5,
+            serif_body: false,
         }),
         ("manuscript", 0) => Ok(ProfileMetrics {
             // US Letter, larger margins, double-spaced body (beta-reader-ish).
@@ -60,7 +60,7 @@ pub fn resolve_metrics(profile: &PrintProfileId) -> Result<ProfileMetrics, Weave
             body_size: 12.0,
             body_leading: 12.0 * 2.0,
             code_size: 10.0,
-            char_width_factor: 0.55,
+            serif_body: true,
         }),
         _ => Err(WeaveError::UnsupportedProfile {
             name: profile.name.clone(),

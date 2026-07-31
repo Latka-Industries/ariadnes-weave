@@ -1,65 +1,31 @@
-//! Helvetica-family PDF emit from print IR.
-//!
-//! Still MVP: no TTF embedding / rustybuzz shaping. Real manuscript policy and
-//! rich layout deepen in THI-294 / THI-291.
+//! Liberation TTF emit from print IR (Type0 + rustybuzz shaping).
+
+use std::collections::{BTreeMap, HashMap};
 
 use pdf_writer::{Content, Name, Pdf, Rect, Ref, Str, TextStr};
 
 use crate::error::WeaveError;
+use crate::font::{
+    FaceId, FontObjIds, ShapedGlyph, collect_glyph_set, encode_gids, resource_name, shape_text,
+    shaped_width, write_embedded_font,
+};
 use crate::image_prep::{PreparedImage, prepare_image};
 use crate::ir::{
     BreakHint, FigurePlacement, InlineStyle, PrintBlock, PrintDocument, PrintImage, TextRun,
 };
 use crate::profile::{self, ProfileMetrics};
 
-/// Standard Type-1 face used for a laid span.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Face {
-    Regular,
-    Bold,
-    Oblique,
-    BoldOblique,
-    Courier,
-}
-
-impl Face {
-    fn from_style(style: &InlineStyle) -> Self {
-        if style.code {
-            return Self::Courier;
-        }
-        match (style.strong, style.emphasis) {
-            (true, true) => Self::BoldOblique,
-            (true, false) => Self::Bold,
-            (false, true) => Self::Oblique,
-            (false, false) => Self::Regular,
-        }
-    }
-
-    fn pdf_name(self) -> &'static [u8] {
-        match self {
-            Self::Regular => b"Helvetica",
-            Self::Bold => b"Helvetica-Bold",
-            Self::Oblique => b"Helvetica-Oblique",
-            Self::BoldOblique => b"Helvetica-BoldOblique",
-            Self::Courier => b"Courier",
-        }
-    }
-
-    fn resource_name(self) -> &'static [u8] {
-        match self {
-            Self::Regular => b"F1",
-            Self::Bold => b"F2",
-            Self::Oblique => b"F3",
-            Self::BoldOblique => b"F4",
-            Self::Courier => b"F5",
-        }
-    }
-}
+type GlyphSet = BTreeMap<u16, String>;
+type GlyphSets = HashMap<FaceId, GlyphSet>;
 
 /// Emit PDF bytes from a print document.
 pub fn emit_pdf(doc: &PrintDocument) -> Result<Vec<u8>, WeaveError> {
     let metrics = profile::resolve_metrics(&doc.profile)?;
-    let (segments, images) = collect_layout(doc, &metrics)?;
+    let (segments, images, mut glyph_sets) = collect_layout(doc, &metrics)?;
+
+    // Footer always uses Sans Regular.
+    collect_glyph_set(FaceId::SansRegular, "0123456789 /", glyph_sets.entry(FaceId::SansRegular).or_default());
+
     let pages = paginate_items(&segments, metrics.content_height());
 
     let mut pdf = Pdf::new();
@@ -67,14 +33,23 @@ pub fn emit_pdf(doc: &PrintDocument) -> Result<Vec<u8>, WeaveError> {
 
     let catalog_id = Ref::new(1);
     let page_tree_id = Ref::new(2);
-    let font_regular = Ref::new(3);
-    let font_bold = Ref::new(4);
-    let font_oblique = Ref::new(5);
-    let font_bold_oblique = Ref::new(6);
-    let font_courier = Ref::new(7);
-    let mut next_id = 8_i32;
+    let mut next_id = 3_i32;
 
-    // Image (+ optional mask) refs.
+    let mut font_refs: HashMap<FaceId, Ref> = HashMap::new();
+    for &face_id in glyph_sets.keys() {
+        let ids = FontObjIds {
+            type0: Ref::new(next_id),
+            cid: Ref::new(next_id + 1),
+            descriptor: Ref::new(next_id + 2),
+            cmap: Ref::new(next_id + 3),
+            data: Ref::new(next_id + 4),
+        };
+        next_id += 5;
+        let set = glyph_sets.get(&face_id).cloned().unwrap_or_default();
+        write_embedded_font(&mut pdf, face_id, &set, ids)?;
+        font_refs.insert(face_id, ids.type0);
+    }
+
     let mut image_refs: Vec<(Ref, Option<Ref>)> = Vec::with_capacity(images.len());
     for img in &images {
         let image_id = Ref::new(next_id);
@@ -102,17 +77,6 @@ pub fn emit_pdf(doc: &PrintDocument) -> Result<Vec<u8>, WeaveError> {
     pdf.pages(page_tree_id)
         .kids(page_ids.iter().copied())
         .count(page_ids.len() as i32);
-
-    pdf.type1_font(font_regular)
-        .base_font(Name(Face::Regular.pdf_name()));
-    pdf.type1_font(font_bold)
-        .base_font(Name(Face::Bold.pdf_name()));
-    pdf.type1_font(font_oblique)
-        .base_font(Name(Face::Oblique.pdf_name()));
-    pdf.type1_font(font_bold_oblique)
-        .base_font(Name(Face::BoldOblique.pdf_name()));
-    pdf.type1_font(font_courier)
-        .base_font(Name(Face::Courier.pdf_name()));
 
     for (img, (image_id, mask_id)) in images.iter().zip(image_refs.iter()) {
         {
@@ -160,11 +124,9 @@ pub fn emit_pdf(doc: &PrintDocument) -> Result<Vec<u8>, WeaveError> {
             let mut resources = page.resources();
             {
                 let mut fonts = resources.fonts();
-                fonts.pair(Name(Face::Regular.resource_name()), font_regular);
-                fonts.pair(Name(Face::Bold.resource_name()), font_bold);
-                fonts.pair(Name(Face::Oblique.resource_name()), font_oblique);
-                fonts.pair(Name(Face::BoldOblique.resource_name()), font_bold_oblique);
-                fonts.pair(Name(Face::Courier.resource_name()), font_courier);
+                for (face_id, type0) in &font_refs {
+                    fonts.pair(Name(resource_name(*face_id)), *type0);
+                }
             }
             if !used_images.is_empty() {
                 let mut xobjs = resources.x_objects();
@@ -180,8 +142,7 @@ pub fn emit_pdf(doc: &PrintDocument) -> Result<Vec<u8>, WeaveError> {
             &metrics,
             page_idx + 1,
             page_count,
-            &image_refs,
-        );
+        )?;
         pdf.stream(content_id, &content_bytes);
     }
 
@@ -200,9 +161,9 @@ fn image_resource_name(idx: usize) -> Vec<u8> {
 
 #[derive(Debug, Clone)]
 struct LaidSpan {
-    text: String,
-    face: Face,
+    face: FaceId,
     font_size: f32,
+    glyphs: Vec<ShapedGlyph>,
 }
 
 #[derive(Debug, Clone)]
@@ -221,16 +182,24 @@ impl LaidLine {
         }
     }
 
-    fn plain(text: impl Into<String>, face: Face, font_size: f32, leading: f32) -> Self {
-        Self {
+    fn shaped(
+        face: FaceId,
+        text: &str,
+        font_size: f32,
+        leading: f32,
+        glyph_sets: &mut GlyphSets,
+    ) -> Result<Self, WeaveError> {
+        let glyphs = shape_text(face, text, font_size)?;
+        collect_glyph_set(face, text, glyph_sets.entry(face).or_default());
+        Ok(Self {
             spans: vec![LaidSpan {
-                text: text.into(),
                 face,
                 font_size,
+                glyphs,
             }],
             leading,
             glue_after: false,
-        }
+        })
     }
 }
 
@@ -261,11 +230,12 @@ impl LaidItem {
 }
 
 type LayoutSegment = (ForcedBreak, Vec<LaidItem>);
-type LayoutDoc = (Vec<LayoutSegment>, Vec<PreparedImage>);
+type LayoutDoc = (Vec<LayoutSegment>, Vec<PreparedImage>, GlyphSets);
 
 fn collect_layout(doc: &PrintDocument, metrics: &ProfileMetrics) -> Result<LayoutDoc, WeaveError> {
     let mut segments: Vec<(ForcedBreak, Vec<LaidItem>)> = vec![(ForcedBreak::None, Vec::new())];
     let mut images: Vec<PreparedImage> = Vec::new();
+    let mut glyph_sets: GlyphSets = HashMap::new();
 
     for block in &doc.blocks {
         match block {
@@ -289,11 +259,15 @@ fn collect_layout(doc: &PrintDocument, metrics: &ProfileMetrics) -> Result<Layou
                 push_styled_runs(
                     &mut seg.1,
                     runs,
-                    font_size,
-                    font_size * 1.35,
-                    8.0,
-                    glue,
                     metrics,
+                    &mut glyph_sets,
+                    RunLayout {
+                        font_size,
+                        leading: font_size * 1.35,
+                        gap_after: 8.0,
+                        glue_last_content: glue,
+                        mode: FaceMode::Heading,
+                    },
                 )?;
             }
             PrintBlock::Paragraph { runs } => {
@@ -301,11 +275,15 @@ fn collect_layout(doc: &PrintDocument, metrics: &ProfileMetrics) -> Result<Layou
                 push_styled_runs(
                     &mut seg.1,
                     runs,
-                    metrics.body_size,
-                    metrics.body_leading,
-                    10.0,
-                    false,
                     metrics,
+                    &mut glyph_sets,
+                    RunLayout {
+                        font_size: metrics.body_size,
+                        leading: metrics.body_leading,
+                        gap_after: 10.0,
+                        glue_last_content: false,
+                        mode: FaceMode::Body,
+                    },
                 )?;
             }
             PrintBlock::Quote { runs } => {
@@ -328,11 +306,15 @@ fn collect_layout(doc: &PrintDocument, metrics: &ProfileMetrics) -> Result<Layou
                 push_styled_runs(
                     &mut seg.1,
                     &quoted,
-                    metrics.body_size,
-                    metrics.body_leading,
-                    10.0,
-                    false,
                     metrics,
+                    &mut glyph_sets,
+                    RunLayout {
+                        font_size: metrics.body_size,
+                        leading: metrics.body_leading,
+                        gap_after: 10.0,
+                        glue_last_content: false,
+                        mode: FaceMode::Body,
+                    },
                 )?;
             }
             PrintBlock::Code { lang: _, text } => {
@@ -340,23 +322,23 @@ fn collect_layout(doc: &PrintDocument, metrics: &ProfileMetrics) -> Result<Layou
                 let font_size = metrics.code_size;
                 let leading = font_size * 1.25;
                 for line in text.lines() {
-                    ensure_encodable(line)?;
-                    seg.1.push(LaidItem::Text(LaidLine::plain(
+                    seg.1.push(LaidItem::Text(LaidLine::shaped(
+                        FaceId::MonoRegular,
                         line,
-                        Face::Courier,
                         font_size,
                         leading,
-                    )));
+                        &mut glyph_sets,
+                    )?));
                 }
                 seg.1.push(LaidItem::Text(LaidLine::gap(10.0)));
             }
             PrintBlock::List { ordered, items } => {
                 let seg = segments.last_mut().expect("segment");
-                push_list_lines(&mut seg.1, *ordered, items, 0, metrics)?;
+                push_list_lines(&mut seg.1, *ordered, items, 0, metrics, &mut glyph_sets)?;
             }
             PrintBlock::Table { rows } => {
                 let seg = segments.last_mut().expect("segment");
-                push_table_lines(&mut seg.1, rows, metrics)?;
+                push_table_lines(&mut seg.1, rows, metrics, &mut glyph_sets)?;
             }
             PrintBlock::Figure {
                 image,
@@ -364,7 +346,7 @@ fn collect_layout(doc: &PrintDocument, metrics: &ProfileMetrics) -> Result<Layou
                 caption,
                 placement,
             } => {
-                let _ = placement; // FloatNear treated as Flow for now.
+                let _ = placement;
                 let _ = FigurePlacement::Flow;
                 push_figure(
                     &mut segments,
@@ -373,36 +355,64 @@ fn collect_layout(doc: &PrintDocument, metrics: &ProfileMetrics) -> Result<Layou
                     alt,
                     caption,
                     metrics,
+                    &mut glyph_sets,
                 )?;
             }
             PrintBlock::Math { display: _, latex } => {
                 let seg = segments.last_mut().expect("segment");
                 let line = format!("[math] {latex}");
-                ensure_encodable(&line)?;
-                seg.1.push(LaidItem::Text(LaidLine::plain(
-                    line,
-                    Face::Courier,
+                seg.1.push(LaidItem::Text(LaidLine::shaped(
+                    FaceId::MonoRegular,
+                    &line,
                     metrics.code_size,
                     metrics.code_size * 1.25,
-                )));
+                    &mut glyph_sets,
+                )?));
                 seg.1.push(LaidItem::Text(LaidLine::gap(10.0)));
             }
             PrintBlock::Slide { layout_id, regions } => {
                 let seg = segments.last_mut().expect("segment");
                 let line = format!("[slide:{layout_id} regions={}]", regions.len());
-                ensure_encodable(&line)?;
-                seg.1.push(LaidItem::Text(LaidLine::plain(
-                    line,
-                    Face::Oblique,
+                seg.1.push(LaidItem::Text(LaidLine::shaped(
+                    FaceId::SansItalic,
+                    &line,
                     metrics.body_size,
                     metrics.body_leading,
-                )));
+                    &mut glyph_sets,
+                )?));
                 segments.push((ForcedBreak::Always, Vec::new()));
             }
         }
     }
 
-    Ok((segments, images))
+    Ok((segments, images, glyph_sets))
+}
+
+#[derive(Debug, Clone, Copy)]
+enum FaceMode {
+    Body,
+    Heading,
+}
+
+fn resolve_face(style: &InlineStyle, metrics: &ProfileMetrics, mode: FaceMode) -> FaceId {
+    match mode {
+        FaceMode::Heading => {
+            let mut s = *style;
+            if !s.code && !s.strong && !s.emphasis {
+                s.strong = true;
+            }
+            FaceId::from_style(&s, false)
+        }
+        FaceMode::Body => FaceId::from_style(style, metrics.serif_body),
+    }
+}
+
+struct RunLayout {
+    font_size: f32,
+    leading: f32,
+    gap_after: f32,
+    glue_last_content: bool,
+    mode: FaceMode,
 }
 
 fn push_figure(
@@ -412,33 +422,37 @@ fn push_figure(
     alt: &str,
     caption: &[TextRun],
     metrics: &ProfileMetrics,
+    glyph_sets: &mut GlyphSets,
 ) -> Result<(), WeaveError> {
     let prepared = match prepare_image(image) {
         Ok(p) => p,
         Err(_) => {
-            // Fallback placeholder when decode fails.
             let seg = segments.last_mut().expect("segment");
             let label = if alt.is_empty() {
                 "[figure]".into()
             } else {
                 format!("[figure: {alt}]")
             };
-            ensure_encodable(&label)?;
-            seg.1.push(LaidItem::Text(LaidLine::plain(
-                label,
-                Face::Oblique,
+            seg.1.push(LaidItem::Text(LaidLine::shaped(
+                FaceId::SansItalic,
+                &label,
                 metrics.body_size,
                 metrics.body_leading,
-            )));
+                glyph_sets,
+            )?));
             if !caption.is_empty() {
                 push_styled_runs(
                     &mut seg.1,
                     caption,
-                    metrics.body_size,
-                    metrics.body_leading,
-                    10.0,
-                    false,
                     metrics,
+                    glyph_sets,
+                    RunLayout {
+                        font_size: metrics.body_size,
+                        leading: metrics.body_leading,
+                        gap_after: 10.0,
+                        glue_last_content: false,
+                        mode: FaceMode::Body,
+                    },
                 )?;
             } else {
                 seg.1.push(LaidItem::Text(LaidLine::gap(10.0)));
@@ -461,11 +475,15 @@ fn push_figure(
         push_styled_runs(
             &mut seg.1,
             caption,
-            metrics.body_size,
-            metrics.body_leading,
-            10.0,
-            false,
             metrics,
+            glyph_sets,
+            RunLayout {
+                font_size: metrics.body_size,
+                leading: metrics.body_leading,
+                gap_after: 10.0,
+                glue_last_content: false,
+                mode: FaceMode::Body,
+            },
         )?;
     } else {
         seg.1.push(LaidItem::Text(LaidLine::gap(6.0)));
@@ -477,14 +495,16 @@ fn push_table_lines(
     out: &mut Vec<LaidItem>,
     rows: &[crate::ir::TableRow],
     metrics: &ProfileMetrics,
+    glyph_sets: &mut GlyphSets,
 ) -> Result<(), WeaveError> {
     if rows.is_empty() {
-        out.push(LaidItem::Text(LaidLine::plain(
+        out.push(LaidItem::Text(LaidLine::shaped(
+            FaceId::SansItalic,
             "[table]",
-            Face::Oblique,
             metrics.body_size,
             metrics.body_leading,
-        )));
+            glyph_sets,
+        )?));
         out.push(LaidItem::Text(LaidLine::gap(10.0)));
         return Ok(());
     }
@@ -503,13 +523,13 @@ fn push_table_lines(
         let inner: usize = widths.iter().map(|w| w + 2).sum::<usize>() + cols.saturating_sub(1);
         format!("+{}+", "-".repeat(inner.max(1)))
     };
-    ensure_encodable(&rule)?;
-    out.push(LaidItem::Text(LaidLine::plain(
-        rule.clone(),
-        Face::Courier,
+    out.push(LaidItem::Text(LaidLine::shaped(
+        FaceId::MonoRegular,
+        &rule,
         font_size,
         leading,
-    )));
+        glyph_sets,
+    )?));
 
     for row in rows {
         let mut line = String::from("|");
@@ -520,19 +540,20 @@ fn push_table_lines(
             line.push_str(&" ".repeat(width.saturating_sub(cell.len())));
             line.push_str(" |");
         }
-        ensure_encodable(&line)?;
-        out.push(LaidItem::Text(LaidLine::plain(
-            line,
-            Face::Courier,
+        out.push(LaidItem::Text(LaidLine::shaped(
+            FaceId::MonoRegular,
+            &line,
             font_size,
             leading,
-        )));
-        out.push(LaidItem::Text(LaidLine::plain(
-            rule.clone(),
-            Face::Courier,
+            glyph_sets,
+        )?));
+        out.push(LaidItem::Text(LaidLine::shaped(
+            FaceId::MonoRegular,
+            &rule,
             font_size,
             leading,
-        )));
+            glyph_sets,
+        )?));
     }
     out.push(LaidItem::Text(LaidLine::gap(10.0)));
     Ok(())
@@ -541,11 +562,9 @@ fn push_table_lines(
 fn push_styled_runs(
     out: &mut Vec<LaidItem>,
     runs: &[TextRun],
-    font_size: f32,
-    leading: f32,
-    gap_after: f32,
-    glue_last_content: bool,
     metrics: &ProfileMetrics,
+    glyph_sets: &mut GlyphSets,
+    layout: RunLayout,
 ) -> Result<(), WeaveError> {
     if runs.is_empty() {
         return Ok(());
@@ -556,66 +575,68 @@ fn push_styled_runs(
     let mut current_width = 0.0_f32;
 
     let flush_line =
-        |spans: &mut Vec<LaidSpan>, dest: &mut Vec<LaidItem>, glue: bool| -> Result<(), WeaveError> {
+        |spans: &mut Vec<LaidSpan>, dest: &mut Vec<LaidItem>, glue: bool| {
             if spans.is_empty() {
-                return Ok(());
+                return;
             }
             dest.push(LaidItem::Text(LaidLine {
                 spans: std::mem::take(spans),
-                leading,
+                leading: layout.leading,
                 glue_after: glue,
             }));
-            Ok(())
         };
 
     for run in runs {
-        ensure_encodable(&run.text)?;
-        let face = Face::from_style(&run.style);
+        let face = resolve_face(&run.style, metrics, layout.mode);
         let mut remaining = run.text.as_str();
         while !remaining.is_empty() {
-            let avail_chars = ((max_width - current_width)
-                / (font_size * metrics.char_width_factor))
-                .floor() as usize;
-            if avail_chars == 0 && !current_spans.is_empty() {
-                flush_line(&mut current_spans, out, false)?;
-                current_width = 0.0;
+            let (chunk, rest) = next_wrap_chunk(remaining);
+            remaining = rest;
+            let chunk = chunk.trim_end();
+            if chunk.is_empty() {
                 continue;
             }
-            let take = avail_chars.max(1).min(remaining.len());
-            let mut split_at = take;
-            if take < remaining.len()
-                && let Some(rel) = remaining[..split_at].rfind(char::is_whitespace)
-                && rel > 0
-            {
-                split_at = rel;
-            }
-            if split_at == 0 {
-                split_at = remaining.chars().next().map(|c| c.len_utf8()).unwrap_or(1);
-            }
-            let (chunk, rest) = remaining.split_at(split_at);
-            let chunk = chunk.trim_end();
-            remaining = rest.trim_start();
-            if !chunk.is_empty() {
-                let w = chunk.len() as f32 * font_size * metrics.char_width_factor;
-                current_spans.push(LaidSpan {
-                    text: chunk.to_owned(),
-                    face,
-                    font_size,
-                });
-                current_width += w;
-            }
-            if !remaining.is_empty() {
-                flush_line(&mut current_spans, out, false)?;
+            let glyphs = shape_text(face, chunk, layout.font_size)?;
+            let w = shaped_width(&glyphs);
+            if current_width + w > max_width && !current_spans.is_empty() {
+                flush_line(&mut current_spans, out, false);
                 current_width = 0.0;
             }
+            collect_glyph_set(face, chunk, glyph_sets.entry(face).or_default());
+            current_spans.push(LaidSpan {
+                face,
+                font_size: layout.font_size,
+                glyphs,
+            });
+            current_width += w;
         }
     }
 
-    flush_line(&mut current_spans, out, glue_last_content)?;
-    if gap_after > 0.0 {
-        out.push(LaidItem::Text(LaidLine::gap(gap_after)));
+    flush_line(&mut current_spans, out, layout.glue_last_content);
+    if layout.gap_after > 0.0 {
+        out.push(LaidItem::Text(LaidLine::gap(layout.gap_after)));
     }
     Ok(())
+}
+
+/// Take the next whitespace-delimited chunk (word + trailing spaces).
+fn next_wrap_chunk(s: &str) -> (&str, &str) {
+    let mut chars = s.char_indices();
+    let Some((_, first)) = chars.next() else {
+        return ("", "");
+    };
+    if first.is_whitespace() {
+        let end = s
+            .find(|c: char| !c.is_whitespace())
+            .unwrap_or(s.len());
+        return (&s[..end], &s[end..]);
+    }
+    let word_end = s.find(char::is_whitespace).unwrap_or(s.len());
+    let after_ws = s[word_end..]
+        .find(|c: char| !c.is_whitespace())
+        .map(|i| word_end + i)
+        .unwrap_or(s.len());
+    (&s[..after_ws], &s[after_ws..])
 }
 
 fn push_list_lines(
@@ -624,6 +645,7 @@ fn push_list_lines(
     items: &[crate::ir::ListItem],
     depth: usize,
     metrics: &ProfileMetrics,
+    glyph_sets: &mut GlyphSets,
 ) -> Result<(), WeaveError> {
     for (i, item) in items.iter().enumerate() {
         let marker = if ordered {
@@ -637,18 +659,29 @@ fn push_list_lines(
         push_styled_runs(
             out,
             &runs,
-            metrics.body_size,
-            metrics.body_size * 1.35,
-            0.0,
-            false,
             metrics,
+            glyph_sets,
+            RunLayout {
+                font_size: metrics.body_size,
+                leading: metrics.body_size * 1.35,
+                gap_after: 0.0,
+                glue_last_content: false,
+                mode: FaceMode::Body,
+            },
         )?;
         for child in &item.children {
             match child {
                 PrintBlock::List {
                     ordered: child_ordered,
                     items: child_items,
-                } => push_list_lines(out, *child_ordered, child_items, depth + 1, metrics)?,
+                } => push_list_lines(
+                    out,
+                    *child_ordered,
+                    child_items,
+                    depth + 1,
+                    metrics,
+                    glyph_sets,
+                )?,
                 other => return Err(WeaveError::UnsupportedBlock(block_name(other))),
             }
         }
@@ -682,7 +715,6 @@ fn paginate_items(
     segments: &[(ForcedBreak, Vec<LaidItem>)],
     max_y_span: f32,
 ) -> Vec<Vec<LaidItem>> {
-    // Reserve footer band for page numbers.
     let max_y_span = (max_y_span - 18.0).max(72.0);
     let mut pages: Vec<Vec<LaidItem>> = Vec::new();
     let mut current: Vec<LaidItem> = Vec::new();
@@ -746,8 +778,7 @@ fn build_page_content(
     metrics: &ProfileMetrics,
     page_no: usize,
     page_count: usize,
-    _image_refs: &[(Ref, Option<Ref>)],
-) -> Vec<u8> {
+) -> Result<Vec<u8>, WeaveError> {
     let mut content = Content::new();
     let mut y = metrics.page_h - metrics.margin;
 
@@ -764,10 +795,11 @@ fn build_page_content(
                 content.begin_text();
                 let mut x = metrics.margin;
                 for span in &line.spans {
-                    content.set_font(Name(span.face.resource_name()), span.font_size);
+                    content.set_font(Name(resource_name(span.face)), span.font_size);
                     content.set_text_matrix([1.0, 0.0, 0.0, 1.0, x, y]);
-                    content.show(Str(&winansi_bytes(&span.text)));
-                    x += span.text.len() as f32 * span.font_size * metrics.char_width_factor;
+                    let encoded = encode_gids(&span.glyphs);
+                    content.show(Str(&encoded));
+                    x += shaped_width(&span.glyphs);
                 }
                 content.end_text();
             }
@@ -790,38 +822,18 @@ fn build_page_content(
         }
     }
 
-    // Page number footer.
     let footer = format!("{page_no} / {page_count}");
+    let footer_glyphs = shape_text(FaceId::SansRegular, &footer, 9.0)?;
+    let footer_w = shaped_width(&footer_glyphs);
     let footer_y = metrics.margin * 0.45;
-    content.begin_text();
-    content.set_font(Name(Face::Regular.resource_name()), 9.0);
-    let footer_w = footer.len() as f32 * 9.0 * metrics.char_width_factor;
     let footer_x = (metrics.page_w - footer_w) / 2.0;
+    content.begin_text();
+    content.set_font(Name(resource_name(FaceId::SansRegular)), 9.0);
     content.set_text_matrix([1.0, 0.0, 0.0, 1.0, footer_x, footer_y]);
-    content.show(Str(footer.as_bytes()));
+    content.show(Str(&encode_gids(&footer_glyphs)));
     content.end_text();
 
-    content.finish().into_vec()
-}
-
-fn ensure_encodable(text: &str) -> Result<(), WeaveError> {
-    for ch in text.chars() {
-        if !is_winansi_char(ch) {
-            return Err(WeaveError::UnencodableText(text.to_owned()));
-        }
-    }
-    Ok(())
-}
-
-fn is_winansi_char(ch: char) -> bool {
-    ch == '\t' || ch == '\n' || ch == '\r' || (ch as u32 >= 0x20 && ch as u32 <= 0x7E)
-}
-
-fn winansi_bytes(text: &str) -> Vec<u8> {
-    text.chars()
-        .filter(|ch| *ch != '\n' && *ch != '\r')
-        .map(|ch| if ch == '\t' { b' ' } else { ch as u8 })
-        .collect()
+    Ok(content.finish().into_vec())
 }
 
 #[cfg(test)]
@@ -850,7 +862,7 @@ mod tests {
                 },
                 PrintBlock::Paragraph {
                     runs: vec![TextRun::plain(
-                        "Owned print IR to PDF - MVP emit with Helvetica.",
+                        "Owned print IR to PDF with Liberation Sans + rustybuzz.",
                     )],
                 },
             ],
@@ -909,7 +921,26 @@ mod tests {
         });
         let bytes = emit_pdf(&doc).expect("emit");
         let s = String::from_utf8_lossy(&bytes);
-        assert!(s.contains("Helvetica-Bold"));
+        assert!(s.contains("LiberationSans-Bold"));
+        assert!(s.contains("/Subtype /Type0") || s.contains("/Subtype/Type0"));
+    }
+
+    #[test]
+    fn emits_unicode_em_dash() {
+        let doc = PrintDocument {
+            meta: PrintMeta {
+                title: "Dash".into(),
+                doc_kind: "note".into(),
+                language: None,
+                source_doc_id: None,
+            },
+            profile: PrintProfileId::print_v0(),
+            blocks: vec![PrintBlock::Paragraph {
+                runs: vec![TextRun::plain("alpha — omega")],
+            }],
+        };
+        let bytes = emit_pdf(&doc).expect("emit unicode");
+        assert!(bytes.starts_with(b"%PDF-"));
     }
 
     #[test]
@@ -935,9 +966,9 @@ mod tests {
         };
         let bytes = emit_pdf(&doc).expect("emit");
         assert!(bytes.starts_with(b"%PDF-"));
-        // Footer present.
+        // Footer present as shaped text; ToUnicode should map digits.
         let s = String::from_utf8_lossy(&bytes);
-        assert!(s.contains("1 / 1"));
+        assert!(s.contains("LiberationSans") || s.contains("LiberationMono"));
     }
 
     #[test]

@@ -2,19 +2,21 @@
 //!
 //! See Tessera `docs/print_ir.md` / D21.
 //!
-//! Helvetica-family emit for prose (+ placeholders for table/figure/math/slide).
-//! Bundled TTFs and full pagination policy deepen in later issues.
+//! Bundled Liberation TTFs with rustybuzz shaping (+ table/figure/math/slide stubs).
+//! Richer pagination policy deepens in later issues.
 
 #![deny(missing_docs)]
 
 mod emit;
 mod error;
+mod font;
 mod image_prep;
 mod ir;
 mod profile;
 
 pub use emit::emit_pdf;
 pub use error::WeaveError;
+pub use font::FaceId;
 pub use ir::{
     BreakHint, FigurePlacement, InlineStyle, ListItem, PrintBlock, PrintDocument, PrintImage,
     PrintMeta, PrintProfileId, SlideRegionContent, TableRow, TextRun,

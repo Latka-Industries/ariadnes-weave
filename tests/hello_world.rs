@@ -22,9 +22,9 @@ fn heading_and_paragraph_emit_pdf_magic() {
             },
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain(
-                    "Owned print IR to PDF. This MVP uses Helvetica; real profiles will pin crate-bundled TTFs.",
+                    "Owned print IR to PDF with Liberation Sans and rustybuzz shaping — unicode ok.",
                 )],
-            }, // ASCII-only for Helvetica MVP path
+            },
         ],
     };
 
