@@ -199,6 +199,8 @@ struct LaidLine {
     spans: Vec<LaidSpan>,
     leading: f32,
     glue_after: bool,
+    /// Left indent inside the content box (points).
+    indent: f32,
 }
 
 impl LaidLine {
@@ -207,6 +209,7 @@ impl LaidLine {
             spans: Vec::new(),
             leading,
             glue_after: false,
+            indent: 0.0,
         }
     }
 
@@ -229,6 +232,7 @@ impl LaidLine {
             }],
             leading,
             glue_after: false,
+            indent: 0.0,
         })
     }
 }
@@ -305,6 +309,7 @@ fn collect_layout(doc: &PrintDocument, metrics: &ProfileMetrics) -> Result<Layou
                         gap_after: 8.0,
                         glue_last_content: glue,
                         mode: FaceMode::Heading,
+                        indent: 0.0,
                     },
                 )?;
             }
@@ -321,6 +326,7 @@ fn collect_layout(doc: &PrintDocument, metrics: &ProfileMetrics) -> Result<Layou
                         gap_after: 10.0,
                         glue_last_content: false,
                         mode: FaceMode::Body,
+                        indent: 0.0,
                     },
                 )?;
             }
@@ -352,6 +358,7 @@ fn collect_layout(doc: &PrintDocument, metrics: &ProfileMetrics) -> Result<Layou
                         gap_after: 10.0,
                         glue_last_content: false,
                         mode: FaceMode::Body,
+                        indent: 18.0,
                     },
                 )?;
             }
@@ -451,6 +458,7 @@ struct RunLayout {
     gap_after: f32,
     glue_last_content: bool,
     mode: FaceMode,
+    indent: f32,
 }
 
 fn push_figure(
@@ -490,6 +498,7 @@ fn push_figure(
                         gap_after: 10.0,
                         glue_last_content: false,
                         mode: FaceMode::Body,
+                        indent: 0.0,
                     },
                 )?;
             } else {
@@ -521,6 +530,7 @@ fn push_figure(
                 gap_after: 10.0,
                 glue_last_content: false,
                 mode: FaceMode::Body,
+                indent: 0.0,
             },
         )?;
     } else {
@@ -608,7 +618,7 @@ fn push_styled_runs(
         return Ok(());
     }
 
-    let max_width = metrics.content_width();
+    let max_width = (metrics.content_width() - layout.indent).max(36.0);
     let mut current_spans: Vec<LaidSpan> = Vec::new();
     let mut current_width = 0.0_f32;
 
@@ -621,6 +631,7 @@ fn push_styled_runs(
                 spans: std::mem::take(spans),
                 leading: layout.leading,
                 glue_after: glue,
+                indent: layout.indent,
             }));
         };
 
@@ -691,10 +702,9 @@ fn push_list_lines(
         let marker = if ordered {
             format!("{}. ", i + 1)
         } else {
-            "- ".into()
+            "• ".into()
         };
-        let indent = "  ".repeat(depth);
-        let mut runs = vec![TextRun::plain(format!("{indent}{marker}"))];
+        let mut runs = vec![TextRun::plain(marker)];
         runs.extend(item.runs.iter().cloned());
         push_styled_runs(
             out,
@@ -707,6 +717,7 @@ fn push_list_lines(
                 gap_after: 0.0,
                 glue_last_content: false,
                 mode: FaceMode::Body,
+                indent: 18.0 * depth as f32,
             },
         )?;
         for child in &item.children {
@@ -834,7 +845,7 @@ fn build_page_content(
                     continue;
                 }
                 content.begin_text();
-                let mut x = metrics.margin;
+                let mut x = metrics.margin + line.indent;
                 for span in &line.spans {
                     content.set_font(Name(resource_name(span.face)), span.font_size);
                     content.set_text_matrix([1.0, 0.0, 0.0, 1.0, x, y]);
