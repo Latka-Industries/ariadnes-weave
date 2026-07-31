@@ -29,8 +29,6 @@ type SubsetMap = BTreeMap<FaceId, PreparedSubset>;
 pub fn emit_pdf(doc: &PrintDocument) -> Result<Vec<u8>, WeaveError> {
     let metrics = profile::resolve_metrics(&doc.profile)?;
     let (segments, images, mut glyph_sets) = collect_layout(doc, &metrics)?;
-
-    // Footer always uses Sans Regular.
     collect_glyph_set(
         FaceId::SansRegular,
         "0123456789 /",
@@ -38,68 +36,115 @@ pub fn emit_pdf(doc: &PrintDocument) -> Result<Vec<u8>, WeaveError> {
     );
 
     let mut pages = paginate_items(&segments, metrics.content_height());
-
-    let mut subsets = SubsetMap::new();
-    for (&face_id, set) in &glyph_sets {
-        subsets.insert(face_id, prepare_subset(face_id, set)?);
-    }
+    let subsets = prepare_subsets(&glyph_sets)?;
     remap_pages(&mut pages, &subsets);
 
     let mut pdf = Pdf::new();
     pdf.set_version(1, 7);
-
     let catalog_id = Ref::new(1);
     let page_tree_id = Ref::new(2);
     let mut next_id = 3_i32;
 
-    let mut font_refs: BTreeMap<FaceId, Ref> = BTreeMap::new();
-    for (&face_id, subset) in &subsets {
+    let font_refs = embed_fonts(&mut pdf, &subsets, &mut next_id)?;
+    let image_refs = alloc_image_refs(&images, &mut next_id);
+    let (page_ids, content_ids) = alloc_page_refs(pages.len(), &mut next_id);
+
+    pdf.catalog(catalog_id).pages(page_tree_id);
+    pdf.pages(page_tree_id)
+        .kids(page_ids.iter().copied())
+        .count(i32::try_from(page_ids.len()).unwrap_or(i32::MAX));
+
+    write_image_xobjects(&mut pdf, &images, &image_refs);
+    write_pages(
+        &mut pdf,
+        &pages,
+        &metrics,
+        page_tree_id,
+        &page_ids,
+        &content_ids,
+        &font_refs,
+        &image_refs,
+        &subsets,
+    )?;
+
+    let info_id = Ref::new(next_id);
+    pdf.document_info(info_id)
+        .title(TextStr(&doc.meta.title))
+        .creator(TextStr("ariadnes-weave"))
+        .producer(TextStr(&format!("ariadnes-weave {}", crate::VERSION)));
+
+    Ok(pdf.finish())
+}
+
+fn prepare_subsets(glyph_sets: &GlyphSets) -> Result<SubsetMap, WeaveError> {
+    let mut subsets = SubsetMap::new();
+    for (&face_id, set) in glyph_sets {
+        subsets.insert(face_id, prepare_subset(face_id, set)?);
+    }
+    Ok(subsets)
+}
+
+fn embed_fonts(
+    pdf: &mut Pdf,
+    subsets: &SubsetMap,
+    next_id: &mut i32,
+) -> Result<BTreeMap<FaceId, Ref>, WeaveError> {
+    let mut font_refs = BTreeMap::new();
+    for (&face_id, subset) in subsets {
         let ids = FontObjIds {
-            type0: Ref::new(next_id),
-            cid: Ref::new(next_id + 1),
-            descriptor: Ref::new(next_id + 2),
-            cmap: Ref::new(next_id + 3),
-            data: Ref::new(next_id + 4),
+            type0: Ref::new(*next_id),
+            cid: Ref::new(*next_id + 1),
+            descriptor: Ref::new(*next_id + 2),
+            cmap: Ref::new(*next_id + 3),
+            data: Ref::new(*next_id + 4),
         };
-        next_id += 5;
-        write_embedded_font(&mut pdf, face_id, &subset.data, &subset.glyph_set, ids)?;
+        *next_id += 5;
+        write_embedded_font(pdf, face_id, &subset.data, &subset.glyph_set, ids)?;
         font_refs.insert(face_id, ids.type0);
     }
+    Ok(font_refs)
+}
 
-    let mut image_refs: Vec<(Ref, Option<Ref>)> = Vec::with_capacity(images.len());
-    for img in &images {
-        let image_id = Ref::new(next_id);
-        next_id += 1;
+fn alloc_image_refs(images: &[PreparedImage], next_id: &mut i32) -> Vec<(Ref, Option<Ref>)> {
+    let mut image_refs = Vec::with_capacity(images.len());
+    for img in images {
+        let image_id = Ref::new(*next_id);
+        *next_id += 1;
         let mask_id = if img.mask.is_some() {
-            let id = Ref::new(next_id);
-            next_id += 1;
+            let id = Ref::new(*next_id);
+            *next_id += 1;
             Some(id)
         } else {
             None
         };
         image_refs.push((image_id, mask_id));
     }
+    image_refs
+}
 
-    let mut page_ids = Vec::with_capacity(pages.len());
-    let mut content_ids = Vec::with_capacity(pages.len());
-    for _ in &pages {
-        page_ids.push(Ref::new(next_id));
-        next_id += 1;
-        content_ids.push(Ref::new(next_id));
-        next_id += 1;
+fn alloc_page_refs(page_count: usize, next_id: &mut i32) -> (Vec<Ref>, Vec<Ref>) {
+    let mut page_ids = Vec::with_capacity(page_count);
+    let mut content_ids = Vec::with_capacity(page_count);
+    for _ in 0..page_count {
+        page_ids.push(Ref::new(*next_id));
+        *next_id += 1;
+        content_ids.push(Ref::new(*next_id));
+        *next_id += 1;
     }
+    (page_ids, content_ids)
+}
 
-    pdf.catalog(catalog_id).pages(page_tree_id);
-    pdf.pages(page_tree_id)
-        .kids(page_ids.iter().copied())
-        .count(page_ids.len() as i32);
-
+fn write_image_xobjects(
+    pdf: &mut Pdf,
+    images: &[PreparedImage],
+    image_refs: &[(Ref, Option<Ref>)],
+) {
     for (img, (image_id, mask_id)) in images.iter().zip(image_refs.iter()) {
         {
             let mut image = pdf.image_xobject(*image_id, &img.samples);
             image.filter(img.filter);
-            image.width(img.width as i32);
-            image.height(img.height as i32);
+            image.width(i32::try_from(img.width).unwrap_or(i32::MAX));
+            image.height(i32::try_from(img.height).unwrap_or(i32::MAX));
             image.color_space().device_rgb();
             image.bits_per_component(8);
             if let Some(mid) = mask_id {
@@ -109,13 +154,26 @@ pub fn emit_pdf(doc: &PrintDocument) -> Result<Vec<u8>, WeaveError> {
         if let (Some(mid), Some(mask_samples)) = (mask_id, &img.mask) {
             let mut s_mask = pdf.image_xobject(*mid, mask_samples);
             s_mask.filter(img.filter);
-            s_mask.width(img.width as i32);
-            s_mask.height(img.height as i32);
+            s_mask.width(i32::try_from(img.width).unwrap_or(i32::MAX));
+            s_mask.height(i32::try_from(img.height).unwrap_or(i32::MAX));
             s_mask.color_space().device_gray();
             s_mask.bits_per_component(8);
         }
     }
+}
 
+#[allow(clippy::too_many_arguments)]
+fn write_pages(
+    pdf: &mut Pdf,
+    pages: &[Vec<LaidItem>],
+    metrics: &ProfileMetrics,
+    page_tree_id: Ref,
+    page_ids: &[Ref],
+    content_ids: &[Ref],
+    font_refs: &BTreeMap<FaceId, Ref>,
+    image_refs: &[(Ref, Option<Ref>)],
+    subsets: &SubsetMap,
+) -> Result<(), WeaveError> {
     let page_count = pages.len().max(1);
     for (page_idx, ((page_id, content_id), page_items)) in page_ids
         .iter()
@@ -124,47 +182,60 @@ pub fn emit_pdf(doc: &PrintDocument) -> Result<Vec<u8>, WeaveError> {
         .zip(pages.iter())
         .enumerate()
     {
-        let used_images: Vec<usize> = page_items
-            .iter()
-            .filter_map(|item| match item {
-                LaidItem::Image { img_idx, .. } => Some(*img_idx),
-                LaidItem::Text(_) => None,
-            })
-            .collect();
-
-        {
-            let mut page = pdf.page(page_id);
-            page.media_box(Rect::new(0.0, 0.0, metrics.page_w, metrics.page_h));
-            page.parent(page_tree_id);
-            page.contents(content_id);
-            let mut resources = page.resources();
-            {
-                let mut fonts = resources.fonts();
-                for (face_id, type0) in &font_refs {
-                    fonts.pair(Name(resource_name(*face_id)), *type0);
-                }
-            }
-            if !used_images.is_empty() {
-                let mut xobjs = resources.x_objects();
-                for idx in &used_images {
-                    let name = image_resource_name(*idx);
-                    xobjs.pair(Name(&name), image_refs[*idx].0);
-                }
-            }
-        }
-
+        write_page_dict(
+            pdf,
+            page_id,
+            content_id,
+            page_tree_id,
+            metrics,
+            font_refs,
+            image_refs,
+            page_items,
+        );
         let content_bytes =
-            build_page_content(page_items, &metrics, page_idx + 1, page_count, &subsets)?;
+            build_page_content(page_items, metrics, page_idx + 1, page_count, subsets)?;
         pdf.stream(content_id, &content_bytes);
     }
+    Ok(())
+}
 
-    let info_id = Ref::new(next_id);
-    pdf.document_info(info_id)
-        .title(TextStr(&doc.meta.title))
-        .creator(TextStr("ariadnes-weave"))
-        .producer(TextStr(&format!("ariadnes-weave {}", crate::VERSION)));
+#[allow(clippy::too_many_arguments)]
+fn write_page_dict(
+    pdf: &mut Pdf,
+    page_id: Ref,
+    content_id: Ref,
+    page_tree_id: Ref,
+    metrics: &ProfileMetrics,
+    font_refs: &BTreeMap<FaceId, Ref>,
+    image_refs: &[(Ref, Option<Ref>)],
+    page_items: &[LaidItem],
+) {
+    let used_images: Vec<usize> = page_items
+        .iter()
+        .filter_map(|item| match item {
+            LaidItem::Image { img_idx, .. } => Some(*img_idx),
+            LaidItem::Text(_) => None,
+        })
+        .collect();
 
-    Ok(pdf.finish())
+    let mut page = pdf.page(page_id);
+    page.media_box(Rect::new(0.0, 0.0, metrics.page_w, metrics.page_h));
+    page.parent(page_tree_id);
+    page.contents(content_id);
+    let mut resources = page.resources();
+    {
+        let mut fonts = resources.fonts();
+        for (face_id, type0) in font_refs {
+            fonts.pair(Name(resource_name(*face_id)), *type0);
+        }
+    }
+    if !used_images.is_empty() {
+        let mut xobjs = resources.x_objects();
+        for idx in &used_images {
+            let name = image_resource_name(*idx);
+            xobjs.pair(Name(&name), image_refs[*idx].0);
+        }
+    }
 }
 
 fn image_resource_name(idx: usize) -> Vec<u8> {
@@ -272,160 +343,199 @@ fn collect_layout(doc: &PrintDocument, metrics: &ProfileMetrics) -> Result<Layou
     let mut glyph_sets: GlyphSets = BTreeMap::new();
 
     for block in &doc.blocks {
-        match block {
-            PrintBlock::Break(hint) => {
-                if matches!(hint, BreakHint::Page | BreakHint::PageAlways) {
-                    segments.push((ForcedBreak::Always, Vec::new()));
-                }
-            }
-            PrintBlock::Heading {
-                level,
-                runs,
-                break_before,
-            } => {
-                let profile_h1_break = metrics.force_h1_page_break && *level == 1;
-                let hint_break = matches!(break_before, BreakHint::Page | BreakHint::PageAlways);
-                if (profile_h1_break || hint_break)
-                    && segments.last().is_some_and(|(_, items)| !items.is_empty())
-                {
-                    segments.push((ForcedBreak::Always, Vec::new()));
-                }
-                let font_size = profile::heading_size(*level, metrics);
-                let glue = matches!(break_before, BreakHint::KeepWithNext) || *level <= 2;
-                let seg = segments.last_mut().expect("segment");
-                push_styled_runs(
-                    &mut seg.1,
-                    runs,
-                    metrics,
-                    &mut glyph_sets,
-                    RunLayout {
-                        font_size,
-                        leading: font_size * 1.35,
-                        gap_after: 8.0,
-                        glue_last_content: glue,
-                        mode: FaceMode::Heading,
-                        indent: 0.0,
-                    },
-                )?;
-            }
-            PrintBlock::Paragraph { runs } => {
-                let seg = segments.last_mut().expect("segment");
-                push_styled_runs(
-                    &mut seg.1,
-                    runs,
-                    metrics,
-                    &mut glyph_sets,
-                    RunLayout {
-                        font_size: metrics.body_size,
-                        leading: metrics.body_leading,
-                        gap_after: 10.0,
-                        glue_last_content: false,
-                        mode: FaceMode::Body,
-                        indent: 0.0,
-                    },
-                )?;
-            }
-            PrintBlock::Quote { runs } => {
-                let seg = segments.last_mut().expect("segment");
-                let mut quoted = vec![TextRun {
-                    text: "\"".into(),
-                    style: InlineStyle {
-                        emphasis: true,
-                        ..InlineStyle::default()
-                    },
-                }];
-                quoted.extend(runs.iter().cloned());
-                quoted.push(TextRun {
-                    text: "\"".into(),
-                    style: InlineStyle {
-                        emphasis: true,
-                        ..InlineStyle::default()
-                    },
-                });
-                push_styled_runs(
-                    &mut seg.1,
-                    &quoted,
-                    metrics,
-                    &mut glyph_sets,
-                    RunLayout {
-                        font_size: metrics.body_size,
-                        leading: metrics.body_leading,
-                        gap_after: 10.0,
-                        glue_last_content: false,
-                        mode: FaceMode::Body,
-                        indent: 18.0,
-                    },
-                )?;
-            }
-            PrintBlock::Code { lang: _, text } => {
-                let seg = segments.last_mut().expect("segment");
-                let font_size = metrics.code_size;
-                let leading = font_size * 1.25;
-                for line in text.lines() {
-                    seg.1.push(LaidItem::Text(LaidLine::shaped(
-                        FaceId::MonoRegular,
-                        line,
-                        font_size,
-                        leading,
-                        &mut glyph_sets,
-                    )?));
-                }
-                seg.1.push(LaidItem::Text(LaidLine::gap(10.0)));
-            }
-            PrintBlock::List { ordered, items } => {
-                let seg = segments.last_mut().expect("segment");
-                push_list_lines(&mut seg.1, *ordered, items, 0, metrics, &mut glyph_sets)?;
-            }
-            PrintBlock::Table { rows } => {
-                let seg = segments.last_mut().expect("segment");
-                push_table_lines(&mut seg.1, rows, metrics, &mut glyph_sets)?;
-            }
-            PrintBlock::Figure {
-                image,
-                alt,
-                caption,
-                placement,
-            } => {
-                let _ = placement;
-                let _ = FigurePlacement::Flow;
-                push_figure(
-                    &mut segments,
-                    &mut images,
-                    image,
-                    alt,
-                    caption,
-                    metrics,
-                    &mut glyph_sets,
-                )?;
-            }
-            PrintBlock::Math { display: _, latex } => {
-                let seg = segments.last_mut().expect("segment");
-                let line = format!("[math] {latex}");
-                seg.1.push(LaidItem::Text(LaidLine::shaped(
-                    FaceId::MonoRegular,
-                    &line,
-                    metrics.code_size,
-                    metrics.code_size * 1.25,
-                    &mut glyph_sets,
-                )?));
-                seg.1.push(LaidItem::Text(LaidLine::gap(10.0)));
-            }
-            PrintBlock::Slide { layout_id, regions } => {
-                let seg = segments.last_mut().expect("segment");
-                let line = format!("[slide:{layout_id} regions={}]", regions.len());
-                seg.1.push(LaidItem::Text(LaidLine::shaped(
-                    FaceId::SansItalic,
-                    &line,
-                    metrics.body_size,
-                    metrics.body_leading,
-                    &mut glyph_sets,
-                )?));
-                segments.push((ForcedBreak::Always, Vec::new()));
-            }
-        }
+        layout_block(block, metrics, &mut segments, &mut images, &mut glyph_sets)?;
     }
 
     Ok((segments, images, glyph_sets))
+}
+
+fn layout_block(
+    block: &PrintBlock,
+    metrics: &ProfileMetrics,
+    segments: &mut Vec<LayoutSegment>,
+    images: &mut Vec<PreparedImage>,
+    glyph_sets: &mut GlyphSets,
+) -> Result<(), WeaveError> {
+    match block {
+        PrintBlock::Break(hint) => {
+            if matches!(hint, BreakHint::Page | BreakHint::PageAlways) {
+                segments.push((ForcedBreak::Always, Vec::new()));
+            }
+        }
+        PrintBlock::Heading {
+            level,
+            runs,
+            break_before,
+        } => layout_heading(*level, runs, *break_before, metrics, segments, glyph_sets)?,
+        PrintBlock::Paragraph { runs } => {
+            let seg = segments.last_mut().expect("segment");
+            push_styled_runs(
+                &mut seg.1,
+                runs,
+                metrics,
+                glyph_sets,
+                body_layout(metrics, 0.0),
+            )?;
+        }
+        PrintBlock::Quote { runs } => layout_quote(runs, metrics, segments, glyph_sets)?,
+        PrintBlock::Code { lang: _, text } => {
+            layout_code(text, metrics, segments, glyph_sets)?;
+        }
+        PrintBlock::List { ordered, items } => {
+            let seg = segments.last_mut().expect("segment");
+            push_list_lines(&mut seg.1, *ordered, items, 0, metrics, glyph_sets)?;
+        }
+        PrintBlock::Table { rows } => {
+            let seg = segments.last_mut().expect("segment");
+            push_table_lines(&mut seg.1, rows, metrics, glyph_sets)?;
+        }
+        PrintBlock::Figure {
+            image,
+            alt,
+            caption,
+            placement,
+        } => {
+            let _ = placement;
+            let _ = FigurePlacement::Flow;
+            push_figure(segments, images, image, alt, caption, metrics, glyph_sets)?;
+        }
+        PrintBlock::Math { display: _, latex } => {
+            layout_placeholder(
+                &format!("[math] {latex}"),
+                FaceId::MonoRegular,
+                metrics.code_size,
+                metrics.code_size * 1.25,
+                segments,
+                glyph_sets,
+            )?;
+        }
+        PrintBlock::Slide { layout_id, regions } => {
+            layout_placeholder(
+                &format!("[slide:{layout_id} regions={}]", regions.len()),
+                FaceId::SansItalic,
+                metrics.body_size,
+                metrics.body_leading,
+                segments,
+                glyph_sets,
+            )?;
+            segments.push((ForcedBreak::Always, Vec::new()));
+        }
+    }
+    Ok(())
+}
+
+fn body_layout(metrics: &ProfileMetrics, indent: f32) -> RunLayout {
+    RunLayout {
+        font_size: metrics.body_size,
+        leading: metrics.body_leading,
+        gap_after: 10.0,
+        glue_last_content: false,
+        mode: FaceMode::Body,
+        indent,
+    }
+}
+
+fn layout_heading(
+    level: u8,
+    runs: &[TextRun],
+    break_before: BreakHint,
+    metrics: &ProfileMetrics,
+    segments: &mut Vec<LayoutSegment>,
+    glyph_sets: &mut GlyphSets,
+) -> Result<(), WeaveError> {
+    let profile_h1_break = metrics.force_h1_page_break && level == 1;
+    let hint_break = matches!(break_before, BreakHint::Page | BreakHint::PageAlways);
+    if (profile_h1_break || hint_break)
+        && segments.last().is_some_and(|(_, items)| !items.is_empty())
+    {
+        segments.push((ForcedBreak::Always, Vec::new()));
+    }
+    let font_size = profile::heading_size(level, metrics);
+    let glue = matches!(break_before, BreakHint::KeepWithNext) || level <= 2;
+    let seg = segments.last_mut().expect("segment");
+    push_styled_runs(
+        &mut seg.1,
+        runs,
+        metrics,
+        glyph_sets,
+        RunLayout {
+            font_size,
+            leading: font_size * 1.35,
+            gap_after: 8.0,
+            glue_last_content: glue,
+            mode: FaceMode::Heading,
+            indent: 0.0,
+        },
+    )
+}
+
+fn layout_quote(
+    runs: &[TextRun],
+    metrics: &ProfileMetrics,
+    segments: &mut [LayoutSegment],
+    glyph_sets: &mut GlyphSets,
+) -> Result<(), WeaveError> {
+    let seg = segments.last_mut().expect("segment");
+    let mut quoted = vec![TextRun {
+        text: "\"".into(),
+        style: InlineStyle {
+            emphasis: true,
+            ..InlineStyle::default()
+        },
+    }];
+    quoted.extend(runs.iter().cloned());
+    quoted.push(TextRun {
+        text: "\"".into(),
+        style: InlineStyle {
+            emphasis: true,
+            ..InlineStyle::default()
+        },
+    });
+    push_styled_runs(
+        &mut seg.1,
+        &quoted,
+        metrics,
+        glyph_sets,
+        body_layout(metrics, 18.0),
+    )
+}
+
+fn layout_code(
+    text: &str,
+    metrics: &ProfileMetrics,
+    segments: &mut [LayoutSegment],
+    glyph_sets: &mut GlyphSets,
+) -> Result<(), WeaveError> {
+    let seg = segments.last_mut().expect("segment");
+    let font_size = metrics.code_size;
+    let leading = font_size * 1.25;
+    for line in text.lines() {
+        seg.1.push(LaidItem::Text(LaidLine::shaped(
+            FaceId::MonoRegular,
+            line,
+            font_size,
+            leading,
+            glyph_sets,
+        )?));
+    }
+    seg.1.push(LaidItem::Text(LaidLine::gap(10.0)));
+    Ok(())
+}
+
+fn layout_placeholder(
+    line: &str,
+    face: FaceId,
+    font_size: f32,
+    leading: f32,
+    segments: &mut [LayoutSegment],
+    glyph_sets: &mut GlyphSets,
+) -> Result<(), WeaveError> {
+    let seg = segments.last_mut().expect("segment");
+    seg.1.push(LaidItem::Text(LaidLine::shaped(
+        face, line, font_size, leading, glyph_sets,
+    )?));
+    seg.1.push(LaidItem::Text(LaidLine::gap(10.0)));
+    Ok(())
 }
 
 #[derive(Debug, Clone, Copy)]
