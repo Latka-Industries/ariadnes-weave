@@ -103,7 +103,7 @@ pub enum PrintBlock {
         /// Inline runs.
         runs: Vec<TextRun>,
     },
-    /// Structured table (emit may placeholder until THI-291).
+    /// Structured table (drawn grid + wrapped cell text).
     Table {
         /// Row-major cells.
         rows: Vec<TableRow>,
@@ -126,11 +126,11 @@ pub enum PrintBlock {
         /// LaTeX source.
         latex: String,
     },
-    /// Deck slide (later; emit placeholders for now).
+    /// Deck slide (one page; regions laid out by slot name).
     Slide {
         /// Layout template id.
         layout_id: String,
-        /// Region payloads (opaque until deck emit).
+        /// Region payloads (`title`, `body`, …).
         regions: Vec<SlideRegionContent>,
     },
     /// Explicit author/export break (e.g. chapter boundary).
@@ -168,12 +168,12 @@ pub enum FigurePlacement {
     FloatNear,
 }
 
-/// Opaque slide region until deck emit lands.
+/// Named region payload on a slide page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SlideRegionContent {
-    /// Region slot name.
+    /// Region slot name (`title`, `subtitle`, `body`, …).
     pub slot: String,
-    /// Plain text for the slot (MVP).
+    /// Plain text for the slot.
     pub text: String,
 }
 

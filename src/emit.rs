@@ -12,7 +12,8 @@ use crate::font::{
 };
 use crate::image_prep::{PreparedImage, prepare_image};
 use crate::ir::{
-    BreakHint, FigurePlacement, InlineStyle, PrintBlock, PrintDocument, PrintImage, TextRun,
+    BreakHint, FigurePlacement, InlineStyle, PrintBlock, PrintDocument, PrintImage,
+    SlideRegionContent, TableRow, TextRun,
 };
 use crate::profile::{self, ProfileMetrics};
 
@@ -214,7 +215,7 @@ fn write_page_dict(
         .iter()
         .filter_map(|item| match item {
             LaidItem::Image { img_idx, .. } => Some(*img_idx),
-            LaidItem::Text(_) => None,
+            LaidItem::Text(_) | LaidItem::Table(_) => None,
         })
         .collect();
 
@@ -245,14 +246,28 @@ fn image_resource_name(idx: usize) -> Vec<u8> {
 fn remap_pages(pages: &mut [Vec<LaidItem>], subsets: &SubsetMap) {
     for page in pages {
         for item in page {
-            if let LaidItem::Text(line) = item {
-                for span in &mut line.spans {
-                    if let Some(subset) = subsets.get(&span.face) {
-                        for g in &mut span.glyphs {
-                            *g = subset.remap_glyph(*g);
+            match item {
+                LaidItem::Text(line) => remap_line(line, subsets),
+                LaidItem::Table(table) => {
+                    for row in &mut table.rows {
+                        for cell in &mut row.cells {
+                            for line in cell {
+                                remap_line(line, subsets);
+                            }
                         }
                     }
                 }
+                LaidItem::Image { .. } => {}
+            }
+        }
+    }
+}
+
+fn remap_line(line: &mut LaidLine, subsets: &SubsetMap) {
+    for span in &mut line.spans {
+        if let Some(subset) = subsets.get(&span.face) {
+            for g in &mut span.glyphs {
+                *g = subset.remap_glyph(*g);
             }
         }
     }
@@ -309,6 +324,26 @@ impl LaidLine {
 }
 
 #[derive(Debug, Clone)]
+struct LaidTableRow {
+    height: f32,
+    cells: Vec<Vec<LaidLine>>,
+}
+
+#[derive(Debug, Clone)]
+struct LaidTable {
+    col_widths: Vec<f32>,
+    rows: Vec<LaidTableRow>,
+    pad: f32,
+    gap_after: f32,
+}
+
+impl LaidTable {
+    fn height(&self) -> f32 {
+        self.rows.iter().map(|r| r.height).sum::<f32>() + self.gap_after
+    }
+}
+
+#[derive(Debug, Clone)]
 enum LaidItem {
     Text(LaidLine),
     Image {
@@ -316,6 +351,7 @@ enum LaidItem {
         width: f32,
         height: f32,
     },
+    Table(LaidTable),
 }
 
 impl LaidItem {
@@ -323,13 +359,14 @@ impl LaidItem {
         match self {
             Self::Text(line) => line.leading,
             Self::Image { height, .. } => *height + 8.0,
+            Self::Table(table) => table.height(),
         }
     }
 
     fn glue_after(&self) -> bool {
         match self {
             Self::Text(line) => line.glue_after,
-            Self::Image { .. } => false,
+            Self::Image { .. } | Self::Table(_) => false,
         }
     }
 }
@@ -387,7 +424,7 @@ fn layout_block(
         }
         PrintBlock::Table { rows } => {
             let seg = segments.last_mut().expect("segment");
-            push_table_lines(&mut seg.1, rows, metrics, glyph_sets)?;
+            push_table(&mut seg.1, rows, metrics, glyph_sets)?;
         }
         PrintBlock::Figure {
             image,
@@ -410,15 +447,7 @@ fn layout_block(
             )?;
         }
         PrintBlock::Slide { layout_id, regions } => {
-            layout_placeholder(
-                &format!("[slide:{layout_id} regions={}]", regions.len()),
-                FaceId::SansItalic,
-                metrics.body_size,
-                metrics.body_leading,
-                segments,
-                glyph_sets,
-            )?;
-            segments.push((ForcedBreak::Always, Vec::new()));
+            layout_slide(layout_id, regions, metrics, segments, glyph_sets)?;
         }
     }
     Ok(())
@@ -642,9 +671,9 @@ fn push_figure(
     Ok(())
 }
 
-fn push_table_lines(
+fn push_table(
     out: &mut Vec<LaidItem>,
-    rows: &[crate::ir::TableRow],
+    rows: &[TableRow],
     metrics: &ProfileMetrics,
     glyph_sets: &mut GlyphSets,
 ) -> Result<(), WeaveError> {
@@ -660,53 +689,232 @@ fn push_table_lines(
         return Ok(());
     }
 
-    let cols = rows.iter().map(|r| r.cells.len()).max().unwrap_or(0);
-    let mut widths = vec![0usize; cols];
-    for row in rows {
-        for (i, cell) in row.cells.iter().enumerate() {
-            widths[i] = widths[i].max(cell.len());
-        }
-    }
-
-    let font_size = metrics.code_size;
-    let leading = font_size * 1.3;
-    let rule = {
-        let inner: usize = widths.iter().map(|w| w + 2).sum::<usize>() + cols.saturating_sub(1);
-        format!("+{}+", "-".repeat(inner.max(1)))
+    let cols = rows.iter().map(|r| r.cells.len()).max().unwrap_or(0).max(1);
+    let pad = 5.0_f32;
+    let font_size = metrics.body_size;
+    let leading = metrics.body_leading.min(font_size * 1.25);
+    let face = if metrics.serif_body {
+        FaceId::SerifRegular
+    } else {
+        FaceId::SansRegular
     };
-    out.push(LaidItem::Text(LaidLine::shaped(
-        FaceId::MonoRegular,
-        &rule,
-        font_size,
-        leading,
-        glyph_sets,
-    )?));
+    let header_face = if metrics.serif_body {
+        FaceId::SerifBold
+    } else {
+        FaceId::SansBold
+    };
+    let col_width = metrics.content_width() / cols as f32;
+    let inner_width = (col_width - pad * 2.0).max(24.0);
+    let col_widths = vec![col_width; cols];
 
-    for row in rows {
-        let mut line = String::from("|");
-        for (i, width) in widths.iter().enumerate() {
-            let cell = row.cells.get(i).map_or("", String::as_str);
-            line.push(' ');
-            line.push_str(cell);
-            line.push_str(&" ".repeat(width.saturating_sub(cell.len())));
-            line.push_str(" |");
+    let mut laid_rows = Vec::with_capacity(rows.len());
+    for (row_idx, row) in rows.iter().enumerate() {
+        let mut cells = Vec::with_capacity(cols);
+        let mut row_h = pad * 2.0 + leading;
+        for col in 0..cols {
+            let text = row.cells.get(col).map_or("", String::as_str);
+            let cell_face = if row_idx == 0 { header_face } else { face };
+            let lines =
+                wrap_plain_text(text, cell_face, font_size, leading, inner_width, glyph_sets)?;
+            let content_h = if lines.is_empty() {
+                leading
+            } else {
+                lines.iter().map(|l| l.leading).sum::<f32>()
+            };
+            row_h = row_h.max(pad * 2.0 + content_h);
+            cells.push(lines);
         }
-        out.push(LaidItem::Text(LaidLine::shaped(
-            FaceId::MonoRegular,
-            &line,
-            font_size,
-            leading,
-            glyph_sets,
-        )?));
-        out.push(LaidItem::Text(LaidLine::shaped(
-            FaceId::MonoRegular,
-            &rule,
-            font_size,
-            leading,
-            glyph_sets,
-        )?));
+        laid_rows.push(LaidTableRow {
+            height: row_h,
+            cells,
+        });
     }
-    out.push(LaidItem::Text(LaidLine::gap(10.0)));
+
+    out.push(LaidItem::Table(LaidTable {
+        col_widths,
+        rows: laid_rows,
+        pad,
+        gap_after: 12.0,
+    }));
+    Ok(())
+}
+
+fn wrap_plain_text(
+    text: &str,
+    face: FaceId,
+    font_size: f32,
+    leading: f32,
+    max_width: f32,
+    glyph_sets: &mut GlyphSets,
+) -> Result<Vec<LaidLine>, WeaveError> {
+    if text.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut lines = Vec::new();
+    let mut current: Vec<LaidSpan> = Vec::new();
+    let mut current_width = 0.0_f32;
+    let mut remaining = text;
+    while !remaining.is_empty() {
+        let (chunk, rest) = next_wrap_chunk(remaining);
+        remaining = rest;
+        let chunk = chunk.trim_end();
+        if chunk.is_empty() {
+            continue;
+        }
+        let glyphs = shape_text(face, chunk, font_size)?;
+        let w = shaped_width(&glyphs);
+        if current_width + w > max_width && !current.is_empty() {
+            lines.push(LaidLine {
+                spans: std::mem::take(&mut current),
+                leading,
+                glue_after: false,
+                indent: 0.0,
+            });
+            current_width = 0.0;
+        }
+        if w > max_width && current.is_empty() {
+            for piece in hard_break_text(face, chunk, font_size, max_width)? {
+                let glyphs = shape_text(face, &piece, font_size)?;
+                let set = glyph_sets.entry(face).or_default();
+                collect_glyph_set(face, &piece, set);
+                note_shaped_glyphs(&glyphs, set);
+                lines.push(LaidLine {
+                    spans: vec![LaidSpan {
+                        face,
+                        font_size,
+                        glyphs,
+                    }],
+                    leading,
+                    glue_after: false,
+                    indent: 0.0,
+                });
+            }
+            continue;
+        }
+        let set = glyph_sets.entry(face).or_default();
+        collect_glyph_set(face, chunk, set);
+        note_shaped_glyphs(&glyphs, set);
+        current.push(LaidSpan {
+            face,
+            font_size,
+            glyphs,
+        });
+        current_width += w;
+    }
+    if !current.is_empty() {
+        lines.push(LaidLine {
+            spans: current,
+            leading,
+            glue_after: false,
+            indent: 0.0,
+        });
+    }
+    Ok(lines)
+}
+
+fn layout_slide(
+    layout_id: &str,
+    regions: &[SlideRegionContent],
+    metrics: &ProfileMetrics,
+    segments: &mut Vec<LayoutSegment>,
+    glyph_sets: &mut GlyphSets,
+) -> Result<(), WeaveError> {
+    let _ = layout_id;
+    if segments.last().is_some_and(|(_, items)| !items.is_empty()) {
+        segments.push((ForcedBreak::Always, Vec::new()));
+    }
+
+    let seg = segments.last_mut().expect("segment");
+    let (titles, rest): (Vec<_>, Vec<_>) = regions.iter().partition(|r| {
+        let slot = r.slot.to_ascii_lowercase();
+        slot == "title" || slot == "heading" || slot.ends_with(".title")
+    });
+
+    if titles.is_empty() && rest.is_empty() {
+        seg.1.push(LaidItem::Text(LaidLine::shaped(
+            FaceId::SansItalic,
+            "[empty slide]",
+            metrics.body_size,
+            metrics.body_leading,
+            glyph_sets,
+        )?));
+    } else {
+        for region in titles {
+            push_styled_runs(
+                &mut seg.1,
+                &[TextRun {
+                    text: region.text.clone(),
+                    style: InlineStyle {
+                        strong: true,
+                        ..InlineStyle::default()
+                    },
+                }],
+                metrics,
+                glyph_sets,
+                RunLayout {
+                    font_size: metrics.body_size * 1.8,
+                    leading: metrics.body_size * 2.2,
+                    gap_after: 16.0,
+                    glue_last_content: false,
+                    mode: FaceMode::Heading,
+                    indent: 0.0,
+                },
+            )?;
+        }
+        for region in rest {
+            let slot = region.slot.to_ascii_lowercase();
+            let (size, gap, mode, strong) = if slot == "subtitle" || slot.ends_with(".subtitle") {
+                (metrics.body_size * 1.25, 12.0, FaceMode::Body, false)
+            } else {
+                (metrics.body_size, 10.0, FaceMode::Body, false)
+            };
+            if !matches!(slot.as_str(), "body" | "content" | "text") && !region.slot.is_empty() {
+                push_styled_runs(
+                    &mut seg.1,
+                    &[TextRun {
+                        text: format!("{}:", region.slot),
+                        style: InlineStyle {
+                            strong: true,
+                            ..InlineStyle::default()
+                        },
+                    }],
+                    metrics,
+                    glyph_sets,
+                    RunLayout {
+                        font_size: metrics.body_size * 0.85,
+                        leading: metrics.body_leading,
+                        gap_after: 2.0,
+                        glue_last_content: true,
+                        mode: FaceMode::Body,
+                        indent: 0.0,
+                    },
+                )?;
+            }
+            push_styled_runs(
+                &mut seg.1,
+                &[TextRun {
+                    text: region.text.clone(),
+                    style: InlineStyle {
+                        strong,
+                        emphasis: slot == "subtitle" || slot.ends_with(".subtitle"),
+                        ..InlineStyle::default()
+                    },
+                }],
+                metrics,
+                glyph_sets,
+                RunLayout {
+                    font_size: size,
+                    leading: size * 1.35,
+                    gap_after: gap,
+                    glue_last_content: false,
+                    mode,
+                    indent: 0.0,
+                },
+            )?;
+        }
+    }
+
+    segments.push((ForcedBreak::Always, Vec::new()));
     Ok(())
 }
 
@@ -721,6 +929,7 @@ fn push_styled_runs(
         return Ok(());
     }
 
+    let start = out.len();
     let max_width = (metrics.content_width() - layout.indent).max(36.0);
     let mut current_spans: Vec<LaidSpan> = Vec::new();
     let mut current_width = 0.0_f32;
@@ -783,10 +992,34 @@ fn push_styled_runs(
     }
 
     flush_line(&mut current_spans, out, layout.glue_last_content);
+    let content_end = out.len();
+    apply_widow_orphan(&mut out[start..content_end]);
     if layout.gap_after > 0.0 {
         out.push(LaidItem::Text(LaidLine::gap(layout.gap_after)));
     }
     Ok(())
+}
+
+/// Keep at least two content lines together at paragraph start/end.
+fn apply_widow_orphan(items: &mut [LaidItem]) {
+    let idxs: Vec<usize> = items
+        .iter()
+        .enumerate()
+        .filter_map(|(i, item)| match item {
+            LaidItem::Text(line) if !line.spans.is_empty() => Some(i),
+            _ => None,
+        })
+        .collect();
+    if idxs.len() < 2 {
+        return;
+    }
+    if let LaidItem::Text(line) = &mut items[idxs[0]] {
+        line.glue_after = true;
+    }
+    let penultimate = idxs[idxs.len() - 2];
+    if let LaidItem::Text(line) = &mut items[penultimate] {
+        line.glue_after = true;
+    }
 }
 
 /// Split `text` into pieces that each fit within `max_width` points.
@@ -1016,6 +1249,14 @@ fn build_page_content(
                 content.restore_state();
                 y -= 8.0;
             }
+            LaidItem::Table(table) => {
+                let table_h = table.rows.iter().map(|r| r.height).sum::<f32>();
+                if y - table_h < metrics.margin + 18.0 {
+                    break;
+                }
+                paint_table(&mut content, table, metrics.margin, y)?;
+                y -= table_h + table.gap_after;
+            }
         }
     }
 
@@ -1036,6 +1277,73 @@ fn build_page_content(
     content.end_text();
 
     Ok(content.finish().into_vec())
+}
+
+fn paint_table(
+    content: &mut Content,
+    table: &LaidTable,
+    origin_x: f32,
+    top_y: f32,
+) -> Result<(), WeaveError> {
+    let table_w: f32 = table.col_widths.iter().sum();
+    let table_h: f32 = table.rows.iter().map(|r| r.height).sum();
+    let bottom = top_y - table_h;
+
+    content.save_state();
+    content.set_stroke_gray(0.25);
+    content.set_line_width(0.6);
+    content.rect(origin_x, bottom, table_w, table_h);
+    content.stroke();
+
+    let mut y = top_y;
+    for row in &table.rows {
+        y -= row.height;
+        if (y - bottom).abs() > 0.01 {
+            content.move_to(origin_x, y);
+            content.line_to(origin_x + table_w, y);
+            content.stroke();
+        }
+    }
+
+    let mut x = origin_x;
+    for width in table
+        .col_widths
+        .iter()
+        .take(table.col_widths.len().saturating_sub(1))
+    {
+        x += width;
+        content.move_to(x, top_y);
+        content.line_to(x, bottom);
+        content.stroke();
+    }
+    content.restore_state();
+
+    let mut row_top = top_y;
+    for row in &table.rows {
+        let mut cell_x = origin_x;
+        for (col, cell_lines) in row.cells.iter().enumerate() {
+            let col_w = table.col_widths.get(col).copied().unwrap_or(0.0);
+            let mut text_y = row_top - table.pad;
+            for line in cell_lines {
+                text_y -= line.leading;
+                if line.spans.is_empty() {
+                    continue;
+                }
+                content.begin_text();
+                let mut span_x = cell_x + table.pad;
+                for span in &line.spans {
+                    content.set_font(Name(resource_name(span.face)), span.font_size);
+                    content.set_text_matrix([1.0, 0.0, 0.0, 1.0, span_x, text_y]);
+                    content.show(Str(&encode_gids(&span.glyphs)));
+                    span_x += shaped_width(&span.glyphs);
+                }
+                content.end_text();
+            }
+            cell_x += col_w;
+        }
+        row_top -= row.height;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1177,7 +1485,7 @@ mod tests {
     }
 
     #[test]
-    fn table_renders_ascii_grid() {
+    fn table_draws_grid_paths() {
         let doc = PrintDocument {
             meta: PrintMeta {
                 title: "T".into(),
@@ -1189,19 +1497,108 @@ mod tests {
             blocks: vec![PrintBlock::Table {
                 rows: vec![
                     TableRow {
-                        cells: vec!["A".into(), "B".into()],
+                        cells: vec!["Name".into(), "Value".into()],
                     },
                     TableRow {
-                        cells: vec!["1".into(), "2".into()],
+                        cells: vec!["alpha".into(), "1".into()],
                     },
                 ],
             }],
         };
         let bytes = emit_pdf(&doc).expect("emit");
         assert!(bytes.starts_with(b"%PDF-"));
-        // Footer present as shaped text; ToUnicode should map digits.
         let s = String::from_utf8_lossy(&bytes);
-        assert!(s.contains("LiberationSans") || s.contains("LiberationMono"));
+        assert!(s.contains("LiberationSans"));
+        // Table grid sets a distinctive stroke width before path ops.
+        assert!(
+            s.contains("0.6 w"),
+            "expected table stroke width in content stream"
+        );
+    }
+
+    #[test]
+    fn slide_emits_own_page() {
+        use crate::ir::SlideRegionContent;
+        let doc = PrintDocument {
+            meta: PrintMeta {
+                title: "Deck".into(),
+                doc_kind: "deck".into(),
+                language: None,
+                source_doc_id: None,
+            },
+            profile: PrintProfileId::print_v0(),
+            blocks: vec![
+                PrintBlock::Paragraph {
+                    runs: vec![TextRun::plain("Before slides.")],
+                },
+                PrintBlock::Slide {
+                    layout_id: "title-body".into(),
+                    regions: vec![
+                        SlideRegionContent {
+                            slot: "title".into(),
+                            text: "First slide".into(),
+                        },
+                        SlideRegionContent {
+                            slot: "body".into(),
+                            text: "Bullet ideas live here.".into(),
+                        },
+                    ],
+                },
+                PrintBlock::Slide {
+                    layout_id: "title-body".into(),
+                    regions: vec![SlideRegionContent {
+                        slot: "title".into(),
+                        text: "Second slide".into(),
+                    }],
+                },
+                PrintBlock::Paragraph {
+                    runs: vec![TextRun::plain("After slides.")],
+                },
+            ],
+        };
+        let bytes = emit_pdf(&doc).expect("emit");
+        let page_dicts = bytes.windows(10).filter(|w| *w == b"/Type /Pag").count();
+        assert!(
+            page_dicts >= 3,
+            "prose + 2 slides should span >= 3 pages; got {page_dicts}"
+        );
+    }
+
+    #[test]
+    fn manuscript_emphasis_uses_serif_italic() {
+        let doc = PrintDocument {
+            meta: PrintMeta {
+                title: "MS".into(),
+                doc_kind: "manuscript".into(),
+                language: None,
+                source_doc_id: None,
+            },
+            profile: PrintProfileId::manuscript_v0(),
+            blocks: vec![PrintBlock::Paragraph {
+                runs: vec![
+                    TextRun::plain("plain "),
+                    TextRun {
+                        text: "emph".into(),
+                        style: InlineStyle {
+                            emphasis: true,
+                            ..InlineStyle::default()
+                        },
+                    },
+                    TextRun::plain(" "),
+                    TextRun {
+                        text: "strong".into(),
+                        style: InlineStyle {
+                            strong: true,
+                            ..InlineStyle::default()
+                        },
+                    },
+                ],
+            }],
+        };
+        let bytes = emit_pdf(&doc).expect("emit");
+        let s = String::from_utf8_lossy(&bytes);
+        assert!(s.contains("LiberationSerif-Italic"));
+        assert!(s.contains("LiberationSerif-Bold"));
     }
 
     #[test]

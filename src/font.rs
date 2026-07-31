@@ -33,6 +33,12 @@ pub enum FaceId {
     SansBoldItalic,
     /// Liberation Serif Regular (manuscript body).
     SerifRegular,
+    /// Liberation Serif Bold.
+    SerifBold,
+    /// Liberation Serif Italic.
+    SerifItalic,
+    /// Liberation Serif Bold Italic.
+    SerifBoldItalic,
     /// Liberation Mono Regular (code).
     MonoRegular,
 }
@@ -45,10 +51,13 @@ impl FaceId {
             return Self::MonoRegular;
         }
         match (style.strong, style.emphasis, serif_body) {
-            (true, true, _) => Self::SansBoldItalic,
-            (true, false, _) => Self::SansBold,
-            (false, true, _) => Self::SansItalic,
+            (true, true, true) => Self::SerifBoldItalic,
+            (true, false, true) => Self::SerifBold,
+            (false, true, true) => Self::SerifItalic,
             (false, false, true) => Self::SerifRegular,
+            (true, true, false) => Self::SansBoldItalic,
+            (true, false, false) => Self::SansBold,
+            (false, true, false) => Self::SansItalic,
             (false, false, false) => Self::SansRegular,
         }
     }
@@ -66,6 +75,13 @@ impl FaceId {
             Self::SerifRegular => {
                 include_bytes!("../fonts/LiberationSerif-Regular.ttf")
             }
+            Self::SerifBold => include_bytes!("../fonts/LiberationSerif-Bold.ttf"),
+            Self::SerifItalic => {
+                include_bytes!("../fonts/LiberationSerif-Italic.ttf")
+            }
+            Self::SerifBoldItalic => {
+                include_bytes!("../fonts/LiberationSerif-BoldItalic.ttf")
+            }
             Self::MonoRegular => {
                 include_bytes!("../fonts/LiberationMono-Regular.ttf")
             }
@@ -79,6 +95,9 @@ impl FaceId {
             Self::SansItalic => "LiberationSans-Italic",
             Self::SansBoldItalic => "LiberationSans-BoldItalic",
             Self::SerifRegular => "LiberationSerif",
+            Self::SerifBold => "LiberationSerif-Bold",
+            Self::SerifItalic => "LiberationSerif-Italic",
+            Self::SerifBoldItalic => "LiberationSerif-BoldItalic",
             Self::MonoRegular => "LiberationMono",
         }
     }
@@ -90,8 +109,25 @@ impl FaceId {
             Self::SansItalic => b"I",
             Self::SansBoldItalic => b"BI",
             Self::SerifRegular => b"S",
+            Self::SerifBold => b"SB",
+            Self::SerifItalic => b"SI",
+            Self::SerifBoldItalic => b"SBI",
             Self::MonoRegular => b"M",
         }
+    }
+
+    fn is_serif(self) -> bool {
+        matches!(
+            self,
+            Self::SerifRegular | Self::SerifBold | Self::SerifItalic | Self::SerifBoldItalic
+        )
+    }
+
+    fn is_italic(self) -> bool {
+        matches!(
+            self,
+            Self::SansItalic | Self::SansBoldItalic | Self::SerifItalic | Self::SerifBoldItalic
+        )
     }
 }
 
@@ -290,12 +326,9 @@ pub fn write_embedded_font(
     }
 
     let mut flags = FontFlags::empty();
-    flags.set(FontFlags::SERIF, matches!(face_id, FaceId::SerifRegular));
+    flags.set(FontFlags::SERIF, face_id.is_serif());
     flags.set(FontFlags::FIXED_PITCH, ttf.is_monospaced());
-    flags.set(
-        FontFlags::ITALIC,
-        matches!(face_id, FaceId::SansItalic | FaceId::SansBoldItalic),
-    );
+    flags.set(FontFlags::ITALIC, face_id.is_italic());
     flags.insert(FontFlags::SYMBOLIC);
 
     let global_bbox = ttf.global_bounding_box();
@@ -368,6 +401,24 @@ mod tests {
         let glyphs = shape_text(FaceId::SansRegular, "Hello", 12.0).expect("shape");
         assert!(!glyphs.is_empty());
         assert!(shaped_width(&glyphs) > 0.0);
+    }
+
+    #[test]
+    fn serif_body_picks_serif_faces() {
+        let emph = InlineStyle {
+            emphasis: true,
+            ..InlineStyle::default()
+        };
+        let strong = InlineStyle {
+            strong: true,
+            ..InlineStyle::default()
+        };
+        assert_eq!(FaceId::from_style(&emph, true), FaceId::SerifItalic);
+        assert_eq!(FaceId::from_style(&strong, true), FaceId::SerifBold);
+        assert_eq!(
+            FaceId::from_style(&InlineStyle::default(), true),
+            FaceId::SerifRegular
+        );
     }
 
     #[test]

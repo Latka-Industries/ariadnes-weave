@@ -11,24 +11,24 @@ Tessera `docs/print_ir.md` / D21).
 
 ## Status
 
-**Prose emit:** print IR + Liberation TTF `emit_pdf` for:
+**Prose + structure emit:** print IR + Liberation TTF `emit_pdf` for:
 
-* Blocks: `Heading` / `Paragraph` / `List` / `Code` / `Quote` / `Break`
-* Faces: Liberation Sans (R/B/I/BI), Serif body for `manuscript@0`, Mono for `code`
+* Blocks: `Heading` / `Paragraph` / `List` / `Code` / `Quote` / `Break` / `Table` / `Figure` / `Slide`
+* Faces: Liberation Sans (R/B/I/BI), Serif (R/B/I/BI) for `manuscript@0`, Mono for `code`
 * Shaping: `rustybuzz` + Type0 / CIDFontType2 / Identity-H; `subsetter` for used glyphs only
 * Profiles: `print@0` (A4) and `manuscript@0` (US Letter, double-spaced, H1 page breaks)
-* Forced page breaks + keep-with-next glue for H1/H2; page-number footers
+* Forced page breaks + keep-with-next + basic widow/orphan glue; page-number footers
 * Deterministic emit: sorted font object order + SHA-256 fixtures in `tests/determinism.rs`
-* `Table` → ASCII grid; `Figure` → embedded PNG/JPEG XObject; `Math`/`Slide` placeholders
+* `Table` → drawn grid + wrapped cell text; `Figure` → PNG/JPEG XObject; `Slide` → one page per slide (region slots); `Math` still a placeholder
 
-Not yet: real math/deck layout, float placement.
+Not yet: real math glyphs, figure float placement, deck-specific page size profile.
 
 | Later | Where |
 | --- | --- |
-| Richer pagination / `print@1` / `manuscript@1` | THI-294 |
 | Tessera `.tes` → print tree | THI-290 |
-| Deterministic fixtures / CI | THI-292 |
-| Richer tables / figures / math | THI-291 |
+| Math layout quality | THI-291 |
+| Deck page size / richer regions | THI-293 |
+| Literary pagination polish | THI-295 |
 
 **Bricks:** `pdf-writer` + `rustybuzz` + `ttf-parser`. Fonts under `fonts/`
 (Liberation, SIL Open Font License). Not cosmic-text / krilla for v0.
