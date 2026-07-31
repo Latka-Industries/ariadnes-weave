@@ -21,6 +21,11 @@ type GlyphSets = BTreeMap<FaceId, GlyphSet>;
 type SubsetMap = BTreeMap<FaceId, PreparedSubset>;
 
 /// Emit PDF bytes from a print document.
+///
+/// # Errors
+///
+/// Returns [`WeaveError`] if the profile is unsupported, a block kind is not
+/// implemented, font subsetting/embedding fails, or an image cannot be decoded.
 pub fn emit_pdf(doc: &PrintDocument) -> Result<Vec<u8>, WeaveError> {
     let metrics = profile::resolve_metrics(&doc.profile)?;
     let (segments, images, mut glyph_sets) = collect_layout(doc, &metrics)?;
@@ -429,19 +434,20 @@ enum FaceMode {
     Heading,
 }
 
-fn resolve_face(style: &InlineStyle, metrics: &ProfileMetrics, mode: FaceMode) -> FaceId {
+fn resolve_face(style: InlineStyle, metrics: &ProfileMetrics, mode: FaceMode) -> FaceId {
     match mode {
         FaceMode::Heading => {
-            let mut s = *style;
+            let mut s = style;
             if !s.code && !s.strong && !s.emphasis {
                 s.strong = true;
             }
             FaceId::from_style(&s, false)
         }
-        FaceMode::Body => FaceId::from_style(style, metrics.serif_body),
+        FaceMode::Body => FaceId::from_style(&style, metrics.serif_body),
     }
 }
 
+#[derive(Clone, Copy)]
 struct RunLayout {
     font_size: f32,
     leading: f32,
@@ -460,42 +466,39 @@ fn push_figure(
     metrics: &ProfileMetrics,
     glyph_sets: &mut GlyphSets,
 ) -> Result<(), WeaveError> {
-    let prepared = match prepare_image(image) {
-        Ok(p) => p,
-        Err(_) => {
-            let seg = segments.last_mut().expect("segment");
-            let label = if alt.is_empty() {
-                "[figure]".into()
-            } else {
-                format!("[figure: {alt}]")
-            };
-            seg.1.push(LaidItem::Text(LaidLine::shaped(
-                FaceId::SansItalic,
-                &label,
-                metrics.body_size,
-                metrics.body_leading,
+    let Ok(prepared) = prepare_image(image) else {
+        let seg = segments.last_mut().expect("segment");
+        let label = if alt.is_empty() {
+            "[figure]".into()
+        } else {
+            format!("[figure: {alt}]")
+        };
+        seg.1.push(LaidItem::Text(LaidLine::shaped(
+            FaceId::SansItalic,
+            &label,
+            metrics.body_size,
+            metrics.body_leading,
+            glyph_sets,
+        )?));
+        if caption.is_empty() {
+            seg.1.push(LaidItem::Text(LaidLine::gap(10.0)));
+        } else {
+            push_styled_runs(
+                &mut seg.1,
+                caption,
+                metrics,
                 glyph_sets,
-            )?));
-            if !caption.is_empty() {
-                push_styled_runs(
-                    &mut seg.1,
-                    caption,
-                    metrics,
-                    glyph_sets,
-                    RunLayout {
-                        font_size: metrics.body_size,
-                        leading: metrics.body_leading,
-                        gap_after: 10.0,
-                        glue_last_content: false,
-                        mode: FaceMode::Body,
-                        indent: 0.0,
-                    },
-                )?;
-            } else {
-                seg.1.push(LaidItem::Text(LaidLine::gap(10.0)));
-            }
-            return Ok(());
+                RunLayout {
+                    font_size: metrics.body_size,
+                    leading: metrics.body_leading,
+                    gap_after: 10.0,
+                    glue_last_content: false,
+                    mode: FaceMode::Body,
+                    indent: 0.0,
+                },
+            )?;
         }
+        return Ok(());
     };
 
     let (w, h) = prepared.fit_width(metrics.content_width());
@@ -508,7 +511,9 @@ fn push_figure(
         width: w,
         height: h,
     });
-    if !caption.is_empty() {
+    if caption.is_empty() {
+        seg.1.push(LaidItem::Text(LaidLine::gap(6.0)));
+    } else {
         push_styled_runs(
             &mut seg.1,
             caption,
@@ -523,8 +528,6 @@ fn push_figure(
                 indent: 0.0,
             },
         )?;
-    } else {
-        seg.1.push(LaidItem::Text(LaidLine::gap(6.0)));
     }
     Ok(())
 }
@@ -572,7 +575,7 @@ fn push_table_lines(
     for row in rows {
         let mut line = String::from("|");
         for (i, width) in widths.iter().enumerate() {
-            let cell = row.cells.get(i).map(String::as_str).unwrap_or("");
+            let cell = row.cells.get(i).map_or("", String::as_str);
             line.push(' ');
             line.push_str(cell);
             line.push_str(&" ".repeat(width.saturating_sub(cell.len())));
@@ -625,7 +628,7 @@ fn push_styled_runs(
     };
 
     for run in runs {
-        let face = resolve_face(&run.style, metrics, layout.mode);
+        let face = resolve_face(run.style, metrics, layout.mode);
         let mut remaining = run.text.as_str();
         while !remaining.is_empty() {
             let (chunk, rest) = next_wrap_chunk(remaining);
@@ -718,8 +721,7 @@ fn next_wrap_chunk(s: &str) -> (&str, &str) {
     let word_end = s.find(char::is_whitespace).unwrap_or(s.len());
     let after_ws = s[word_end..]
         .find(|c: char| !c.is_whitespace())
-        .map(|i| word_end + i)
-        .unwrap_or(s.len());
+        .map_or(s.len(), |i| word_end + i);
     (&s[..after_ws], &s[after_ws..])
 }
 

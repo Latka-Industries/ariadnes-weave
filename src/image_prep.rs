@@ -7,7 +7,7 @@ use pdf_writer::Filter;
 use crate::error::WeaveError;
 use crate::ir::PrintImage;
 
-/// Image samples ready for an Image XObject.
+/// Image samples ready for an Image `XObject`.
 #[derive(Debug, Clone)]
 pub struct PreparedImage {
     /// Encoded sample bytes (possibly filtered).
@@ -48,8 +48,8 @@ pub fn prepare_image(image: &PrintImage) -> Result<PreparedImage, WeaveError> {
         image::load_from_memory(&image.bytes).map_err(|e| WeaveError::BadImage(e.to_string()))?;
 
     match format {
-        ImageFormat::Jpeg => prepare_jpeg(image.bytes.clone(), &dynamic),
-        ImageFormat::Png => prepare_png(&dynamic),
+        ImageFormat::Jpeg => Ok(prepare_jpeg(image.bytes.clone(), &dynamic)),
+        ImageFormat::Png => Ok(prepare_png(&dynamic)),
         other => Err(WeaveError::BadImage(format!(
             "unsupported image format: {other:?}"
         ))),
@@ -69,22 +69,22 @@ fn guess_format(image: &PrintImage) -> Result<ImageFormat, WeaveError> {
     }
 }
 
-fn prepare_jpeg(data: Vec<u8>, dynamic: &DynamicImage) -> Result<PreparedImage, WeaveError> {
+fn prepare_jpeg(data: Vec<u8>, dynamic: &DynamicImage) -> PreparedImage {
     // DCT path expects 8-bit RGB JPEG samples as-is.
     if dynamic.color() != ColorType::Rgb8 && dynamic.color() != ColorType::L8 {
         // Re-encode path: flatten to RGB PNG-style flate instead of failing hard.
         return prepare_png(dynamic);
     }
-    Ok(PreparedImage {
+    PreparedImage {
         samples: data,
         mask: None,
         filter: Filter::DctDecode,
         width: dynamic.width(),
         height: dynamic.height(),
-    })
+    }
 }
 
-fn prepare_png(dynamic: &DynamicImage) -> Result<PreparedImage, WeaveError> {
+fn prepare_png(dynamic: &DynamicImage) -> PreparedImage {
     let level = CompressionLevel::DefaultLevel as u8;
     let rgb = dynamic.to_rgb8();
     let samples = compress_to_vec_zlib(rgb.as_raw(), level);
@@ -92,11 +92,11 @@ fn prepare_png(dynamic: &DynamicImage) -> Result<PreparedImage, WeaveError> {
         let alphas: Vec<u8> = dynamic.pixels().map(|p| p.2.0[3]).collect();
         compress_to_vec_zlib(&alphas, level)
     });
-    Ok(PreparedImage {
+    PreparedImage {
         samples,
         mask,
         filter: Filter::FlateDecode,
         width: dynamic.width(),
         height: dynamic.height(),
-    })
+    }
 }

@@ -155,7 +155,7 @@ pub fn encode_gids(glyphs: &[ShapedGlyph]) -> Vec<u8> {
     out
 }
 
-/// Collect glyph→unicode mapping from plain text (for ToUnicode).
+/// Collect glyph→unicode mapping from plain text (for `ToUnicode`).
 pub fn collect_glyph_set(face_id: FaceId, text: &str, into: &mut BTreeMap<u16, String>) {
     let Ok(ttf) = TtfFace::parse(face_id.ttf_bytes(), 0) else {
         return;
@@ -177,9 +177,9 @@ pub fn note_shaped_glyphs(glyphs: &[ShapedGlyph], into: &mut BTreeMap<u16, Strin
 /// Subsetted face ready for PDF embedding (CIDs = remapped GIDs).
 #[derive(Debug)]
 pub struct PreparedSubset {
-    /// Subset TTF bytes (cmap stripped; for PDF FontFile2 only).
+    /// Subset TTF bytes (cmap stripped; for PDF `FontFile2` only).
     pub data: Vec<u8>,
-    /// Glyph set keyed by **new** subset GIDs (for widths + ToUnicode).
+    /// Glyph set keyed by **new** subset GIDs (for widths + `ToUnicode`).
     pub glyph_set: BTreeMap<u16, String>,
     /// Old full-font GID → new subset GID.
     remapper: GlyphRemapper,
@@ -212,16 +212,16 @@ pub fn prepare_subset(
     let data = subsetter::subset(face_id.ttf_bytes(), 0, &remapper)
         .map_err(|e| WeaveError::Font(format!("subset {}: {e}", face_id.postscript_name())))?;
 
-    let mut remapped = BTreeMap::new();
+    let mut subset_glyphs = BTreeMap::new();
     for (&old, text) in glyph_set {
-        if let Some(new) = remapper.get(old) {
-            remapped.insert(new, text.clone());
+        if let Some(new_gid) = remapper.get(old) {
+            subset_glyphs.insert(new_gid, text.clone());
         }
     }
 
     Ok(PreparedSubset {
         data,
-        glyph_set: remapped,
+        glyph_set: subset_glyphs,
         remapper,
     })
 }
@@ -231,17 +231,17 @@ pub fn prepare_subset(
 pub struct FontObjIds {
     /// Type0 font dictionary.
     pub type0: Ref,
-    /// CIDFontType2 descendant.
+    /// `CIDFontType2` descendant.
     pub cid: Ref,
     /// Font descriptor.
     pub descriptor: Ref,
-    /// ToUnicode CMap stream.
+    /// `ToUnicode` `CMap` stream.
     pub cmap: Ref,
-    /// FontFile2 stream.
+    /// `FontFile2` stream.
     pub data: Ref,
 }
 
-/// Write Type0 + CIDFontType2 + descriptor + font file + ToUnicode for `face_id`.
+/// Write Type0 + `CIDFontType2` + descriptor + font file + `ToUnicode` for `face_id`.
 ///
 /// Embeds `font_data` (typically a subset) compressed. `glyph_set` must use the
 /// same GIDs as that file (Identity CID↔GID).
@@ -353,7 +353,7 @@ fn create_cmap(glyph_set: &BTreeMap<u16, String>) -> UnicodeCmap {
     cmap
 }
 
-/// Public resource name bytes for a face (for page resources / set_font).
+/// Public resource name bytes for a face (for page resources / `set_font`).
 #[must_use]
 pub fn resource_name(face_id: FaceId) -> &'static [u8] {
     face_id.resource_name()

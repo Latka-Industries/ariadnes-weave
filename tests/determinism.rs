@@ -60,9 +60,22 @@ fn manuscript_two_chapters() -> PrintDocument {
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
+    use std::fmt::Write;
     let digest = Sha256::digest(bytes);
-    digest.iter().map(|b| format!("{b:02x}")).collect()
+    let mut out = String::with_capacity(digest.len() * 2);
+    for b in digest {
+        let _ = write!(out, "{b:02x}");
+    }
+    out
 }
+
+/// Pin: bump intentionally when emit layout/fonts change.
+const HELLO_PRINT_V0_SHA256: &str =
+    "51833aefd9a209573fc7e15f653f71b8396ffed6b0759dee118d45d8156828b7";
+
+/// Pin: bump intentionally when emit layout/fonts change.
+const MANUSCRIPT_TWO_CHAPTER_SHA256: &str =
+    "dfeac558dba14dca3b0b24cea641c0de87b08422d329b7e6322b46c76b9e328c";
 
 #[test]
 fn emit_is_byte_identical_across_runs() {
@@ -77,10 +90,7 @@ fn emit_is_byte_identical_across_runs() {
 #[test]
 fn hello_print_v0_sha256_fixture() {
     let bytes = emit_pdf(&hello_doc()).expect("emit");
-    let hash = sha256_hex(&bytes);
-    // Pin: bump intentionally when emit layout/fonts change.
-    const EXPECTED: &str = "51833aefd9a209573fc7e15f653f71b8396ffed6b0759dee118d45d8156828b7";
-    assert_eq!(hash, EXPECTED);
+    assert_eq!(sha256_hex(&bytes), HELLO_PRINT_V0_SHA256);
 }
 
 #[test]
@@ -91,7 +101,5 @@ fn manuscript_h1_starts_new_page() {
         page_dicts >= 2,
         "manuscript@0 should page-break before second H1; got {page_dicts} page dicts"
     );
-    let hash = sha256_hex(&bytes);
-    const EXPECTED: &str = "dfeac558dba14dca3b0b24cea641c0de87b08422d329b7e6322b46c76b9e328c";
-    assert_eq!(hash, EXPECTED);
+    assert_eq!(sha256_hex(&bytes), MANUSCRIPT_TWO_CHAPTER_SHA256);
 }
