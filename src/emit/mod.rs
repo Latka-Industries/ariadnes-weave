@@ -17,7 +17,7 @@ mod tests;
 use pdf_writer::{Pdf, Ref, TextStr};
 
 use crate::error::WeaveError;
-use crate::font::{FaceId, collect_glyph_set};
+use crate::font::{FaceId, FaceRef, FontBag, collect_glyph_set};
 use crate::ir::PrintDocument;
 use crate::options::{EmitOptions, FontResolveMode};
 use crate::profile;
@@ -52,20 +52,23 @@ pub fn emit_pdf(doc: &PrintDocument) -> Result<Vec<u8>, WeaveError> {
 /// Returns [`WeaveError`] if the profile is unsupported, font
 /// subsetting/embedding fails, or an image cannot be decoded.
 pub fn emit_pdf_with(doc: &PrintDocument, opts: &EmitOptions) -> Result<Vec<u8>, WeaveError> {
-    // Only sealed faces today; `OsWithFallback` will branch here (THI-307).
+    // Only sealed + pinned faces today; `OsWithFallback` will branch here (THI-307).
     let FontResolveMode::BundledOnly = opts.fonts;
+    let fonts = FontBag::from_pinned(&opts.pinned_faces)?;
 
     let metrics = profile::resolve_metrics(&doc.profile)?;
-    let (segments, images, mut glyph_sets) = collect_layout(doc, &metrics)?;
+    let (segments, images, mut glyph_sets) = collect_layout(doc, &metrics, &fonts)?;
     // Digits for page footers (`n / m`).
+    let footer_face = FaceRef::Bundled(FaceId::SansRegular);
     collect_glyph_set(
-        FaceId::SansRegular,
+        &fonts,
+        footer_face,
         "0123456789 /",
-        glyph_sets.entry(FaceId::SansRegular).or_default(),
+        glyph_sets.entry(footer_face).or_default(),
     );
 
     let mut pages = paginate_items(&segments, metrics.content_height());
-    let subsets = prepare_subsets(&glyph_sets)?;
+    let subsets = prepare_subsets(&fonts, &glyph_sets)?;
     remap_pages(&mut pages, &subsets);
 
     let mut pdf = Pdf::new();
@@ -74,7 +77,7 @@ pub fn emit_pdf_with(doc: &PrintDocument, opts: &EmitOptions) -> Result<Vec<u8>,
     let page_tree_id = Ref::new(2);
     let mut next_id = 3_i32;
 
-    let font_refs = embed_fonts(&mut pdf, &subsets, &mut next_id)?;
+    let font_refs = embed_fonts(&mut pdf, &fonts, &subsets, &mut next_id)?;
     let image_refs = alloc_image_refs(&images, &mut next_id);
     let (page_ids, content_ids) = alloc_page_refs(pages.len(), &mut next_id);
 
@@ -92,6 +95,7 @@ pub fn emit_pdf_with(doc: &PrintDocument, opts: &EmitOptions) -> Result<Vec<u8>,
         page_ids: &page_ids,
         content_ids: &content_ids,
         font_refs: &font_refs,
+        fonts: &fonts,
         image_refs: &image_refs,
         subsets: &subsets,
     }

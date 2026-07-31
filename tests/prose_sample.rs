@@ -29,6 +29,7 @@ fn prose_doc() -> PrintDocument {
                             strong: true,
                             ..InlineStyle::default()
                         },
+                        face: None,
                     },
                     TextRun::plain(" and "),
                     TextRun {
@@ -37,6 +38,7 @@ fn prose_doc() -> PrintDocument {
                             emphasis: true,
                             ..InlineStyle::default()
                         },
+                        face: None,
                     },
                     TextRun::plain(" before a list, a quote, and a code block."),
                 ],

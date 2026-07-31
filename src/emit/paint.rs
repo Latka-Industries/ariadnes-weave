@@ -3,7 +3,7 @@
 use pdf_writer::{Content, Name, Str};
 
 use crate::error::WeaveError;
-use crate::font::{FaceId, encode_gids, resource_name, shape_text, shaped_width};
+use crate::font::{FaceId, FaceRef, FontBag, encode_gids, shape_text, shaped_width};
 use crate::profile::ProfileMetrics;
 
 use super::types::{LaidItem, LaidTable, SubsetMap};
@@ -23,6 +23,7 @@ pub(super) fn build_page_content(
     metrics: &ProfileMetrics,
     page_no: usize,
     page_count: usize,
+    fonts: &FontBag,
     subsets: &SubsetMap,
 ) -> Result<Vec<u8>, WeaveError> {
     let mut content = Content::new();
@@ -45,7 +46,8 @@ pub(super) fn build_page_content(
                     metrics.margin + line.indent
                 };
                 for span in &line.spans {
-                    content.set_font(Name(resource_name(span.face)), span.font_size);
+                    let face_name = fonts.resource_name(span.face);
+                    content.set_font(Name(&face_name), span.font_size);
                     content.set_text_matrix([1.0, 0.0, 0.0, 1.0, x, y]);
                     let encoded = encode_gids(&span.glyphs);
                     content.show(Str(&encoded));
@@ -75,15 +77,16 @@ pub(super) fn build_page_content(
                 if y - table_h < metrics.margin + 18.0 {
                     break;
                 }
-                paint_table(&mut content, table, metrics.margin, y);
+                paint_table(&mut content, table, metrics.margin, y, fonts);
                 y -= table_h + table.gap_after;
             }
         }
     }
 
     let footer = format!("{page_no} / {page_count}");
-    let mut footer_glyphs = shape_text(FaceId::SansRegular, &footer, 9.0)?;
-    if let Some(subset) = subsets.get(&FaceId::SansRegular) {
+    let footer_face = FaceRef::Bundled(FaceId::SansRegular);
+    let mut footer_glyphs = shape_text(fonts, footer_face, &footer, 9.0)?;
+    if let Some(subset) = subsets.get(&footer_face) {
         for g in &mut footer_glyphs {
             *g = subset.remap_glyph(*g);
         }
@@ -91,8 +94,9 @@ pub(super) fn build_page_content(
     let footer_w = shaped_width(&footer_glyphs);
     let footer_y = metrics.margin * 0.45;
     let footer_x = (metrics.page_w - footer_w) / 2.0;
+    let footer_name = fonts.resource_name(footer_face);
     content.begin_text();
-    content.set_font(Name(resource_name(FaceId::SansRegular)), 9.0);
+    content.set_font(Name(&footer_name), 9.0);
     content.set_text_matrix([1.0, 0.0, 0.0, 1.0, footer_x, footer_y]);
     content.show(Str(&encode_gids(&footer_glyphs)));
     content.end_text();
@@ -101,7 +105,13 @@ pub(super) fn build_page_content(
 }
 
 /// Stroke the table grid and draw cell text; `top_y` is the top edge in PDF space.
-pub(super) fn paint_table(content: &mut Content, table: &LaidTable, origin_x: f32, top_y: f32) {
+pub(super) fn paint_table(
+    content: &mut Content,
+    table: &LaidTable,
+    origin_x: f32,
+    top_y: f32,
+    fonts: &FontBag,
+) {
     let table_w: f32 = table.col_widths.iter().sum();
     let table_h: f32 = table.rows.iter().map(|r| r.height).sum();
     let bottom = top_y - table_h;
@@ -149,7 +159,8 @@ pub(super) fn paint_table(content: &mut Content, table: &LaidTable, origin_x: f3
                 content.begin_text();
                 let mut span_x = cell_x + table.pad;
                 for span in &line.spans {
-                    content.set_font(Name(resource_name(span.face)), span.font_size);
+                    let face_name = fonts.resource_name(span.face);
+                    content.set_font(Name(&face_name), span.font_size);
                     content.set_text_matrix([1.0, 0.0, 0.0, 1.0, span_x, text_y]);
                     content.show(Str(&encode_gids(&span.glyphs)));
                     span_x += shaped_width(&span.glyphs);

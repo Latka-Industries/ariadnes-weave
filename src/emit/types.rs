@@ -4,16 +4,16 @@ use std::collections::BTreeMap;
 
 use crate::error::WeaveError;
 use crate::font::{
-    FaceId, ShapedGlyph, collect_glyph_set, note_shaped_glyphs, shape_text, shaped_width,
+    FaceRef, FontBag, ShapedGlyph, collect_glyph_set, note_shaped_glyphs, shape_text, shaped_width,
 };
 use crate::image_prep::PreparedImage;
 
 /// Original TrueType GID → Unicode text for `ToUnicode`.
 pub(super) type GlyphSet = BTreeMap<u16, String>;
 /// Per-face glyph sets collected during layout.
-pub(super) type GlyphSets = BTreeMap<FaceId, GlyphSet>;
+pub(super) type GlyphSets = BTreeMap<FaceRef, GlyphSet>;
 /// Per-face subset packages ready for embedding.
-pub(super) type SubsetMap = BTreeMap<FaceId, crate::font::PreparedSubset>;
+pub(super) type SubsetMap = BTreeMap<FaceRef, crate::font::PreparedSubset>;
 
 /// One forced-break boundary plus the items that follow until the next segment.
 pub(super) type LayoutSegment = (ForcedBreak, Vec<LaidItem>);
@@ -23,7 +23,7 @@ pub(super) type LayoutDoc = (Vec<LayoutSegment>, Vec<PreparedImage>, GlyphSets);
 /// One shaped run on a line (single face + size).
 #[derive(Debug, Clone)]
 pub(super) struct LaidSpan {
-    pub face: FaceId,
+    pub face: FaceRef,
     pub font_size: f32,
     pub glyphs: Vec<ShapedGlyph>,
 }
@@ -56,15 +56,16 @@ impl LaidLine {
 
     /// Shape `text` and record glyphs into `glyph_sets`.
     pub(super) fn shaped(
-        face: FaceId,
+        fonts: &FontBag,
+        face: FaceRef,
         text: &str,
         font_size: f32,
         leading: f32,
         glyph_sets: &mut GlyphSets,
     ) -> Result<Self, WeaveError> {
-        let glyphs = shape_text(face, text, font_size)?;
+        let glyphs = shape_text(fonts, face, text, font_size)?;
         let set = glyph_sets.entry(face).or_default();
-        collect_glyph_set(face, text, set);
+        collect_glyph_set(fonts, face, text, set);
         note_shaped_glyphs(&glyphs, set);
         Ok(Self {
             spans: vec![LaidSpan {

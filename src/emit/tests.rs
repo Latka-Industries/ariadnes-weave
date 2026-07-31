@@ -26,6 +26,7 @@ fn hello_doc() -> PrintDocument {
                 runs: vec![TextRun {
                     text: "Hello, ariadnes-weave".into(),
                     style: InlineStyle::default(),
+                    face: None,
                 }],
                 break_before: BreakHint::None,
             },
@@ -60,6 +61,51 @@ fn emit_pdf_with_bundled_only_matches_emit_pdf() {
     let a = emit_pdf(&doc).expect("emit");
     let b = emit_pdf_with(&doc, &EmitOptions::bundled_only()).expect("emit_with");
     assert_eq!(a, b);
+}
+
+#[test]
+fn pinned_face_from_emit_options() {
+    let opts = EmitOptions::bundled_only().with_pinned_face(
+        "mono",
+        include_bytes!("../../fonts/LiberationMono-Regular.ttf").to_vec(),
+    );
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "Pinned".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::Paragraph {
+            runs: vec![TextRun::pinned("Pinned mono run", "mono")],
+        }],
+    };
+    let bytes = emit_pdf_with(&doc, &opts).expect("emit pinned");
+    assert!(bytes.starts_with(b"%PDF-"));
+    // Resource name for first pin is P0.
+    assert!(bytes.windows(2).any(|w| w == b"/P"));
+}
+
+#[test]
+fn unknown_pinned_face_errors() {
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "Bad pin".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::Paragraph {
+            runs: vec![TextRun::pinned("x", "no-such-face")],
+        }],
+    };
+    let err = emit_pdf_with(&doc, &EmitOptions::default()).expect_err("unknown pin");
+    assert!(
+        matches!(err, WeaveError::Font(ref msg) if msg.contains("unknown pinned face")),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -124,6 +170,7 @@ fn styled_runs_embed_bold_font() {
                     strong: true,
                     ..InlineStyle::default()
                 },
+                face: None,
             },
         ],
     });
@@ -249,6 +296,7 @@ fn manuscript_emphasis_uses_serif_italic() {
                         emphasis: true,
                         ..InlineStyle::default()
                     },
+                    face: None,
                 },
                 TextRun::plain(" "),
                 TextRun {
@@ -257,6 +305,7 @@ fn manuscript_emphasis_uses_serif_italic() {
                         strong: true,
                         ..InlineStyle::default()
                     },
+                    face: None,
                 },
             ],
         }],
