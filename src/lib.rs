@@ -12,15 +12,17 @@ mod error;
 mod font;
 mod image_prep;
 mod ir;
+mod options;
 mod profile;
 
-pub use emit::emit_pdf;
+pub use emit::{emit_pdf, emit_pdf_with};
 pub use error::WeaveError;
 pub use font::FaceId;
 pub use ir::{
     BreakHint, FigurePlacement, InlineStyle, ListItem, PrintBlock, PrintDocument, PrintImage,
     PrintMeta, PrintProfileId, SlideRegionContent, TableRow, TextRun,
 };
+pub use options::{EmitOptions, FontResolveMode};
 pub use profile::{ProfileMetrics, resolve_metrics};
 
 /// Crate version string (useful in PDF producer / fixture pins).

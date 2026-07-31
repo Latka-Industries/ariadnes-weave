@@ -32,8 +32,9 @@ Not yet: real TeX/MathML layout, OS font provider, CJK/emoji sealed packs.
 | Math layout quality | THI-291 |
 | Deck page size / richer regions | THI-293 |
 | Literary pagination polish | THI-295 |
-| OS + GUI font provider | THI-307 |
+| OS + GUI font provider (`EmitOptions` scaffold) | THI-307 |
 | Sealed `cjk` / `emoji` packs | THI-308 |
+| Real math layout | THI-310 |
 
 **Bricks:** `pdf-writer` + `rustybuzz` + `ttf-parser`. Fonts under `fonts/`
 (Liberation + optional Font Awesome Free; SIL OFL). Not cosmic-text / krilla for v0.
@@ -62,9 +63,10 @@ CI (`.github/workflows/ci.yml`): `cargo fmt --check`, clippy `-D warnings`, and
 
 ```rust
 use ariadnes_weave::{
-    emit_pdf, BreakHint, ListItem, PrintBlock, PrintDocument, PrintMeta, PrintProfileId,
-    TextRun,
+    emit_pdf, emit_pdf_with, BreakHint, EmitOptions, ListItem, PrintBlock, PrintDocument,
+    PrintMeta, PrintProfileId, TextRun,
 };
+// emit_pdf(&doc) == emit_pdf_with(&doc, &EmitOptions::bundled_only())
 
 let doc = PrintDocument {
     meta: PrintMeta {

@@ -1,12 +1,13 @@
 //! Unit tests for emit (profiles, tables, slides, math, figures).
 
-use super::emit_pdf;
 use super::math::prettify_latex_math;
+use super::{emit_pdf, emit_pdf_with};
 use crate::error::WeaveError;
 use crate::ir::{
     BreakHint, FigurePlacement, InlineStyle, PrintBlock, PrintDocument, PrintImage, PrintMeta,
     PrintProfileId, SlideRegionContent, TableRow, TextRun,
 };
+use crate::options::EmitOptions;
 use crate::profile;
 use image::{ImageBuffer, ImageFormat, Rgb};
 
@@ -51,6 +52,14 @@ fn emits_pdf_magic() {
     let bytes = emit_pdf(&hello_doc()).expect("emit");
     assert!(bytes.starts_with(b"%PDF-"));
     assert!(bytes.windows(5).any(|w| w == b"%%EOF"));
+}
+
+#[test]
+fn emit_pdf_with_bundled_only_matches_emit_pdf() {
+    let doc = hello_doc();
+    let a = emit_pdf(&doc).expect("emit");
+    let b = emit_pdf_with(&doc, &EmitOptions::bundled_only()).expect("emit_with");
+    assert_eq!(a, b);
 }
 
 #[test]
