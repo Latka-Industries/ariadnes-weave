@@ -42,6 +42,7 @@ pub struct PrintProfileId {
 
 impl PrintProfileId {
     /// Construct `print@0` (A4 + Liberation Sans body).
+    #[must_use]
     pub fn print_v0() -> Self {
         Self {
             name: "print".into(),
@@ -50,6 +51,7 @@ impl PrintProfileId {
     }
 
     /// Construct `manuscript@0` (US Letter, double-space, Liberation Serif body).
+    #[must_use]
     pub fn manuscript_v0() -> Self {
         Self {
             name: "manuscript".into(),
@@ -58,6 +60,7 @@ impl PrintProfileId {
     }
 
     /// Display as `name@version`.
+    #[must_use]
     pub fn as_label(&self) -> String {
         format!("{}@{}", self.name, self.version)
     }
@@ -205,6 +208,7 @@ impl TextRun {
 
 /// Inline style flags — no free CSS.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct InlineStyle {
     /// Bold / strong.
     #[serde(default)]
