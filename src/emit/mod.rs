@@ -19,6 +19,7 @@ use pdf_writer::{Pdf, Ref, TextStr};
 use crate::error::WeaveError;
 use crate::font::{FaceId, collect_glyph_set};
 use crate::ir::PrintDocument;
+use crate::options::{EmitOptions, FontResolveMode};
 use crate::profile;
 
 use layout::collect_layout;
@@ -28,16 +29,32 @@ use pdf_write::{
     write_image_xobjects,
 };
 
-/// Emit PDF bytes from a print document.
+/// Emit PDF bytes from a print document using [`EmitOptions::default`]
+/// ([`FontResolveMode::BundledOnly`]).
 ///
-/// Resolves the profile, lays out blocks, paginates, subsets used Liberation
-/// faces, and writes a PDF 1.7 file with page-number footers.
+/// # Errors
+///
+/// See [`emit_pdf_with`].
+pub fn emit_pdf(doc: &PrintDocument) -> Result<Vec<u8>, WeaveError> {
+    emit_pdf_with(doc, &EmitOptions::default())
+}
+
+/// Emit PDF bytes with explicit [`EmitOptions`].
+///
+/// Resolves the profile, lays out blocks, paginates, subsets used faces, and
+/// writes a PDF 1.7 file with page-number footers.
+///
+/// Today only [`FontResolveMode::BundledOnly`] is implemented (sealed Liberation
+/// / optional icon faces). OS font resolution lands under THI-307.
 ///
 /// # Errors
 ///
 /// Returns [`WeaveError`] if the profile is unsupported, font
 /// subsetting/embedding fails, or an image cannot be decoded.
-pub fn emit_pdf(doc: &PrintDocument) -> Result<Vec<u8>, WeaveError> {
+pub fn emit_pdf_with(doc: &PrintDocument, opts: &EmitOptions) -> Result<Vec<u8>, WeaveError> {
+    // Only sealed faces today; `OsWithFallback` will branch here (THI-307).
+    let FontResolveMode::BundledOnly = opts.fonts;
+
     let metrics = profile::resolve_metrics(&doc.profile)?;
     let (segments, images, mut glyph_sets) = collect_layout(doc, &metrics)?;
     // Digits for page footers (`n / m`).
