@@ -14,12 +14,12 @@ Tessera `docs/print_ir.md` / D21).
 **Prose emit (post THI-289):** print IR + standard-font `emit_pdf` for:
 
 * Blocks: `Heading` / `Paragraph` / `List` / `Code` / `Quote` / `Break`
-* Rich stubs (placeholder lines): `Table` / `Figure` / `Math` / `Slide`
 * Inline faces: Helvetica / Bold / Oblique / BoldOblique + Courier for `code`
 * Profiles: `print@0` (A4) and `manuscript@0` (US Letter, double-spaced body)
-* Forced page breaks + simple keep-with-next glue for H1/H2
+* Forced page breaks + keep-with-next glue for H1/H2; page-number footers
+* `Table` → ASCII grid; `Figure` → embedded PNG/JPEG XObject; `Math`/`Slide` placeholders
 
-Not yet: bundled TTFs / rustybuzz shaping, real table/figure/math layout.
+Not yet: bundled TTFs / rustybuzz shaping, real math/deck layout, float placement.
 
 | Later | Where |
 | --- | --- |

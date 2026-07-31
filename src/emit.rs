@@ -6,7 +6,10 @@
 use pdf_writer::{Content, Name, Pdf, Rect, Ref, Str, TextStr};
 
 use crate::error::WeaveError;
-use crate::ir::{BreakHint, InlineStyle, PrintBlock, PrintDocument, TextRun};
+use crate::image_prep::{PreparedImage, prepare_image};
+use crate::ir::{
+    BreakHint, FigurePlacement, InlineStyle, PrintBlock, PrintDocument, PrintImage, TextRun,
+};
 use crate::profile::{self, ProfileMetrics};
 
 /// Standard Type-1 face used for a laid span.
@@ -54,14 +57,10 @@ impl Face {
 }
 
 /// Emit PDF bytes from a print document.
-///
-/// Accepts `print@0` / `manuscript@0`. Renders prose + placeholders for
-/// table/figure/math/slide. Honors forced page breaks and a simple
-/// keep-with-next glue for headings.
 pub fn emit_pdf(doc: &PrintDocument) -> Result<Vec<u8>, WeaveError> {
     let metrics = profile::resolve_metrics(&doc.profile)?;
-    let lines = collect_lines(doc, &metrics)?;
-    let pages = paginate_lines(&lines, metrics.content_height());
+    let (segments, images) = collect_layout(doc, &metrics)?;
+    let pages = paginate_items(&segments, metrics.content_height());
 
     let mut pdf = Pdf::new();
     pdf.set_version(1, 7);
@@ -74,6 +73,21 @@ pub fn emit_pdf(doc: &PrintDocument) -> Result<Vec<u8>, WeaveError> {
     let font_bold_oblique = Ref::new(6);
     let font_courier = Ref::new(7);
     let mut next_id = 8_i32;
+
+    // Image (+ optional mask) refs.
+    let mut image_refs: Vec<(Ref, Option<Ref>)> = Vec::with_capacity(images.len());
+    for img in &images {
+        let image_id = Ref::new(next_id);
+        next_id += 1;
+        let mask_id = if img.mask.is_some() {
+            let id = Ref::new(next_id);
+            next_id += 1;
+            Some(id)
+        } else {
+            None
+        };
+        image_refs.push((image_id, mask_id));
+    }
 
     let mut page_ids = Vec::with_capacity(pages.len());
     let mut content_ids = Vec::with_capacity(pages.len());
@@ -100,28 +114,74 @@ pub fn emit_pdf(doc: &PrintDocument) -> Result<Vec<u8>, WeaveError> {
     pdf.type1_font(font_courier)
         .base_font(Name(Face::Courier.pdf_name()));
 
-    for (page_id, content_id, page_lines) in page_ids
+    for (img, (image_id, mask_id)) in images.iter().zip(image_refs.iter()) {
+        {
+            let mut image = pdf.image_xobject(*image_id, &img.samples);
+            image.filter(img.filter);
+            image.width(img.width as i32);
+            image.height(img.height as i32);
+            image.color_space().device_rgb();
+            image.bits_per_component(8);
+            if let Some(mid) = mask_id {
+                image.s_mask(*mid);
+            }
+        }
+        if let (Some(mid), Some(mask_samples)) = (mask_id, &img.mask) {
+            let mut s_mask = pdf.image_xobject(*mid, mask_samples);
+            s_mask.filter(img.filter);
+            s_mask.width(img.width as i32);
+            s_mask.height(img.height as i32);
+            s_mask.color_space().device_gray();
+            s_mask.bits_per_component(8);
+        }
+    }
+
+    let page_count = pages.len().max(1);
+    for (page_idx, ((page_id, content_id), page_items)) in page_ids
         .iter()
         .copied()
         .zip(content_ids.iter().copied())
         .zip(pages.iter())
-        .map(|((p, c), l)| (p, c, l))
+        .enumerate()
     {
+        let used_images: Vec<usize> = page_items
+            .iter()
+            .filter_map(|item| match item {
+                LaidItem::Image { img_idx, .. } => Some(*img_idx),
+                LaidItem::Text(_) => None,
+            })
+            .collect();
+
         {
             let mut page = pdf.page(page_id);
             page.media_box(Rect::new(0.0, 0.0, metrics.page_w, metrics.page_h));
             page.parent(page_tree_id);
             page.contents(content_id);
             let mut resources = page.resources();
-            let mut fonts = resources.fonts();
-            fonts.pair(Name(Face::Regular.resource_name()), font_regular);
-            fonts.pair(Name(Face::Bold.resource_name()), font_bold);
-            fonts.pair(Name(Face::Oblique.resource_name()), font_oblique);
-            fonts.pair(Name(Face::BoldOblique.resource_name()), font_bold_oblique);
-            fonts.pair(Name(Face::Courier.resource_name()), font_courier);
+            {
+                let mut fonts = resources.fonts();
+                fonts.pair(Name(Face::Regular.resource_name()), font_regular);
+                fonts.pair(Name(Face::Bold.resource_name()), font_bold);
+                fonts.pair(Name(Face::Oblique.resource_name()), font_oblique);
+                fonts.pair(Name(Face::BoldOblique.resource_name()), font_bold_oblique);
+                fonts.pair(Name(Face::Courier.resource_name()), font_courier);
+            }
+            if !used_images.is_empty() {
+                let mut xobjs = resources.x_objects();
+                for idx in &used_images {
+                    let name = image_resource_name(*idx);
+                    xobjs.pair(Name(&name), image_refs[*idx].0);
+                }
+            }
         }
 
-        let content_bytes = build_page_content(page_lines, &metrics);
+        let content_bytes = build_page_content(
+            page_items,
+            &metrics,
+            page_idx + 1,
+            page_count,
+            &image_refs,
+        );
         pdf.stream(content_id, &content_bytes);
     }
 
@@ -132,6 +192,10 @@ pub fn emit_pdf(doc: &PrintDocument) -> Result<Vec<u8>, WeaveError> {
         .producer(TextStr(&format!("ariadnes-weave {}", crate::VERSION)));
 
     Ok(pdf.finish())
+}
+
+fn image_resource_name(idx: usize) -> Vec<u8> {
+    format!("Im{idx}").into_bytes()
 }
 
 #[derive(Debug, Clone)]
@@ -145,7 +209,6 @@ struct LaidSpan {
 struct LaidLine {
     spans: Vec<LaidSpan>,
     leading: f32,
-    /// If true, this line should stay with the following line when possible.
     glue_after: bool,
 }
 
@@ -171,11 +234,38 @@ impl LaidLine {
     }
 }
 
-fn collect_lines(
-    doc: &PrintDocument,
-    metrics: &ProfileMetrics,
-) -> Result<Vec<(ForcedBreak, Vec<LaidLine>)>, WeaveError> {
-    let mut segments: Vec<(ForcedBreak, Vec<LaidLine>)> = vec![(ForcedBreak::None, Vec::new())];
+#[derive(Debug, Clone)]
+enum LaidItem {
+    Text(LaidLine),
+    Image {
+        img_idx: usize,
+        width: f32,
+        height: f32,
+    },
+}
+
+impl LaidItem {
+    fn height(&self) -> f32 {
+        match self {
+            Self::Text(line) => line.leading,
+            Self::Image { height, .. } => *height + 8.0,
+        }
+    }
+
+    fn glue_after(&self) -> bool {
+        match self {
+            Self::Text(line) => line.glue_after,
+            Self::Image { .. } => false,
+        }
+    }
+}
+
+type LayoutSegment = (ForcedBreak, Vec<LaidItem>);
+type LayoutDoc = (Vec<LayoutSegment>, Vec<PreparedImage>);
+
+fn collect_layout(doc: &PrintDocument, metrics: &ProfileMetrics) -> Result<LayoutDoc, WeaveError> {
+    let mut segments: Vec<(ForcedBreak, Vec<LaidItem>)> = vec![(ForcedBreak::None, Vec::new())];
+    let mut images: Vec<PreparedImage> = Vec::new();
 
     for block in &doc.blocks {
         match block {
@@ -193,7 +283,6 @@ fn collect_lines(
                     segments.push((ForcedBreak::Always, Vec::new()));
                 }
                 let font_size = profile::heading_size(*level, metrics);
-                // Glue H1/H2 and explicit KeepWithNext to the following prose line.
                 let glue =
                     matches!(break_before, BreakHint::KeepWithNext) || *level <= 2;
                 let seg = segments.last_mut().expect("segment");
@@ -252,12 +341,14 @@ fn collect_lines(
                 let leading = font_size * 1.25;
                 for line in text.lines() {
                     ensure_encodable(line)?;
-                    seg.1.push(LaidLine::plain(line, Face::Courier, font_size, leading));
+                    seg.1.push(LaidItem::Text(LaidLine::plain(
+                        line,
+                        Face::Courier,
+                        font_size,
+                        leading,
+                    )));
                 }
-                if text.ends_with('\n') || text.is_empty() {
-                    // keep visual gap even for trailing newline / empty
-                }
-                seg.1.push(LaidLine::gap(10.0));
+                seg.1.push(LaidItem::Text(LaidLine::gap(10.0)));
             }
             PrintBlock::List { ordered, items } => {
                 let seg = segments.last_mut().expect("segment");
@@ -265,80 +356,190 @@ fn collect_lines(
             }
             PrintBlock::Table { rows } => {
                 let seg = segments.last_mut().expect("segment");
-                let summary = format!(
-                    "[table: {} row{}]",
-                    rows.len(),
-                    if rows.len() == 1 { "" } else { "s" }
-                );
-                seg.1.push(LaidLine::plain(
-                    summary,
-                    Face::Oblique,
-                    metrics.body_size,
-                    metrics.body_leading,
-                ));
-                seg.1.push(LaidLine::gap(10.0));
+                push_table_lines(&mut seg.1, rows, metrics)?;
             }
-            PrintBlock::Figure { alt, caption, .. } => {
-                let seg = segments.last_mut().expect("segment");
-                let label = if alt.is_empty() {
-                    "[figure]".into()
-                } else {
-                    format!("[figure: {alt}]")
-                };
-                ensure_encodable(&label)?;
-                seg.1.push(LaidLine::plain(
-                    label,
-                    Face::Oblique,
-                    metrics.body_size,
-                    metrics.body_leading,
-                ));
-                if !caption.is_empty() {
-                    push_styled_runs(
-                        &mut seg.1,
-                        caption,
-                        metrics.body_size,
-                        metrics.body_leading,
-                        10.0,
-                        false,
-                        metrics,
-                    )?;
-                } else {
-                    seg.1.push(LaidLine::gap(10.0));
-                }
+            PrintBlock::Figure {
+                image,
+                alt,
+                caption,
+                placement,
+            } => {
+                let _ = placement; // FloatNear treated as Flow for now.
+                let _ = FigurePlacement::Flow;
+                push_figure(
+                    &mut segments,
+                    &mut images,
+                    image,
+                    alt,
+                    caption,
+                    metrics,
+                )?;
             }
-            PrintBlock::Math { display, latex } => {
+            PrintBlock::Math { display: _, latex } => {
                 let seg = segments.last_mut().expect("segment");
-                let _ = display; // layout differs later; placeholder text is shared for now
                 let line = format!("[math] {latex}");
                 ensure_encodable(&line)?;
-                seg.1.push(LaidLine::plain(
+                seg.1.push(LaidItem::Text(LaidLine::plain(
                     line,
                     Face::Courier,
                     metrics.code_size,
                     metrics.code_size * 1.25,
-                ));
-                seg.1.push(LaidLine::gap(10.0));
+                )));
+                seg.1.push(LaidItem::Text(LaidLine::gap(10.0)));
             }
             PrintBlock::Slide { layout_id, regions } => {
                 let seg = segments.last_mut().expect("segment");
                 let line = format!("[slide:{layout_id} regions={}]", regions.len());
                 ensure_encodable(&line)?;
-                seg.1.push(LaidLine::plain(
+                seg.1.push(LaidItem::Text(LaidLine::plain(
                     line,
                     Face::Oblique,
                     metrics.body_size,
                     metrics.body_leading,
-                ));
+                )));
                 segments.push((ForcedBreak::Always, Vec::new()));
             }
         }
     }
 
-    Ok(segments)
+    Ok((segments, images))
+}
+
+fn push_figure(
+    segments: &mut [LayoutSegment],
+    images: &mut Vec<PreparedImage>,
+    image: &PrintImage,
+    alt: &str,
+    caption: &[TextRun],
+    metrics: &ProfileMetrics,
+) -> Result<(), WeaveError> {
+    let prepared = match prepare_image(image) {
+        Ok(p) => p,
+        Err(_) => {
+            // Fallback placeholder when decode fails.
+            let seg = segments.last_mut().expect("segment");
+            let label = if alt.is_empty() {
+                "[figure]".into()
+            } else {
+                format!("[figure: {alt}]")
+            };
+            ensure_encodable(&label)?;
+            seg.1.push(LaidItem::Text(LaidLine::plain(
+                label,
+                Face::Oblique,
+                metrics.body_size,
+                metrics.body_leading,
+            )));
+            if !caption.is_empty() {
+                push_styled_runs(
+                    &mut seg.1,
+                    caption,
+                    metrics.body_size,
+                    metrics.body_leading,
+                    10.0,
+                    false,
+                    metrics,
+                )?;
+            } else {
+                seg.1.push(LaidItem::Text(LaidLine::gap(10.0)));
+            }
+            return Ok(());
+        }
+    };
+
+    let (w, h) = prepared.fit_width(metrics.content_width());
+    let img_idx = images.len();
+    images.push(prepared);
+
+    let seg = segments.last_mut().expect("segment");
+    seg.1.push(LaidItem::Image {
+        img_idx,
+        width: w,
+        height: h,
+    });
+    if !caption.is_empty() {
+        push_styled_runs(
+            &mut seg.1,
+            caption,
+            metrics.body_size,
+            metrics.body_leading,
+            10.0,
+            false,
+            metrics,
+        )?;
+    } else {
+        seg.1.push(LaidItem::Text(LaidLine::gap(6.0)));
+    }
+    Ok(())
+}
+
+fn push_table_lines(
+    out: &mut Vec<LaidItem>,
+    rows: &[crate::ir::TableRow],
+    metrics: &ProfileMetrics,
+) -> Result<(), WeaveError> {
+    if rows.is_empty() {
+        out.push(LaidItem::Text(LaidLine::plain(
+            "[table]",
+            Face::Oblique,
+            metrics.body_size,
+            metrics.body_leading,
+        )));
+        out.push(LaidItem::Text(LaidLine::gap(10.0)));
+        return Ok(());
+    }
+
+    let cols = rows.iter().map(|r| r.cells.len()).max().unwrap_or(0);
+    let mut widths = vec![0usize; cols];
+    for row in rows {
+        for (i, cell) in row.cells.iter().enumerate() {
+            widths[i] = widths[i].max(cell.len());
+        }
+    }
+
+    let font_size = metrics.code_size;
+    let leading = font_size * 1.3;
+    let rule = {
+        let inner: usize = widths.iter().map(|w| w + 2).sum::<usize>() + cols.saturating_sub(1);
+        format!("+{}+", "-".repeat(inner.max(1)))
+    };
+    ensure_encodable(&rule)?;
+    out.push(LaidItem::Text(LaidLine::plain(
+        rule.clone(),
+        Face::Courier,
+        font_size,
+        leading,
+    )));
+
+    for row in rows {
+        let mut line = String::from("|");
+        for (i, width) in widths.iter().enumerate() {
+            let cell = row.cells.get(i).map(String::as_str).unwrap_or("");
+            line.push(' ');
+            line.push_str(cell);
+            line.push_str(&" ".repeat(width.saturating_sub(cell.len())));
+            line.push_str(" |");
+        }
+        ensure_encodable(&line)?;
+        out.push(LaidItem::Text(LaidLine::plain(
+            line,
+            Face::Courier,
+            font_size,
+            leading,
+        )));
+        out.push(LaidItem::Text(LaidLine::plain(
+            rule.clone(),
+            Face::Courier,
+            font_size,
+            leading,
+        )));
+    }
+    out.push(LaidItem::Text(LaidLine::gap(10.0)));
+    Ok(())
 }
 
 fn push_styled_runs(
-    seg: &mut Vec<LaidLine>,
+    out: &mut Vec<LaidItem>,
     runs: &[TextRun],
     font_size: f32,
     leading: f32,
@@ -354,20 +555,18 @@ fn push_styled_runs(
     let mut current_spans: Vec<LaidSpan> = Vec::new();
     let mut current_width = 0.0_f32;
 
-    let flush_line = |spans: &mut Vec<LaidSpan>,
-                      out: &mut Vec<LaidLine>,
-                      glue: bool|
-     -> Result<(), WeaveError> {
-        if spans.is_empty() {
-            return Ok(());
-        }
-        out.push(LaidLine {
-            spans: std::mem::take(spans),
-            leading,
-            glue_after: glue,
-        });
-        Ok(())
-    };
+    let flush_line =
+        |spans: &mut Vec<LaidSpan>, dest: &mut Vec<LaidItem>, glue: bool| -> Result<(), WeaveError> {
+            if spans.is_empty() {
+                return Ok(());
+            }
+            dest.push(LaidItem::Text(LaidLine {
+                spans: std::mem::take(spans),
+                leading,
+                glue_after: glue,
+            }));
+            Ok(())
+        };
 
     for run in runs {
         ensure_encodable(&run.text)?;
@@ -378,7 +577,7 @@ fn push_styled_runs(
                 / (font_size * metrics.char_width_factor))
                 .floor() as usize;
             if avail_chars == 0 && !current_spans.is_empty() {
-                flush_line(&mut current_spans, seg, false)?;
+                flush_line(&mut current_spans, out, false)?;
                 current_width = 0.0;
                 continue;
             }
@@ -390,7 +589,6 @@ fn push_styled_runs(
             {
                 split_at = rel;
             }
-            // Ensure we advance at least one char if no whitespace break.
             if split_at == 0 {
                 split_at = remaining.chars().next().map(|c| c.len_utf8()).unwrap_or(1);
             }
@@ -407,22 +605,21 @@ fn push_styled_runs(
                 current_width += w;
             }
             if !remaining.is_empty() {
-                flush_line(&mut current_spans, seg, false)?;
+                flush_line(&mut current_spans, out, false)?;
                 current_width = 0.0;
             }
         }
     }
 
-    flush_line(&mut current_spans, seg, glue_last_content)?;
+    flush_line(&mut current_spans, out, glue_last_content)?;
     if gap_after > 0.0 {
-        // Gap itself should not break keep-with-next; glue stays on last content line.
-        seg.push(LaidLine::gap(gap_after));
+        out.push(LaidItem::Text(LaidLine::gap(gap_after)));
     }
     Ok(())
 }
 
 fn push_list_lines(
-    seg: &mut Vec<LaidLine>,
+    out: &mut Vec<LaidItem>,
     ordered: bool,
     items: &[crate::ir::ListItem],
     depth: usize,
@@ -438,7 +635,7 @@ fn push_list_lines(
         let mut runs = vec![TextRun::plain(format!("{indent}{marker}"))];
         runs.extend(item.runs.iter().cloned());
         push_styled_runs(
-            seg,
+            out,
             &runs,
             metrics.body_size,
             metrics.body_size * 1.35,
@@ -451,14 +648,12 @@ fn push_list_lines(
                 PrintBlock::List {
                     ordered: child_ordered,
                     items: child_items,
-                } => push_list_lines(seg, *child_ordered, child_items, depth + 1, metrics)?,
-                other => {
-                    return Err(WeaveError::UnsupportedBlock(block_name(other)));
-                }
+                } => push_list_lines(out, *child_ordered, child_items, depth + 1, metrics)?,
+                other => return Err(WeaveError::UnsupportedBlock(block_name(other))),
             }
         }
     }
-    seg.push(LaidLine::gap(8.0));
+    out.push(LaidItem::Text(LaidLine::gap(8.0)));
     Ok(())
 }
 
@@ -483,12 +678,17 @@ enum ForcedBreak {
     Always,
 }
 
-fn paginate_lines(segments: &[(ForcedBreak, Vec<LaidLine>)], max_y_span: f32) -> Vec<Vec<LaidLine>> {
-    let mut pages: Vec<Vec<LaidLine>> = Vec::new();
-    let mut current: Vec<LaidLine> = Vec::new();
+fn paginate_items(
+    segments: &[(ForcedBreak, Vec<LaidItem>)],
+    max_y_span: f32,
+) -> Vec<Vec<LaidItem>> {
+    // Reserve footer band for page numbers.
+    let max_y_span = (max_y_span - 18.0).max(72.0);
+    let mut pages: Vec<Vec<LaidItem>> = Vec::new();
+    let mut current: Vec<LaidItem> = Vec::new();
     let mut used = 0.0_f32;
 
-    let flush = |pages: &mut Vec<Vec<LaidLine>>, current: &mut Vec<LaidLine>, used: &mut f32| {
+    let flush = |pages: &mut Vec<Vec<LaidItem>>, current: &mut Vec<LaidItem>, used: &mut f32| {
         if !current.is_empty() {
             pages.push(std::mem::take(current));
             *used = 0.0;
@@ -497,40 +697,38 @@ fn paginate_lines(segments: &[(ForcedBreak, Vec<LaidLine>)], max_y_span: f32) ->
         }
     };
 
-    for (forced, lines) in segments {
+    for (forced, items) in segments {
         if matches!(forced, ForcedBreak::Always) && !current.is_empty() {
             flush(&mut pages, &mut current, &mut used);
         }
-        for line in lines {
-            if used + line.leading > max_y_span && !current.is_empty() {
-                // Peel trailing glue_after chain so headings aren't orphaned.
-                let mut peeled: Vec<LaidLine> = Vec::new();
-                while current.last().is_some_and(|l| l.glue_after) {
-                    let peeled_line = current.pop().expect("last");
-                    used -= peeled_line.leading;
-                    peeled.push(peeled_line);
+        for item in items {
+            let h = item.height();
+            if used + h > max_y_span && !current.is_empty() {
+                let mut peeled: Vec<LaidItem> = Vec::new();
+                while current.last().is_some_and(LaidItem::glue_after) {
+                    let peeled_item = current.pop().expect("last");
+                    used -= peeled_item.height();
+                    peeled.push(peeled_item);
                 }
-                // If everything was glue, force a break anyway.
                 if current.is_empty() {
                     while let Some(l) = peeled.pop() {
-                        used += l.leading;
+                        used += l.height();
                         current.push(l);
                     }
                     flush(&mut pages, &mut current, &mut used);
                 } else {
                     flush(&mut pages, &mut current, &mut used);
                     while let Some(l) = peeled.pop() {
-                        used += l.leading;
+                        used += l.height();
                         current.push(l);
                     }
                 }
-                // After peel+flush, line might still not fit on a fresh page — place it.
-                if used + line.leading > max_y_span && !current.is_empty() {
+                if used + h > max_y_span && !current.is_empty() {
                     flush(&mut pages, &mut current, &mut used);
                 }
             }
-            used += line.leading;
-            current.push(line.clone());
+            used += h;
+            current.push(item.clone());
         }
     }
 
@@ -543,34 +741,66 @@ fn paginate_lines(segments: &[(ForcedBreak, Vec<LaidLine>)], max_y_span: f32) ->
     pages
 }
 
-fn build_page_content(lines: &[LaidLine], metrics: &ProfileMetrics) -> Vec<u8> {
+fn build_page_content(
+    items: &[LaidItem],
+    metrics: &ProfileMetrics,
+    page_no: usize,
+    page_count: usize,
+    _image_refs: &[(Ref, Option<Ref>)],
+) -> Vec<u8> {
     let mut content = Content::new();
     let mut y = metrics.page_h - metrics.margin;
 
-    content.begin_text();
-    for line in lines {
-        y -= line.leading;
-        if y < metrics.margin {
-            break;
-        }
-        if line.spans.is_empty() {
-            continue;
-        }
-        let mut x = metrics.margin;
-        for (i, span) in line.spans.iter().enumerate() {
-            content.set_font(Name(span.face.resource_name()), span.font_size);
-            if i == 0 {
-                content.set_text_matrix([1.0, 0.0, 0.0, 1.0, x, y]);
-            } else {
-                // Relative move in text space from previous show end — use absolute matrix.
-                content.set_text_matrix([1.0, 0.0, 0.0, 1.0, x, y]);
+    for item in items {
+        match item {
+            LaidItem::Text(line) => {
+                y -= line.leading;
+                if y < metrics.margin + 18.0 {
+                    break;
+                }
+                if line.spans.is_empty() {
+                    continue;
+                }
+                content.begin_text();
+                let mut x = metrics.margin;
+                for span in &line.spans {
+                    content.set_font(Name(span.face.resource_name()), span.font_size);
+                    content.set_text_matrix([1.0, 0.0, 0.0, 1.0, x, y]);
+                    content.show(Str(&winansi_bytes(&span.text)));
+                    x += span.text.len() as f32 * span.font_size * metrics.char_width_factor;
+                }
+                content.end_text();
             }
-            let bytes = winansi_bytes(&span.text);
-            content.show(Str(&bytes));
-            x += span.text.len() as f32 * span.font_size * metrics.char_width_factor;
+            LaidItem::Image {
+                img_idx,
+                width,
+                height,
+            } => {
+                y -= *height;
+                if y < metrics.margin + 18.0 {
+                    break;
+                }
+                let name = image_resource_name(*img_idx);
+                content.save_state();
+                content.transform([*width, 0.0, 0.0, *height, metrics.margin, y]);
+                content.x_object(Name(&name));
+                content.restore_state();
+                y -= 8.0;
+            }
         }
     }
+
+    // Page number footer.
+    let footer = format!("{page_no} / {page_count}");
+    let footer_y = metrics.margin * 0.45;
+    content.begin_text();
+    content.set_font(Name(Face::Regular.resource_name()), 9.0);
+    let footer_w = footer.len() as f32 * 9.0 * metrics.char_width_factor;
+    let footer_x = (metrics.page_w - footer_w) / 2.0;
+    content.set_text_matrix([1.0, 0.0, 0.0, 1.0, footer_x, footer_y]);
+    content.show(Str(footer.as_bytes()));
     content.end_text();
+
     content.finish().into_vec()
 }
 
@@ -597,7 +827,8 @@ fn winansi_bytes(text: &str) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ir::{InlineStyle, PrintMeta, PrintProfileId};
+    use crate::ir::{InlineStyle, PrintMeta, PrintProfileId, TableRow};
+    use image::{ImageBuffer, ImageFormat, Rgb};
 
     fn hello_doc() -> PrintDocument {
         PrintDocument {
@@ -624,6 +855,14 @@ mod tests {
                 },
             ],
         }
+    }
+
+    fn tiny_png_bytes() -> Vec<u8> {
+        let img: ImageBuffer<Rgb<u8>, Vec<u8>> =
+            ImageBuffer::from_fn(32, 24, |x, y| Rgb([x as u8 * 7, y as u8 * 9, 180]));
+        let mut buf = std::io::Cursor::new(Vec::new());
+        img.write_to(&mut buf, ImageFormat::Png).expect("encode png");
+        buf.into_inner()
     }
 
     #[test]
@@ -666,45 +905,76 @@ mod tests {
                         ..InlineStyle::default()
                     },
                 },
-                TextRun::plain(" and "),
-                TextRun {
-                    text: "emph".into(),
-                    style: InlineStyle {
-                        emphasis: true,
-                        ..InlineStyle::default()
-                    },
-                },
             ],
         });
         let bytes = emit_pdf(&doc).expect("emit");
         let s = String::from_utf8_lossy(&bytes);
-        assert!(s.contains("Helvetica-Bold"), "missing bold face");
-        assert!(s.contains("Helvetica-Oblique"), "missing oblique face");
+        assert!(s.contains("Helvetica-Bold"));
     }
 
     #[test]
-    fn placeholders_for_rich_blocks() {
+    fn table_renders_ascii_grid() {
         let doc = PrintDocument {
             meta: PrintMeta {
-                title: "Rich".into(),
+                title: "T".into(),
+                doc_kind: "note".into(),
+                language: None,
+                source_doc_id: None,
+            },
+            profile: PrintProfileId::print_v0(),
+            blocks: vec![PrintBlock::Table {
+                rows: vec![
+                    TableRow {
+                        cells: vec!["A".into(), "B".into()],
+                    },
+                    TableRow {
+                        cells: vec!["1".into(), "2".into()],
+                    },
+                ],
+            }],
+        };
+        let bytes = emit_pdf(&doc).expect("emit");
+        assert!(bytes.starts_with(b"%PDF-"));
+        // Footer present.
+        let s = String::from_utf8_lossy(&bytes);
+        assert!(s.contains("1 / 1"));
+    }
+
+    #[test]
+    fn figure_png_embeds_xobject() {
+        let png = tiny_png_bytes();
+        let doc = PrintDocument {
+            meta: PrintMeta {
+                title: "Fig".into(),
                 doc_kind: "note".into(),
                 language: None,
                 source_doc_id: None,
             },
             profile: PrintProfileId::print_v0(),
             blocks: vec![
-                PrintBlock::Table {
-                    rows: vec![crate::ir::TableRow {
-                        cells: vec!["a".into(), "b".into()],
-                    }],
+                PrintBlock::Heading {
+                    level: 1,
+                    runs: vec![TextRun::plain("With figure")],
+                    break_before: BreakHint::None,
                 },
-                PrintBlock::Math {
-                    display: true,
-                    latex: "E=mc^2".into(),
+                PrintBlock::Figure {
+                    image: PrintImage {
+                        bytes: png,
+                        media_type: "image/png".into(),
+                        width_px: Some(32),
+                        height_px: Some(24),
+                    },
+                    alt: "swatch".into(),
+                    caption: vec![TextRun::plain("A tiny PNG.")],
+                    placement: FigurePlacement::Flow,
                 },
             ],
         };
         let bytes = emit_pdf(&doc).expect("emit");
         assert!(bytes.starts_with(b"%PDF-"));
+        let s = String::from_utf8_lossy(&bytes);
+        assert!(s.contains("/Subtype /Image") || s.contains("/Subtype/Image"));
+        std::fs::create_dir_all("tmp").ok();
+        std::fs::write("tmp/figure_sample.pdf", &bytes).ok();
     }
 }

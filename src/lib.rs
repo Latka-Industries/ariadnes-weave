@@ -9,6 +9,7 @@
 
 mod emit;
 mod error;
+mod image_prep;
 mod ir;
 mod profile;
 

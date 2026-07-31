@@ -21,4 +21,8 @@ pub enum WeaveError {
     /// Text could not be encoded for a PDF standard font (WinAnsi / ASCII subset).
     #[error("text not encodable with MVP Helvetica path: {0}")]
     UnencodableText(String),
+
+    /// Image bytes could not be decoded or are an unsupported format.
+    #[error("unsupported or invalid image: {0}")]
+    BadImage(String),
 }
