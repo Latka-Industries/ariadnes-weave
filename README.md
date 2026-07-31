@@ -11,12 +11,55 @@ Tessera `docs/print_ir.md` / D21).
 
 ## Status
 
-Scaffold only (`0.1.0`). Print IR types, layout, and PDF emit land next
-(THI-289+).
+**MVP emit (THI-289):** prose IR types (`Heading` / `Paragraph` / `Break`) and
+`emit_pdf` using the PDF standard **Helvetica** font. Enough to prove the idea;
+not a full layout engine yet.
+
+| Later | Where |
+| --- | --- |
+| Real pagination, `print@1` / `manuscript@1`, bundled TTFs | THI-294 |
+| Tessera `.tes` → print tree | THI-290 |
+| Deterministic fixtures / CI | THI-292 |
+| Tables, figures, math | THI-291 |
+
+**Bricks:** `pdf-writer` + `rustybuzz` + `ttf-parser` (shaping/TTF wired in later
+issues; MVP Helvetica path does not need them). Not using cosmic-text or krilla
+for v0.
 
 ```bash
 mise trust   # rust 1.95 via .mise.toml
-cargo check
+cargo test
+# writes tmp/hello_world.pdf on the integration test
+```
+
+## API (MVP)
+
+```rust
+use ariadnes_weave::{
+    emit_pdf, BreakHint, PrintBlock, PrintDocument, PrintMeta, PrintProfileId, TextRun,
+};
+
+let doc = PrintDocument {
+    meta: PrintMeta {
+        title: "Hello".into(),
+        doc_kind: "note".into(),
+        language: None,
+        source_doc_id: None,
+    },
+    profile: PrintProfileId::print_v0(),
+    blocks: vec![
+        PrintBlock::Heading {
+            level: 1,
+            runs: vec![TextRun::plain("Title")],
+            break_before: BreakHint::None,
+        },
+        PrintBlock::Paragraph {
+            runs: vec![TextRun::plain("Body.")],
+        },
+    ],
+};
+let pdf: Vec<u8> = emit_pdf(&doc)?;
+assert!(pdf.starts_with(b"%PDF-"));
 ```
 
 ## License

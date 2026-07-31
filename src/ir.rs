@@ -1,0 +1,132 @@
+//! Print IR types (prose MVP surface).
+//!
+//! Normative sketch: Tessera `docs/print_ir.md` / D21. Serde names should stay
+//! stable once published; rename modules freely.
+
+use serde::{Deserialize, Serialize};
+
+/// Top-level input to ariadnes-weave.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PrintDocument {
+    /// Document metadata (title, kind, language).
+    pub meta: PrintMeta,
+    /// Versioned print profile id (policy, not CSS).
+    pub profile: PrintProfileId,
+    /// Reading-order blocks.
+    pub blocks: Vec<PrintBlock>,
+}
+
+/// Lightweight document metadata carried into PDF info / future headers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PrintMeta {
+    /// Human title.
+    pub title: String,
+    /// Mirror catalog / superblock kind (opaque string for now).
+    pub doc_kind: String,
+    /// BCP-47 language tag, if known.
+    pub language: Option<String>,
+    /// Optional source document id for provenance.
+    pub source_doc_id: Option<String>,
+}
+
+/// Stable id for a versioned profile (not a CSS file).
+///
+/// Examples: `print@0` (MVP stub), later `print@1`, `manuscript@1`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PrintProfileId {
+    /// Profile family name (`print`, `manuscript`, `deck`, …).
+    pub name: String,
+    /// Version bumped when pagination rules change.
+    pub version: u32,
+}
+
+impl PrintProfileId {
+    /// Construct `print@0` (MVP stub: A4 + default margins, Helvetica).
+    pub fn print_v0() -> Self {
+        Self {
+            name: "print".into(),
+            version: 0,
+        }
+    }
+
+    /// Display as `name@version`.
+    pub fn as_label(&self) -> String {
+        format!("{}@{}", self.name, self.version)
+    }
+}
+
+/// A pagination-ready block in reading order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PrintBlock {
+    /// Heading at outline level 1–6.
+    Heading {
+        /// Outline level (1 = top).
+        level: u8,
+        /// Inline runs.
+        runs: Vec<TextRun>,
+        /// Break preference before this heading.
+        break_before: BreakHint,
+    },
+    /// Body paragraph.
+    Paragraph {
+        /// Inline runs.
+        runs: Vec<TextRun>,
+    },
+    /// Explicit author/export break (e.g. chapter boundary).
+    Break(BreakHint),
+}
+
+/// Styled inline text run (no free CSS).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TextRun {
+    /// Run text (Unicode).
+    pub text: String,
+    /// Inline style flags; MVP emit may ignore most of these.
+    pub style: InlineStyle,
+}
+
+impl TextRun {
+    /// Plain (unstyled) run.
+    pub fn plain(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            style: InlineStyle::default(),
+        }
+    }
+}
+
+/// Inline style flags — no free CSS.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct InlineStyle {
+    /// Bold / strong.
+    #[serde(default)]
+    pub strong: bool,
+    /// Italic / emphasis.
+    #[serde(default)]
+    pub emphasis: bool,
+    /// Inline code.
+    #[serde(default)]
+    pub code: bool,
+    /// Hyperlink (URL carried elsewhere later; flag only for MVP).
+    #[serde(default)]
+    pub link: bool,
+    /// Citation marker.
+    #[serde(default)]
+    pub cite: bool,
+}
+
+/// Page-break / keep hints.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BreakHint {
+    /// No special break.
+    #[default]
+    None,
+    /// Prefer new page (soft).
+    Page,
+    /// Always new page (e.g. manuscript H1).
+    PageAlways,
+    /// Keep with following block (heading + first lines).
+    KeepWithNext,
+}
