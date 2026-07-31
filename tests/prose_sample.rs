@@ -1,7 +1,8 @@
 //! Richer prose sample: list / code / quote / page breaks — still Helvetica MVP.
 
 use ariadnes_weave::{
-    emit_pdf, BreakHint, ListItem, PrintBlock, PrintDocument, PrintMeta, PrintProfileId, TextRun,
+    emit_pdf, BreakHint, InlineStyle, ListItem, PrintBlock, PrintDocument, PrintMeta,
+    PrintProfileId, TextRun,
 };
 
 fn prose_doc() -> PrintDocument {
@@ -20,9 +21,25 @@ fn prose_doc() -> PrintDocument {
                 break_before: BreakHint::None,
             },
             PrintBlock::Paragraph {
-                runs: vec![TextRun::plain(
-                    "A short paragraph before a list, a quote, and a code block.",
-                )],
+                runs: vec![
+                    TextRun::plain("A short paragraph with "),
+                    TextRun {
+                        text: "bold".into(),
+                        style: InlineStyle {
+                            strong: true,
+                            ..InlineStyle::default()
+                        },
+                    },
+                    TextRun::plain(" and "),
+                    TextRun {
+                        text: "italic".into(),
+                        style: InlineStyle {
+                            emphasis: true,
+                            ..InlineStyle::default()
+                        },
+                    },
+                    TextRun::plain(" before a list, a quote, and a code block."),
+                ],
             },
             PrintBlock::List {
                 ordered: false,

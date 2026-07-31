@@ -100,8 +100,78 @@ pub enum PrintBlock {
         /// Inline runs.
         runs: Vec<TextRun>,
     },
+    /// Structured table (emit may placeholder until THI-291).
+    Table {
+        /// Row-major cells.
+        rows: Vec<TableRow>,
+    },
+    /// Figure with image bytes + caption.
+    Figure {
+        /// Embedded image.
+        image: PrintImage,
+        /// Alt text.
+        alt: String,
+        /// Caption runs.
+        caption: Vec<TextRun>,
+        /// Placement hint.
+        placement: FigurePlacement,
+    },
+    /// Math (LaTeX source; emit may placeholder until THI-291).
+    Math {
+        /// Display vs inline.
+        display: bool,
+        /// LaTeX source.
+        latex: String,
+    },
+    /// Deck slide (later; emit placeholders for now).
+    Slide {
+        /// Layout template id.
+        layout_id: String,
+        /// Region payloads (opaque until deck emit).
+        regions: Vec<SlideRegionContent>,
+    },
     /// Explicit author/export break (e.g. chapter boundary).
     Break(BreakHint),
+}
+
+/// One table row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TableRow {
+    /// Ordered cells (plain text for now).
+    pub cells: Vec<String>,
+}
+
+/// Embedded image for [`PrintBlock::Figure`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PrintImage {
+    /// Raw image bytes.
+    pub bytes: Vec<u8>,
+    /// MIME type (`image/png`, `image/jpeg`, …).
+    pub media_type: String,
+    /// Optional pixel width.
+    pub width_px: Option<u32>,
+    /// Optional pixel height.
+    pub height_px: Option<u32>,
+}
+
+/// Figure placement policy (no freeform x/y).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FigurePlacement {
+    /// In normal reading flow.
+    #[default]
+    Flow,
+    /// Prefer near the mentioning text.
+    FloatNear,
+}
+
+/// Opaque slide region until deck emit lands.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SlideRegionContent {
+    /// Region slot name.
+    pub slot: String,
+    /// Plain text for the slot (MVP).
+    pub text: String,
 }
 
 /// One list item, optionally with nested child lists.

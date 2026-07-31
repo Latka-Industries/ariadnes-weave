@@ -11,14 +11,15 @@ Tessera `docs/print_ir.md` / D21).
 
 ## Status
 
-**Prose emit (post THI-289):** print IR + Helvetica `emit_pdf` for:
+**Prose emit (post THI-289):** print IR + standard-font `emit_pdf` for:
 
-* `Heading` / `Paragraph` / `List` / `Code` / `Quote` / `Break`
-* Profiles: `print@0`, `manuscript@0` (ids only — real metrics later)
-* Naive wrap + forced page breaks (`BreakHint::Page` / `PageAlways`)
+* Blocks: `Heading` / `Paragraph` / `List` / `Code` / `Quote` / `Break`
+* Rich stubs (placeholder lines): `Table` / `Figure` / `Math` / `Slide`
+* Inline faces: Helvetica / Bold / Oblique / BoldOblique + Courier for `code`
+* Profiles: `print@0` (A4) and `manuscript@0` (US Letter, double-spaced body)
+* Forced page breaks + simple keep-with-next glue for H1/H2
 
-Not yet: bundled TTFs, real line-breaking / keep-with-next, inline style
-fonts, tables / figures / math / slides.
+Not yet: bundled TTFs / rustybuzz shaping, real table/figure/math layout.
 
 | Later | Where |
 | --- | --- |
