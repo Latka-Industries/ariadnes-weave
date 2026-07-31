@@ -15,12 +15,12 @@ Tessera `docs/print_ir.md` / D21).
 
 * Blocks: `Heading` / `Paragraph` / `List` / `Code` / `Quote` / `Break`
 * Faces: Liberation Sans (R/B/I/BI), Serif body for `manuscript@0`, Mono for `code`
-* Shaping: `rustybuzz` + Type0 / CIDFontType2 / Identity-H embedding
+* Shaping: `rustybuzz` + Type0 / CIDFontType2 / Identity-H; `subsetter` for used glyphs only
 * Profiles: `print@0` (A4) and `manuscript@0` (US Letter, double-spaced body)
 * Forced page breaks + keep-with-next glue for H1/H2; page-number footers
 * `Table` → ASCII grid; `Figure` → embedded PNG/JPEG XObject; `Math`/`Slide` placeholders
 
-Not yet: subsetting, real math/deck layout, float placement.
+Not yet: real math/deck layout, float placement.
 
 | Later | Where |
 | --- | --- |

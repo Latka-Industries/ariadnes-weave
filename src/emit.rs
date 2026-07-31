@@ -6,8 +6,9 @@ use pdf_writer::{Content, Name, Pdf, Rect, Ref, Str, TextStr};
 
 use crate::error::WeaveError;
 use crate::font::{
-    FaceId, FontObjIds, ShapedGlyph, collect_glyph_set, encode_gids, resource_name, shape_text,
-    shaped_width, write_embedded_font,
+    FaceId, FontObjIds, PreparedSubset, ShapedGlyph, collect_glyph_set, encode_gids,
+    note_shaped_glyphs, prepare_subset, resource_name, shape_text, shaped_width,
+    write_embedded_font,
 };
 use crate::image_prep::{PreparedImage, prepare_image};
 use crate::ir::{
@@ -24,9 +25,19 @@ pub fn emit_pdf(doc: &PrintDocument) -> Result<Vec<u8>, WeaveError> {
     let (segments, images, mut glyph_sets) = collect_layout(doc, &metrics)?;
 
     // Footer always uses Sans Regular.
-    collect_glyph_set(FaceId::SansRegular, "0123456789 /", glyph_sets.entry(FaceId::SansRegular).or_default());
+    collect_glyph_set(
+        FaceId::SansRegular,
+        "0123456789 /",
+        glyph_sets.entry(FaceId::SansRegular).or_default(),
+    );
 
-    let pages = paginate_items(&segments, metrics.content_height());
+    let mut pages = paginate_items(&segments, metrics.content_height());
+
+    let mut subsets: HashMap<FaceId, PreparedSubset> = HashMap::new();
+    for (&face_id, set) in &glyph_sets {
+        subsets.insert(face_id, prepare_subset(face_id, set)?);
+    }
+    remap_pages(&mut pages, &subsets);
 
     let mut pdf = Pdf::new();
     pdf.set_version(1, 7);
@@ -36,7 +47,7 @@ pub fn emit_pdf(doc: &PrintDocument) -> Result<Vec<u8>, WeaveError> {
     let mut next_id = 3_i32;
 
     let mut font_refs: HashMap<FaceId, Ref> = HashMap::new();
-    for &face_id in glyph_sets.keys() {
+    for (&face_id, subset) in &subsets {
         let ids = FontObjIds {
             type0: Ref::new(next_id),
             cid: Ref::new(next_id + 1),
@@ -45,8 +56,7 @@ pub fn emit_pdf(doc: &PrintDocument) -> Result<Vec<u8>, WeaveError> {
             data: Ref::new(next_id + 4),
         };
         next_id += 5;
-        let set = glyph_sets.get(&face_id).cloned().unwrap_or_default();
-        write_embedded_font(&mut pdf, face_id, &set, ids)?;
+        write_embedded_font(&mut pdf, face_id, &subset.data, &subset.glyph_set, ids)?;
         font_refs.insert(face_id, ids.type0);
     }
 
@@ -142,6 +152,7 @@ pub fn emit_pdf(doc: &PrintDocument) -> Result<Vec<u8>, WeaveError> {
             &metrics,
             page_idx + 1,
             page_count,
+            &subsets,
         )?;
         pdf.stream(content_id, &content_bytes);
     }
@@ -157,6 +168,22 @@ pub fn emit_pdf(doc: &PrintDocument) -> Result<Vec<u8>, WeaveError> {
 
 fn image_resource_name(idx: usize) -> Vec<u8> {
     format!("Im{idx}").into_bytes()
+}
+
+fn remap_pages(pages: &mut [Vec<LaidItem>], subsets: &HashMap<FaceId, PreparedSubset>) {
+    for page in pages {
+        for item in page {
+            if let LaidItem::Text(line) = item {
+                for span in &mut line.spans {
+                    if let Some(subset) = subsets.get(&span.face) {
+                        for g in &mut span.glyphs {
+                            *g = subset.remap_glyph(*g);
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -190,7 +217,9 @@ impl LaidLine {
         glyph_sets: &mut GlyphSets,
     ) -> Result<Self, WeaveError> {
         let glyphs = shape_text(face, text, font_size)?;
-        collect_glyph_set(face, text, glyph_sets.entry(face).or_default());
+        let set = glyph_sets.entry(face).or_default();
+        collect_glyph_set(face, text, set);
+        note_shaped_glyphs(&glyphs, set);
         Ok(Self {
             spans: vec![LaidSpan {
                 face,
@@ -602,7 +631,9 @@ fn push_styled_runs(
                 flush_line(&mut current_spans, out, false);
                 current_width = 0.0;
             }
-            collect_glyph_set(face, chunk, glyph_sets.entry(face).or_default());
+            let set = glyph_sets.entry(face).or_default();
+            collect_glyph_set(face, chunk, set);
+            note_shaped_glyphs(&glyphs, set);
             current_spans.push(LaidSpan {
                 face,
                 font_size: layout.font_size,
@@ -778,6 +809,7 @@ fn build_page_content(
     metrics: &ProfileMetrics,
     page_no: usize,
     page_count: usize,
+    subsets: &HashMap<FaceId, PreparedSubset>,
 ) -> Result<Vec<u8>, WeaveError> {
     let mut content = Content::new();
     let mut y = metrics.page_h - metrics.margin;
@@ -823,7 +855,12 @@ fn build_page_content(
     }
 
     let footer = format!("{page_no} / {page_count}");
-    let footer_glyphs = shape_text(FaceId::SansRegular, &footer, 9.0)?;
+    let mut footer_glyphs = shape_text(FaceId::SansRegular, &footer, 9.0)?;
+    if let Some(subset) = subsets.get(&FaceId::SansRegular) {
+        for g in &mut footer_glyphs {
+            *g = subset.remap_glyph(*g);
+        }
+    }
     let footer_w = shaped_width(&footer_glyphs);
     let footer_y = metrics.margin * 0.45;
     let footer_x = (metrics.page_w - footer_w) / 2.0;
@@ -882,6 +919,17 @@ mod tests {
         let bytes = emit_pdf(&hello_doc()).expect("emit");
         assert!(bytes.starts_with(b"%PDF-"));
         assert!(bytes.windows(5).any(|w| w == b"%%EOF"));
+    }
+
+    #[test]
+    fn subsetted_hello_pdf_is_compact() {
+        let bytes = emit_pdf(&hello_doc()).expect("emit");
+        // Full Liberation Sans alone is ~400KB; subset prose should stay well under that.
+        assert!(
+            bytes.len() < 80_000,
+            "expected subsetted PDF < 80KB, got {}",
+            bytes.len()
+        );
     }
 
     #[test]

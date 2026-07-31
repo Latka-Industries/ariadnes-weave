@@ -1,4 +1,4 @@
-//! Bundled Liberation fonts, rustybuzz shaping, and Type0 PDF embedding.
+//! Bundled Liberation fonts, rustybuzz shaping, subsetting, and Type0 PDF embedding.
 
 use std::collections::BTreeMap;
 
@@ -6,6 +6,7 @@ use miniz_oxide::deflate::{CompressionLevel, compress_to_vec_zlib};
 use pdf_writer::types::{CidFontType, FontFlags, SystemInfo, UnicodeCmap};
 use pdf_writer::{Filter, Finish, Name, Pdf, Rect, Ref, Str};
 use rustybuzz::{Face as RbFace, UnicodeBuffer};
+use subsetter::GlyphRemapper;
 use ttf_parser::{Face as TtfFace, GlyphId};
 
 use crate::error::WeaveError;
@@ -163,6 +164,65 @@ pub fn collect_glyph_set(face_id: FaceId, text: &str, into: &mut BTreeMap<u16, S
     }
 }
 
+/// Ensure shaped glyph ids are present in the set (covers ligatures, etc.).
+pub fn note_shaped_glyphs(glyphs: &[ShapedGlyph], into: &mut BTreeMap<u16, String>) {
+    for g in glyphs {
+        into.entry(g.gid).or_default();
+    }
+}
+
+/// Subsetted face ready for PDF embedding (CIDs = remapped GIDs).
+#[derive(Debug)]
+pub struct PreparedSubset {
+    /// Subset TTF bytes (cmap stripped; for PDF FontFile2 only).
+    pub data: Vec<u8>,
+    /// Glyph set keyed by **new** subset GIDs (for widths + ToUnicode).
+    pub glyph_set: BTreeMap<u16, String>,
+    /// Old full-font GID → new subset GID.
+    remapper: GlyphRemapper,
+}
+
+impl PreparedSubset {
+    /// Remap a shaped glyph's GID into the subset.
+    #[must_use]
+    pub fn remap_glyph(&self, glyph: ShapedGlyph) -> ShapedGlyph {
+        ShapedGlyph {
+            gid: self.remapper.get(glyph.gid).unwrap_or(0),
+            advance: glyph.advance,
+        }
+    }
+}
+
+/// Subset a bundled face to the glyphs in `glyph_set` (original GIDs).
+///
+/// # Errors
+///
+/// Returns [`WeaveError::Font`] if subsetting fails.
+pub fn prepare_subset(
+    face_id: FaceId,
+    glyph_set: &BTreeMap<u16, String>,
+) -> Result<PreparedSubset, WeaveError> {
+    let mut remapper = GlyphRemapper::new();
+    for &gid in glyph_set.keys() {
+        remapper.remap(gid);
+    }
+    let data = subsetter::subset(face_id.ttf_bytes(), 0, &remapper)
+        .map_err(|e| WeaveError::Font(format!("subset {}: {e}", face_id.postscript_name())))?;
+
+    let mut remapped = BTreeMap::new();
+    for (&old, text) in glyph_set {
+        if let Some(new) = remapper.get(old) {
+            remapped.insert(new, text.clone());
+        }
+    }
+
+    Ok(PreparedSubset {
+        data,
+        glyph_set: remapped,
+        remapper,
+    })
+}
+
 /// Indirect object ids for one embedded Type0 face.
 #[derive(Debug, Clone, Copy)]
 pub struct FontObjIds {
@@ -180,7 +240,8 @@ pub struct FontObjIds {
 
 /// Write Type0 + CIDFontType2 + descriptor + font file + ToUnicode for `face_id`.
 ///
-/// Embeds the full TTF (compressed). `glyph_set` drives widths + ToUnicode.
+/// Embeds `font_data` (typically a subset) compressed. `glyph_set` must use the
+/// same GIDs as that file (Identity CID↔GID).
 ///
 /// # Errors
 ///
@@ -188,10 +249,10 @@ pub struct FontObjIds {
 pub fn write_embedded_font(
     pdf: &mut Pdf,
     face_id: FaceId,
+    font_data: &[u8],
     glyph_set: &BTreeMap<u16, String>,
     ids: FontObjIds,
 ) -> Result<(), WeaveError> {
-    let font_data = face_id.ttf_bytes();
     let ttf = TtfFace::parse(font_data, 0)
         .map_err(|e| WeaveError::Font(format!("ttf-parser: {e:?}")))?;
     let units = f32::from(ttf.units_per_em());
@@ -314,5 +375,18 @@ mod tests {
         // Em-dash — previously rejected by Helvetica MVP path.
         let glyphs = shape_text(FaceId::SansRegular, "a—b", 12.0).expect("shape");
         assert!(glyphs.len() >= 3);
+    }
+
+    #[test]
+    fn subset_is_much_smaller_than_full_face() {
+        let mut set = BTreeMap::new();
+        collect_glyph_set(FaceId::SansRegular, "Hello world", &mut set);
+        let prepared = prepare_subset(FaceId::SansRegular, &set).expect("subset");
+        let full = FaceId::SansRegular.ttf_bytes().len();
+        assert!(
+            prepared.data.len() * 10 < full,
+            "subset {} vs full {full}",
+            prepared.data.len()
+        );
     }
 }
