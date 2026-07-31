@@ -49,6 +49,14 @@ impl PrintProfileId {
         }
     }
 
+    /// Construct `manuscript@0` (stub id; metrics land in THI-294).
+    pub fn manuscript_v0() -> Self {
+        Self {
+            name: "manuscript".into(),
+            version: 0,
+        }
+    }
+
     /// Display as `name@version`.
     pub fn as_label(&self) -> String {
         format!("{}@{}", self.name, self.version)
@@ -73,8 +81,37 @@ pub enum PrintBlock {
         /// Inline runs.
         runs: Vec<TextRun>,
     },
+    /// Ordered or bullet list (items already coalesced from Tessera chunks).
+    List {
+        /// `true` for numbered lists.
+        ordered: bool,
+        /// Top-level items (nested lists via [`ListItem::children`]).
+        items: Vec<ListItem>,
+    },
+    /// Fenced / indented code block.
+    Code {
+        /// Optional fence language tag.
+        lang: Option<String>,
+        /// Raw code text (no inline styles).
+        text: String,
+    },
+    /// Block quote.
+    Quote {
+        /// Inline runs.
+        runs: Vec<TextRun>,
+    },
     /// Explicit author/export break (e.g. chapter boundary).
     Break(BreakHint),
+}
+
+/// One list item, optionally with nested child lists.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ListItem {
+    /// Item body runs.
+    pub runs: Vec<TextRun>,
+    /// Nested lists under this item.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<PrintBlock>,
 }
 
 /// Styled inline text run (no free CSS).

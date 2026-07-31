@@ -11,9 +11,14 @@ Tessera `docs/print_ir.md` / D21).
 
 ## Status
 
-**MVP emit (THI-289):** prose IR types (`Heading` / `Paragraph` / `Break`) and
-`emit_pdf` using the PDF standard **Helvetica** font. Enough to prove the idea;
-not a full layout engine yet.
+**Prose emit (post THI-289):** print IR + Helvetica `emit_pdf` for:
+
+* `Heading` / `Paragraph` / `List` / `Code` / `Quote` / `Break`
+* Profiles: `print@0`, `manuscript@0` (ids only — real metrics later)
+* Naive wrap + forced page breaks (`BreakHint::Page` / `PageAlways`)
+
+Not yet: bundled TTFs, real line-breaking / keep-with-next, inline style
+fonts, tables / figures / math / slides.
 
 | Later | Where |
 | --- | --- |
@@ -22,21 +27,22 @@ not a full layout engine yet.
 | Deterministic fixtures / CI | THI-292 |
 | Tables, figures, math | THI-291 |
 
-**Bricks:** `pdf-writer` + `rustybuzz` + `ttf-parser` (shaping/TTF wired in later
-issues; MVP Helvetica path does not need them). Not using cosmic-text or krilla
-for v0.
+**Bricks:** `pdf-writer` + `rustybuzz` + `ttf-parser` (shaping/TTF wired later;
+Helvetica path does not need them yet). Not cosmic-text / krilla for v0.
 
 ```bash
 mise trust   # rust 1.95 via .mise.toml
 cargo test
-# writes tmp/hello_world.pdf on the integration test
+cargo run --example prose
+# tmp/hello_world.pdf, tmp/prose_sample.pdf, tmp/prose_example.pdf
 ```
 
-## API (MVP)
+## API
 
 ```rust
 use ariadnes_weave::{
-    emit_pdf, BreakHint, PrintBlock, PrintDocument, PrintMeta, PrintProfileId, TextRun,
+    emit_pdf, BreakHint, ListItem, PrintBlock, PrintDocument, PrintMeta, PrintProfileId,
+    TextRun,
 };
 
 let doc = PrintDocument {
@@ -55,6 +61,13 @@ let doc = PrintDocument {
         },
         PrintBlock::Paragraph {
             runs: vec![TextRun::plain("Body.")],
+        },
+        PrintBlock::List {
+            ordered: false,
+            items: vec![ListItem {
+                runs: vec![TextRun::plain("Item")],
+                children: vec![],
+            }],
         },
     ],
 };

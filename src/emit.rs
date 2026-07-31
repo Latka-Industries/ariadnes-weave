@@ -18,7 +18,7 @@ const CHAR_WIDTH_FACTOR: f32 = 0.5;
 
 /// Emit PDF bytes from a print document (MVP).
 ///
-/// Accepts `print@0` only. Renders `Heading` / `Paragraph` with the PDF
+/// Accepts `print@0` or `manuscript@0`. Renders prose blocks with the PDF
 /// standard Helvetica font. `Break(PageAlways | Page)` starts a new page;
 /// other break hints are ignored. Inline styles are ignored for now.
 pub fn emit_pdf(doc: &PrintDocument) -> Result<Vec<u8>, WeaveError> {
@@ -83,14 +83,90 @@ pub fn emit_pdf(doc: &PrintDocument) -> Result<Vec<u8>, WeaveError> {
 }
 
 fn validate_profile(profile: &PrintProfileId) -> Result<(), WeaveError> {
-    if profile.name == "print" && profile.version == 0 {
-        Ok(())
-    } else {
-        Err(WeaveError::UnsupportedProfile {
+    match (profile.name.as_str(), profile.version) {
+        ("print" | "manuscript", 0) => Ok(()),
+        _ => Err(WeaveError::UnsupportedProfile {
             name: profile.name.clone(),
             version: profile.version,
-        })
+        }),
     }
+}
+
+fn push_run_lines(
+    seg: &mut Vec<LaidLine>,
+    runs: &[TextRun],
+    font_size: f32,
+    leading: f32,
+    gap_after: f32,
+) -> Result<(), WeaveError> {
+    let text = runs_to_text(runs)?;
+    let wrapped = wrap_text(&text, font_size, content_width());
+    for line in wrapped {
+        seg.push(LaidLine {
+            text: line,
+            font_size,
+            leading,
+        });
+    }
+    if gap_after > 0.0 {
+        seg.push(LaidLine {
+            text: String::new(),
+            font_size: 6.0,
+            leading: gap_after,
+        });
+    }
+    Ok(())
+}
+
+fn push_list_lines(
+    seg: &mut Vec<LaidLine>,
+    ordered: bool,
+    items: &[crate::ir::ListItem],
+    depth: usize,
+) -> Result<(), WeaveError> {
+    for (i, item) in items.iter().enumerate() {
+        let marker = if ordered {
+            format!("{}. ", i + 1)
+        } else {
+            // ASCII hyphen — Helvetica MVP has no Unicode bullet.
+            "- ".into()
+        };
+        let indent = "  ".repeat(depth);
+        let body = runs_to_text(&item.runs)?;
+        let line = format!("{indent}{marker}{body}");
+        let font_size = 11.0;
+        for wrapped in wrap_text(&line, font_size, content_width()) {
+            seg.push(LaidLine {
+                text: wrapped,
+                font_size,
+                leading: font_size * 1.35,
+            });
+        }
+        for child in &item.children {
+            match child {
+                PrintBlock::List {
+                    ordered: child_ordered,
+                    items: child_items,
+                } => push_list_lines(seg, *child_ordered, child_items, depth + 1)?,
+                other => {
+                    return Err(WeaveError::UnsupportedBlock(match other {
+                        PrintBlock::Heading { .. } => "heading_in_list",
+                        PrintBlock::Paragraph { .. } => "paragraph_in_list",
+                        PrintBlock::Code { .. } => "code_in_list",
+                        PrintBlock::Quote { .. } => "quote_in_list",
+                        PrintBlock::Break(_) => "break_in_list",
+                        PrintBlock::List { .. } => unreachable!(),
+                    }));
+                }
+            }
+        }
+    }
+    seg.push(LaidLine {
+        text: String::new(),
+        font_size: 6.0,
+        leading: 8.0,
+    });
+    Ok(())
 }
 
 #[derive(Debug, Clone)]
@@ -119,37 +195,25 @@ fn collect_lines(doc: &PrintDocument) -> Result<Vec<(ForcedBreak, Vec<LaidLine>)
                 if matches!(break_before, BreakHint::Page | BreakHint::PageAlways) {
                     segments.push((ForcedBreak::Always, Vec::new()));
                 }
-                let text = runs_to_text(runs)?;
                 let font_size = heading_size(*level);
-                let leading = font_size * 1.35;
-                // Word-wrap within content width.
-                let wrapped = wrap_text(&text, font_size, content_width());
                 let seg = segments.last_mut().expect("at least one segment");
-                for line in wrapped {
-                    seg.1.push(LaidLine {
-                        text: line,
-                        font_size,
-                        leading,
-                    });
-                }
-                // Small gap after heading.
-                seg.1.push(LaidLine {
-                    text: String::new(),
-                    font_size: 6.0,
-                    leading: 8.0,
-                });
+                push_run_lines(&mut seg.1, runs, font_size, font_size * 1.35, 8.0)?;
             }
             PrintBlock::Paragraph { runs } => {
-                let text = runs_to_text(runs)?;
-                let font_size = 11.0;
-                let leading = font_size * 1.4;
-                let wrapped = wrap_text(&text, font_size, content_width());
                 let seg = segments.last_mut().expect("at least one segment");
-                for line in wrapped {
+                push_run_lines(&mut seg.1, runs, 11.0, 11.0 * 1.4, 10.0)?;
+            }
+            PrintBlock::Quote { runs } => {
+                let seg = segments.last_mut().expect("at least one segment");
+                // MVP: prefix with a simple quote marker.
+                let body = runs_to_text(runs)?;
+                let quoted = format!("\"{body}\"");
+                let font_size = 11.0;
+                for line in wrap_text(&quoted, font_size, content_width()) {
                     seg.1.push(LaidLine {
                         text: line,
                         font_size,
-                        leading,
+                        leading: font_size * 1.4,
                     });
                 }
                 seg.1.push(LaidLine {
@@ -157,6 +221,32 @@ fn collect_lines(doc: &PrintDocument) -> Result<Vec<(ForcedBreak, Vec<LaidLine>)
                     font_size: 6.0,
                     leading: 10.0,
                 });
+            }
+            PrintBlock::Code { lang: _, text } => {
+                let seg = segments.last_mut().expect("at least one segment");
+                let font_size = 9.0;
+                for line in text.lines() {
+                    // ASCII-only MVP path.
+                    for ch in line.chars() {
+                        if !is_winansi_char(ch) {
+                            return Err(WeaveError::UnencodableText(line.to_owned()));
+                        }
+                    }
+                    seg.1.push(LaidLine {
+                        text: line.to_owned(),
+                        font_size,
+                        leading: font_size * 1.25,
+                    });
+                }
+                seg.1.push(LaidLine {
+                    text: String::new(),
+                    font_size: 6.0,
+                    leading: 10.0,
+                });
+            }
+            PrintBlock::List { ordered, items } => {
+                let seg = segments.last_mut().expect("at least one segment");
+                push_list_lines(&mut seg.1, *ordered, items, 0)?;
             }
         }
     }
@@ -354,5 +444,13 @@ mod tests {
         };
         let err = emit_pdf(&doc).unwrap_err();
         assert!(matches!(err, WeaveError::UnsupportedProfile { .. }));
+    }
+
+    #[test]
+    fn accepts_manuscript_v0() {
+        let mut doc = hello_doc();
+        doc.profile = PrintProfileId::manuscript_v0();
+        let bytes = emit_pdf(&doc).expect("emit");
+        assert!(bytes.starts_with(b"%PDF-"));
     }
 }

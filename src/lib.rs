@@ -14,7 +14,7 @@ mod ir;
 pub use emit::emit_pdf;
 pub use error::WeaveError;
 pub use ir::{
-    BreakHint, InlineStyle, PrintBlock, PrintDocument, PrintMeta, PrintProfileId, TextRun,
+    BreakHint, InlineStyle, ListItem, PrintBlock, PrintDocument, PrintMeta, PrintProfileId, TextRun,
 };
 
 /// Crate version string (useful in PDF producer / fixture pins).
