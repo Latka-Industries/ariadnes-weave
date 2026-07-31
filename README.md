@@ -24,7 +24,7 @@ Tessera `docs/print_ir.md` / D21).
 * Deterministic emit: sorted font object order + SHA-256 fixtures in `tests/determinism.rs`
 * `Table` → drawn grid + wrapped cell text; `Figure` → PNG/JPEG XObject (+ `FloatNear` glue); `Slide` → one page per slide; `Math` → centered prettified LaTeX tokens (not full TeX)
 
-Not yet: real TeX/MathML layout, OS font provider, icon/CJK/emoji sealed packs.
+Not yet: real TeX/MathML layout, OS font provider, CJK/emoji sealed packs.
 
 | Later | Where |
 | --- | --- |
@@ -33,26 +33,30 @@ Not yet: real TeX/MathML layout, OS font provider, icon/CJK/emoji sealed packs.
 | Deck page size / richer regions | THI-293 |
 | Literary pagination polish | THI-295 |
 | OS + GUI font provider | THI-307 |
-| Sealed packs / `cjk`·`emoji`·`icons` features | THI-308 |
+| Sealed `cjk` / `emoji` packs | THI-308 |
 
 **Bricks:** `pdf-writer` + `rustybuzz` + `ttf-parser`. Fonts under `fonts/`
-(Liberation, SIL Open Font License). Not cosmic-text / krilla for v0.
+(Liberation + optional Font Awesome Free; SIL OFL). Not cosmic-text / krilla for v0.
 
-**Font packs (planned):** default sealed set = Liberation sans/serif/mono (+ optional
-`icons` = Font Awesome Free). Large script packs are Cargo features — `cjk`, `emoji` —
-so default/CI binaries stay small. OS/GUI faces are separate ([THI-307](https://linear.app/thicclatka/issue/THI-307);
+**Font packs:** default sealed set = Liberation sans/serif/mono. Opt in with
+`--features icons` for Font Awesome Free (Solid / Regular / Brands) as
+`FaceId::IconSolid` / `IconRegular` / `IconBrands`. Large script packs stay
+behind `cjk` / `emoji` so default binaries stay small. OS/GUI faces are separate
+([THI-307](https://linear.app/thicclatka/issue/THI-307);
 pack layout [THI-308](https://linear.app/thicclatka/issue/THI-308)).
 
 ```bash
 mise trust   # rust 1.95 via .mise.toml
 cargo test
+cargo test --features icons
 cargo clippy --all-targets -- -D warnings
 cargo run --example prose
 # tmp/hello_world.pdf, tmp/prose_sample.pdf, tmp/prose_example.pdf
 ```
 
-CI (`.github/workflows/ci.yml`): `cargo fmt --check`, clippy `-D warnings`, and `cargo test`
-(including SHA-256 fixtures in `tests/determinism.rs`).
+CI (`.github/workflows/ci.yml`): `cargo fmt --check`, clippy `-D warnings`, and
+`cargo test` (+ `--features icons`), including SHA-256 fixtures in
+`tests/determinism.rs`.
 
 ## API
 

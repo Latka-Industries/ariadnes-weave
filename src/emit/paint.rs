@@ -8,7 +8,7 @@ use crate::profile::ProfileMetrics;
 
 use super::types::{LaidItem, LaidTable, SubsetMap};
 
-/// Resource name bytes for image XObject `Im{idx}`.
+/// Resource name bytes for image `XObject` `Im{idx}`.
 pub(super) fn image_resource_name(idx: usize) -> Vec<u8> {
     format!("Im{idx}").into_bytes()
 }
