@@ -110,6 +110,54 @@ impl LaidTable {
     }
 }
 
+/// One drawn element inside a [`LaidMath`] box (coords from the box top).
+#[derive(Debug, Clone)]
+pub(super) enum LaidMathEl {
+    /// Glyph run; `y` is the text baseline distance from the box top.
+    Text {
+        x: f32,
+        y: f32,
+        face: FaceRef,
+        font_size: f32,
+        glyphs: Vec<ShapedGlyph>,
+    },
+    /// Horizontal rule; `y` is the stroke midline from the box top.
+    Rule {
+        x: f32,
+        y: f32,
+        width: f32,
+        thickness: f32,
+    },
+    /// Stroked stretchy parenthesis; `axis_y` is the math-axis distance from the box top.
+    Paren {
+        x: f32,
+        axis_y: f32,
+        half_h: f32,
+        width: f32,
+        thickness: f32,
+        left: bool,
+    },
+    /// Geometric arrow; `y` is the shaft midline from the box top.
+    Arrow {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        thickness: f32,
+        left: bool,
+    },
+}
+
+/// Structured math formula (fractions, scripts, matrices).
+#[derive(Debug, Clone)]
+pub(super) struct LaidMath {
+    pub width: f32,
+    pub height: f32,
+    pub center: bool,
+    pub gap_after: f32,
+    pub elements: Vec<LaidMathEl>,
+}
+
 /// One paint/pagination unit on a page.
 #[derive(Debug, Clone)]
 pub(super) enum LaidItem {
@@ -121,6 +169,7 @@ pub(super) enum LaidItem {
         glue_after: bool,
     },
     Table(LaidTable),
+    Math(LaidMath),
 }
 
 impl LaidItem {
@@ -130,6 +179,7 @@ impl LaidItem {
             Self::Text(line) => line.leading,
             Self::Image { height, .. } => *height + 8.0,
             Self::Table(table) => table.height(),
+            Self::Math(math) => math.height + math.gap_after,
         }
     }
 
@@ -138,7 +188,7 @@ impl LaidItem {
         match self {
             Self::Text(line) => line.glue_after,
             Self::Image { glue_after, .. } => *glue_after,
-            Self::Table(_) => false,
+            Self::Table(_) | Self::Math(_) => false,
         }
     }
 
@@ -146,7 +196,7 @@ impl LaidItem {
         match self {
             Self::Text(line) => line.glue_after = glue,
             Self::Image { glue_after, .. } => *glue_after = glue,
-            Self::Table(_) => {}
+            Self::Table(_) | Self::Math(_) => {}
         }
     }
 }

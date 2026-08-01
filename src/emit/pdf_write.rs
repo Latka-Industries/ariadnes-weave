@@ -201,7 +201,7 @@ impl WritePageDictArgs<'_> {
             .iter()
             .filter_map(|item| match item {
                 LaidItem::Image { img_idx, .. } => Some(*img_idx),
-                LaidItem::Text(_) | LaidItem::Table(_) => None,
+                LaidItem::Text(_) | LaidItem::Table(_) | LaidItem::Math(_) => None,
             })
             .collect();
 
@@ -242,6 +242,13 @@ pub(super) fn remap_pages(pages: &mut [Vec<LaidItem>], subsets: &SubsetMap) {
                         }
                     }
                 }
+                LaidItem::Math(math) => {
+                    for el in &mut math.elements {
+                        if let super::types::LaidMathEl::Text { face, glyphs, .. } = el {
+                            remap_glyphs(*face, glyphs, subsets);
+                        }
+                    }
+                }
                 LaidItem::Image { .. } => {}
             }
         }
@@ -250,10 +257,18 @@ pub(super) fn remap_pages(pages: &mut [Vec<LaidItem>], subsets: &SubsetMap) {
 
 fn remap_line(line: &mut LaidLine, subsets: &SubsetMap) {
     for span in &mut line.spans {
-        if let Some(subset) = subsets.get(&span.face) {
-            for g in &mut span.glyphs {
-                *g = subset.remap_glyph(*g);
-            }
+        remap_glyphs(span.face, &mut span.glyphs, subsets);
+    }
+}
+
+fn remap_glyphs(
+    face: crate::font::FaceRef,
+    glyphs: &mut [crate::font::ShapedGlyph],
+    subsets: &SubsetMap,
+) {
+    if let Some(subset) = subsets.get(&face) {
+        for g in glyphs {
+            *g = subset.remap_glyph(*g);
         }
     }
 }

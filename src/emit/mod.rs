@@ -2,7 +2,7 @@
 //!
 //! Stages: layout (`layout`) → pagination (`paginate`) → glyph subset remap
 //! (`pdf_write`) → page content paint (`paint`) → PDF objects (`pdf_write`).
-//! Math token prettify lives in [`math`]; laid item types in [`types`].
+//! Structured math layout lives in [`math`]; laid item types in [`types`].
 
 mod layout;
 mod math;

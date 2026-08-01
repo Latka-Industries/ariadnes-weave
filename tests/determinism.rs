@@ -29,6 +29,29 @@ fn hello_doc() -> PrintDocument {
     }
 }
 
+fn quadratic_formula_doc() -> PrintDocument {
+    PrintDocument {
+        meta: PrintMeta {
+            title: "Quadratic".into(),
+            doc_kind: "note".into(),
+            language: Some("en".into()),
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![
+            PrintBlock::Heading {
+                level: 1,
+                runs: vec![TextRun::plain("Quadratic formula")],
+                break_before: BreakHint::None,
+            },
+            PrintBlock::Math {
+                display: true,
+                latex: r"x = \frac{-b \pm \sqrt{b^{2} - 4ac}}{2a}".into(),
+            },
+        ],
+    }
+}
+
 fn manuscript_two_chapters() -> PrintDocument {
     PrintDocument {
         meta: PrintMeta {
@@ -71,11 +94,15 @@ fn sha256_hex(bytes: &[u8]) -> String {
 
 /// Pin: bump intentionally when emit layout/fonts change.
 const HELLO_PRINT_V0_SHA256: &str =
-    "35e551b906e9f17549ab22b907b29cb9f4ae945c34c1288a8c9c3bac7b86da3a";
+    "78dff97ab02e9241abb08162fced533cdcfc80e2723f0480232ed89f4095bd71";
 
 /// Pin: bump intentionally when emit layout/fonts change.
 const MANUSCRIPT_TWO_CHAPTER_SHA256: &str =
-    "4a43228d8f93922ecc43f791d4773d949715713416ddfc0a9f4740acf08015e0";
+    "22ec4075c78b2651784b9a751a8fce66ab2a2f7507cc587272c383a989f1113a";
+
+/// Pin: bump intentionally when math box layout changes.
+const QUADRATIC_FORMULA_SHA256: &str =
+    "39f2ba38bd622f8ca627a441832a0b30a85231067c4b471afbfd0395b40e06c8";
 
 #[test]
 fn emit_is_byte_identical_across_runs() {
@@ -102,4 +129,12 @@ fn manuscript_h1_starts_new_page() {
         "manuscript@0 should page-break before second H1; got {page_dicts} page dicts"
     );
     assert_eq!(sha256_hex(&bytes), MANUSCRIPT_TWO_CHAPTER_SHA256);
+}
+
+#[test]
+fn quadratic_formula_sha256_fixture() {
+    let a = emit_pdf(&quadratic_formula_doc()).expect("emit a");
+    let b = emit_pdf(&quadratic_formula_doc()).expect("emit b");
+    assert_eq!(a, b, "math PDF must be deterministic");
+    assert_eq!(sha256_hex(&a), QUADRATIC_FORMULA_SHA256);
 }

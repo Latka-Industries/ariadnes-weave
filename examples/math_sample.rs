@@ -1,0 +1,141 @@
+//! Emit a titled math corpus PDF to `tmp/thi310_math_sample.pdf`.
+//!
+//! ```bash
+//! cargo run --example math_sample
+//! # or: mise samples
+//! ```
+
+use ariadnes_weave::{
+    BreakHint, PrintBlock, PrintDocument, PrintMeta, PrintProfileId, TextRun, emit_pdf,
+};
+
+fn h1(text: &str) -> PrintBlock {
+    PrintBlock::Heading {
+        level: 1,
+        runs: vec![TextRun::plain(text)],
+        break_before: BreakHint::None,
+    }
+}
+
+fn h2(text: &str) -> PrintBlock {
+    PrintBlock::Heading {
+        level: 2,
+        runs: vec![TextRun::plain(text)],
+        break_before: BreakHint::None,
+    }
+}
+
+fn note(text: &str) -> PrintBlock {
+    PrintBlock::Paragraph {
+        runs: vec![TextRun::plain(text)],
+    }
+}
+
+fn math(latex: &str) -> PrintBlock {
+    PrintBlock::Math {
+        display: true,
+        latex: latex.into(),
+    }
+}
+
+fn push_case(blocks: &mut Vec<PrintBlock>, title: &str, source: &str, latex: &str) {
+    blocks.push(h2(title));
+    blocks.push(note(source));
+    blocks.push(math(latex));
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut blocks = vec![
+        h1("THI-310 math sample"),
+        note("Each section is one layout case. Source LaTeX is in the note under the title."),
+    ];
+
+    let cases = [
+        ("1. Simple superscript", "Source: E = mc^{2}", r"E = mc^{2}"),
+        (
+            "2. Multi-char scripts",
+            "Source: a^{10} + b_{ij} + x^{n+1}",
+            r"a^{10} + b_{ij} + x^{n+1}",
+        ),
+        ("3. Plain fraction", r"Source: \frac{a}{b}", r"\frac{a}{b}"),
+        (
+            "4. Fraction with scripts",
+            r"Source: \frac{a^{10}}{b_{ij}}",
+            r"\frac{a^{10}}{b_{ij}}",
+        ),
+        (
+            "5. Quadratic formula",
+            r"Source: x = \frac{-b \pm \sqrt{b^{2} - 4ac}}{2a}",
+            r"x = \frac{-b \pm \sqrt{b^{2} - 4ac}}{2a}",
+        ),
+        (
+            "6. Greek in a fraction",
+            r"Source: \frac{\alpha + \beta}{\gamma}",
+            r"\frac{\alpha + \beta}{\gamma}",
+        ),
+        (
+            "7. Greek and operators (flat)",
+            r"Source: \alpha + \beta = \gamma \leq \theta \rightarrow \infty",
+            r"\alpha + \beta = \gamma \leq \theta \rightarrow \infty",
+        ),
+        (
+            "8. Sum with scripts + fraction",
+            r"Source: \sum_{i=1}^{n} i = \frac{n(n+1)}{2}",
+            r"\sum_{i=1}^{n} i = \frac{n(n+1)}{2}",
+        ),
+        (
+            "9. Undelimited matrix",
+            r"Source: \begin{matrix} 1 & 0 \\ 0 & 1 \end{matrix}",
+            r"\begin{matrix} 1 & 0 \\ 0 & 1 \end{matrix}",
+        ),
+        (
+            "10. pmatrix 2×2",
+            r"Source: \begin{pmatrix} a & b \\ c & d \end{pmatrix}",
+            r"\begin{pmatrix} a & b \\ c & d \end{pmatrix}",
+        ),
+        (
+            "11. pmatrix 3×3",
+            r"Source: \begin{pmatrix} 1 & 2 & 3 \\ 4 & 5 & 6 \\ 7 & 8 & 9 \end{pmatrix}",
+            r"\begin{pmatrix} 1 & 2 & 3 \\ 4 & 5 & 6 \\ 7 & 8 & 9 \end{pmatrix}",
+        ),
+        (
+            "12. Fraction of a pmatrix",
+            r"Source: M = \frac{1}{2}\begin{pmatrix} a & b \\ c & d \end{pmatrix}",
+            r"M = \frac{1}{2}\begin{pmatrix} a & b \\ c & d \end{pmatrix}",
+        ),
+        (
+            "13. Polynomial with scripts",
+            "Source: f(x) = x^{2} + 2x + 1",
+            r"f(x) = x^{2} + 2x + 1",
+        ),
+    ];
+    for (title, source, latex) in cases {
+        push_case(&mut blocks, title, source, latex);
+    }
+
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "THI-310 math sample".into(),
+            doc_kind: "note".into(),
+            language: Some("en".into()),
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks,
+    };
+
+    let bytes = emit_pdf(&doc)?;
+    std::fs::create_dir_all("tmp")?;
+    let out = "tmp/thi310_math_sample.pdf";
+    std::fs::write(out, &bytes)?;
+    println!(
+        "wrote {out} ({} bytes, {})",
+        bytes.len(),
+        if bytes.starts_with(b"%PDF-") {
+            "valid magic"
+        } else {
+            "missing magic"
+        }
+    );
+    Ok(())
+}

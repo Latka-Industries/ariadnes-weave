@@ -1,2 +1,13 @@
 [tools]
 rust = "1.95"
+
+[tasks.samples]
+description = "Regenerate sample PDFs under tmp/"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+mkdir -p tmp
+cargo run --quiet --example prose
+cargo run --quiet --example math_sample
+cargo test --quiet --test hello_world --test prose_sample -- --nocapture
+"""

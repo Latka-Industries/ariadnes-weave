@@ -1,12 +1,13 @@
 //! Build PDF content streams from laid items (text, images, tables).
 
+use pdf_writer::types::LineCapStyle;
 use pdf_writer::{Content, Name, Str};
 
 use crate::error::WeaveError;
 use crate::font::{FaceId, FaceRef, FontBag, encode_gids, shape_text, shaped_width};
 use crate::profile::ProfileMetrics;
 
-use super::types::{LaidItem, LaidTable, SubsetMap};
+use super::types::{LaidItem, LaidMath, LaidMathEl, LaidTable, SubsetMap};
 
 /// Resource name bytes for image `XObject` `Im{idx}`.
 pub(super) fn image_resource_name(idx: usize) -> Vec<u8> {
@@ -79,6 +80,20 @@ pub(super) fn build_page_content(
                 }
                 paint_table(&mut content, table, metrics.margin, y, fonts);
                 y -= table_h + table.gap_after;
+            }
+            LaidItem::Math(math) => {
+                if y - math.height < metrics.margin + 18.0 {
+                    break;
+                }
+                paint_math(
+                    &mut content,
+                    math,
+                    metrics.margin,
+                    y,
+                    metrics.content_width(),
+                    fonts,
+                );
+                y -= math.height + math.gap_after;
             }
         }
     }
@@ -171,4 +186,179 @@ pub(super) fn paint_table(
         }
         row_top -= row.height;
     }
+}
+
+/// Paint a structured math box; `top_y` is the top edge in PDF space.
+pub(super) fn paint_math(
+    content: &mut Content,
+    math: &LaidMath,
+    origin_x: f32,
+    top_y: f32,
+    content_width: f32,
+    fonts: &FontBag,
+) {
+    let origin_x = if math.center {
+        origin_x + (content_width - math.width) / 2.0
+    } else {
+        origin_x
+    };
+    for el in &math.elements {
+        match el {
+            LaidMathEl::Text {
+                x,
+                y,
+                face,
+                font_size,
+                glyphs,
+            } => {
+                let face_name = fonts.resource_name(*face);
+                content.begin_text();
+                content.set_font(Name(&face_name), *font_size);
+                content.set_text_matrix([1.0, 0.0, 0.0, 1.0, origin_x + x, top_y - y]);
+                content.show(Str(&encode_gids(glyphs)));
+                content.end_text();
+            }
+            LaidMathEl::Rule {
+                x,
+                y,
+                width,
+                thickness,
+            } => {
+                content.save_state();
+                content.set_stroke_gray(0.1);
+                content.set_line_width(*thickness);
+                let rule_y = top_y - y;
+                content.move_to(origin_x + x, rule_y);
+                content.line_to(origin_x + x + width, rule_y);
+                content.stroke();
+                content.restore_state();
+            }
+            LaidMathEl::Paren {
+                x,
+                axis_y,
+                half_h,
+                width,
+                thickness,
+                left,
+            } => {
+                paint_math_paren(
+                    content,
+                    origin_x + x,
+                    top_y - axis_y,
+                    *half_h,
+                    *width,
+                    *thickness,
+                    *left,
+                );
+            }
+            LaidMathEl::Arrow {
+                x,
+                y,
+                width,
+                height,
+                thickness,
+                left,
+            } => {
+                paint_math_arrow(
+                    content,
+                    origin_x + x,
+                    top_y - y,
+                    *width,
+                    *height,
+                    *thickness,
+                    *left,
+                );
+            }
+        }
+    }
+}
+
+fn paint_math_arrow(
+    content: &mut Content,
+    x: f32,
+    mid_y: f32,
+    width: f32,
+    height: f32,
+    thickness: f32,
+    left: bool,
+) {
+    let head_w = width * 0.32;
+    let head_h = height * 0.55;
+    let (tail_x, tip_x, head_base) = if left {
+        (x + width, x, x + head_w)
+    } else {
+        (x, x + width, x + width - head_w)
+    };
+    content.save_state();
+    content.set_stroke_gray(0.12);
+    content.set_fill_gray(0.12);
+    content.set_line_width(thickness);
+    content.set_line_cap(LineCapStyle::RoundCap);
+    content.move_to(tail_x, mid_y);
+    content.line_to(head_base, mid_y);
+    content.stroke();
+    content.move_to(tip_x, mid_y);
+    content.line_to(head_base, mid_y + head_h / 2.0);
+    content.line_to(head_base, mid_y - head_h / 2.0);
+    content.close_path();
+    content.fill_nonzero();
+    content.restore_state();
+}
+
+/// Stroke a stretchy parenthesis centered on `axis_y` (PDF space).
+fn paint_math_paren(
+    content: &mut Content,
+    x: f32,
+    axis_y: f32,
+    half_h: f32,
+    width: f32,
+    thickness: f32,
+    left: bool,
+) {
+    let top = axis_y + half_h;
+    let bot = axis_y - half_h;
+    let mid = axis_y;
+    content.save_state();
+    content.set_stroke_gray(0.12);
+    content.set_line_width(thickness);
+    content.set_line_cap(LineCapStyle::RoundCap);
+    if left {
+        content.move_to(x + width, top);
+        content.cubic_to(
+            x + width * 0.15,
+            top - half_h * 0.05,
+            x,
+            mid + half_h * 0.45,
+            x,
+            mid,
+        );
+        content.cubic_to(
+            x,
+            mid - half_h * 0.45,
+            x + width * 0.15,
+            bot + half_h * 0.05,
+            x + width,
+            bot,
+        );
+    } else {
+        content.move_to(x, top);
+        content.cubic_to(
+            x + width * 0.85,
+            top - half_h * 0.05,
+            x + width,
+            mid + half_h * 0.45,
+            x + width,
+            mid,
+        );
+        content.cubic_to(
+            x + width,
+            mid - half_h * 0.45,
+            x + width * 0.85,
+            bot + half_h * 0.05,
+            x,
+            bot,
+        );
+    }
+    content.stroke();
+    content.restore_state();
 }

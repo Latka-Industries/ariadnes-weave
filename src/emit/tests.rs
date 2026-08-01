@@ -56,6 +56,36 @@ fn emits_pdf_magic() {
 }
 
 #[test]
+fn prose_word_spacing_is_wider_than_glued_words() {
+    use crate::font::{FaceId, FaceRef, FontBag, shape_text, shaped_width};
+
+    let fonts = FontBag::from_pinned(&Default::default()).expect("fonts");
+    let face = FaceRef::Bundled(FaceId::SansRegular);
+    // Layout keeps trailing spaces from wrap chunks; glued words must be narrower.
+    let spaced = shaped_width(&shape_text(&fonts, face, "Hello world", 12.0).expect("shape"));
+    let glued = shaped_width(&shape_text(&fonts, face, "Helloworld", 12.0).expect("shape"));
+    assert!(
+        spaced > glued + 1.0,
+        "expected inter-word space advance: spaced={spaced} glued={glued}"
+    );
+
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "Spaces".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::Paragraph {
+            runs: vec![TextRun::plain("Hello world from weave")],
+        }],
+    };
+    let bytes = emit_pdf(&doc).expect("emit");
+    assert!(bytes.starts_with(b"%PDF-"));
+}
+
+#[test]
 fn emit_pdf_with_bundled_only_matches_emit_pdf() {
     let doc = hello_doc();
     let a = emit_pdf(&doc).expect("emit");
@@ -459,6 +489,48 @@ fn math_prettify_and_emit() {
     assert!(bytes.starts_with(b"%PDF-"));
     let s = String::from_utf8_lossy(&bytes);
     assert!(s.contains("LiberationSans-Italic") || s.contains("LiberationSerif-Italic"));
+}
+
+#[test]
+fn math_frac_draws_rule() {
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "Frac".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::Math {
+            display: true,
+            latex: r"\frac{a^{10}}{b_{ij}}".into(),
+        }],
+    };
+    let bytes = emit_pdf(&doc).expect("emit frac");
+    assert!(bytes.starts_with(b"%PDF-"));
+    let s = String::from_utf8_lossy(&bytes);
+    // Fraction bar uses a stroked path (line width + move/line).
+    assert!(s.contains(" m"), "expected path move in content stream");
+    assert!(s.contains(" l"), "expected path line in content stream");
+}
+
+#[test]
+fn math_pmatrix_emits() {
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "Matrix".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::Math {
+            display: true,
+            latex: r"\begin{pmatrix} 1 & 0 \\ 0 & 1 \end{pmatrix}".into(),
+        }],
+    };
+    let bytes = emit_pdf(&doc).expect("emit matrix");
+    assert!(bytes.starts_with(b"%PDF-"));
 }
 
 #[test]
