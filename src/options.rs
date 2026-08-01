@@ -4,16 +4,22 @@ use std::collections::BTreeMap;
 
 /// How weave resolves font bytes during emit.
 ///
-/// CI and SHA fixtures use [`FontResolveMode::BundledOnly`]. Automatic OS
-/// fontconfig lookup is planned under THI-311; host pins work today.
+/// CI and SHA fixtures use [`FontResolveMode::BundledOnly`].
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum FontResolveMode {
     /// Only sealed/`include_bytes!` faces plus explicitly [`EmitOptions::pinned_faces`].
     ///
     /// Pinned faces are host-supplied bytes (GUI/OS loader), not an automatic
     /// system font scan — so fixtures stay deterministic when pins are fixed.
+    /// Unknown [`crate::TextRun::face`] ids error at emit time.
     #[default]
     BundledOnly,
+    /// Try explicit pins, then the OS font stack (`--features os-fonts`), then
+    /// fall back to sealed Liberation for the run's inline style.
+    ///
+    /// Without the `os-fonts` Cargo feature, emit returns a font error if this
+    /// mode is selected.
+    OsWithFallback,
 }
 
 /// Options for [`crate::emit_pdf_with`].
@@ -26,7 +32,8 @@ pub struct EmitOptions {
     pub fonts: FontResolveMode,
     /// Host-pinned TrueType faces keyed by stable id (sorted for determinism).
     ///
-    /// Reference from [`crate::TextRun::face`]. Unknown ids error at emit time.
+    /// Reference from [`crate::TextRun::face`]. Under
+    /// [`FontResolveMode::BundledOnly`], unknown ids error at emit time.
     pub pinned_faces: BTreeMap<String, Vec<u8>>,
 }
 
@@ -36,6 +43,15 @@ impl EmitOptions {
     pub fn bundled_only() -> Self {
         Self {
             fonts: FontResolveMode::BundledOnly,
+            pinned_faces: BTreeMap::new(),
+        }
+    }
+
+    /// OS lookup with Liberation fallback (requires `--features os-fonts`).
+    #[must_use]
+    pub fn os_with_fallback() -> Self {
+        Self {
+            fonts: FontResolveMode::OsWithFallback,
             pinned_faces: BTreeMap::new(),
         }
     }

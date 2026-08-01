@@ -17,10 +17,11 @@ mod tests;
 use pdf_writer::{Pdf, Ref, TextStr};
 
 use crate::error::WeaveError;
-use crate::font::{FaceId, FaceRef, FontBag, collect_glyph_set};
+use crate::font::{FaceId, FaceRef, collect_glyph_set};
 use crate::ir::PrintDocument;
-use crate::options::{EmitOptions, FontResolveMode};
+use crate::options::EmitOptions;
 use crate::profile;
+use crate::resolve_fonts::build_font_bag;
 
 use layout::collect_layout;
 use paginate::paginate_items;
@@ -30,7 +31,7 @@ use pdf_write::{
 };
 
 /// Emit PDF bytes from a print document using [`EmitOptions::default`]
-/// ([`FontResolveMode::BundledOnly`]).
+/// ([`crate::FontResolveMode::BundledOnly`]).
 ///
 /// # Errors
 ///
@@ -44,18 +45,16 @@ pub fn emit_pdf(doc: &PrintDocument) -> Result<Vec<u8>, WeaveError> {
 /// Resolves the profile, lays out blocks, paginates, subsets used faces, and
 /// writes a PDF 1.7 file with page-number footers.
 ///
-/// Today only [`FontResolveMode::BundledOnly`] is implemented (sealed Liberation
-/// / optional icon faces, plus [`EmitOptions::pinned_faces`]). OS fontconfig
-/// resolution is THI-311.
+/// Supports [`crate::FontResolveMode::BundledOnly`] (default) and
+/// [`crate::FontResolveMode::OsWithFallback`] (requires `--features os-fonts`).
 ///
 /// # Errors
 ///
 /// Returns [`WeaveError`] if the profile is unsupported, font
-/// subsetting/embedding fails, or an image cannot be decoded.
+/// subsetting/embedding fails, an image cannot be decoded, or OS mode is
+/// requested without the `os-fonts` feature.
 pub fn emit_pdf_with(doc: &PrintDocument, opts: &EmitOptions) -> Result<Vec<u8>, WeaveError> {
-    // Only sealed + pinned faces today; `OsWithFallback` will branch here (THI-311).
-    let FontResolveMode::BundledOnly = opts.fonts;
-    let fonts = FontBag::from_pinned(&opts.pinned_faces)?;
+    let fonts = build_font_bag(doc, opts)?;
 
     let metrics = profile::resolve_metrics(&doc.profile)?;
     let (segments, images, mut glyph_sets) = collect_layout(doc, &metrics, &fonts)?;
