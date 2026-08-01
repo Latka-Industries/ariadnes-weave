@@ -32,7 +32,7 @@ Not yet: real TeX/MathML layout, OS font provider, CJK/emoji sealed packs.
 | Math layout quality | THI-291 |
 | Deck page size / richer regions | THI-293 |
 | Literary pagination polish | THI-295 |
-| OS + GUI font provider (`EmitOptions` scaffold) | THI-307 |
+| OS font scan (pins work via `EmitOptions` today) | THI-307 |
 | Sealed `cjk` / `emoji` packs | THI-308 |
 | Real math layout | THI-310 |
 
@@ -67,6 +67,7 @@ use ariadnes_weave::{
     PrintMeta, PrintProfileId, TextRun,
 };
 // emit_pdf(&doc) == emit_pdf_with(&doc, &EmitOptions::bundled_only())
+// Pin a host-loaded TTF: opts.with_pinned_face("ui", bytes) + TextRun::pinned("…", "ui")
 
 let doc = PrintDocument {
     meta: PrintMeta {

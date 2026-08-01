@@ -1,7 +1,7 @@
 //! Display/inline math layout via a light LaTeX-token prettifier (not TeX).
 
 use crate::error::WeaveError;
-use crate::font::FaceId;
+use crate::font::{FaceId, FaceRef, FontBag};
 use crate::profile::ProfileMetrics;
 
 use super::types::{GlyphSets, LaidItem, LaidLine, LayoutSegment};
@@ -11,15 +11,16 @@ pub(super) fn layout_math(
     display: bool,
     latex: &str,
     metrics: &ProfileMetrics,
+    fonts: &FontBag,
     segments: &mut [LayoutSegment],
     glyph_sets: &mut GlyphSets,
 ) -> Result<(), WeaveError> {
     let pretty = prettify_latex_math(latex);
-    let face = if metrics.serif_body {
+    let face = FaceRef::Bundled(if metrics.serif_body {
         FaceId::SerifItalic
     } else {
         FaceId::SansItalic
-    };
+    });
     let font_size = if display {
         metrics.body_size * 1.15
     } else {
@@ -30,7 +31,7 @@ pub(super) fn layout_math(
     if display {
         seg.1.push(LaidItem::Text(LaidLine::gap(8.0)));
     }
-    let mut line = LaidLine::shaped(face, &pretty, font_size, leading, glyph_sets)?;
+    let mut line = LaidLine::shaped(fonts, face, &pretty, font_size, leading, glyph_sets)?;
     line.center = display;
     seg.1.push(LaidItem::Text(line));
     if display {

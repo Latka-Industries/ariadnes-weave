@@ -158,6 +158,143 @@ impl FaceId {
     }
 }
 
+/// Face used during layout/emit: sealed pack or a host-pinned TTF.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum FaceRef {
+    /// Built-in Liberation / optional icon face.
+    Bundled(FaceId),
+    /// Index into [`FontBag::pinned`] (stable order from sorted pin ids).
+    Pinned(u16),
+}
+
+impl From<FaceId> for FaceRef {
+    fn from(id: FaceId) -> Self {
+        Self::Bundled(id)
+    }
+}
+
+/// Sealed faces plus host-pinned TTFs for one emit.
+#[derive(Debug, Default)]
+pub struct FontBag {
+    /// `(id, ttf_bytes)` in sorted pin-id order.
+    pinned: Vec<(String, Vec<u8>)>,
+}
+
+impl FontBag {
+    /// Register pinned faces from a sorted map (BTreeMap → deterministic indices).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WeaveError::Font`] if a face cannot be parsed as TrueType.
+    pub fn from_pinned(
+        pinned: &std::collections::BTreeMap<String, Vec<u8>>,
+    ) -> Result<Self, WeaveError> {
+        let mut bag = Self::default();
+        for (id, bytes) in pinned {
+            bag.pin_face(id.clone(), bytes.clone())?;
+        }
+        Ok(bag)
+    }
+
+    /// Add a named TTF; returns its [`FaceRef::Pinned`] index.
+    ///
+    /// # Errors
+    ///
+    /// Duplicate ids, empty ids, or unparseable font bytes.
+    pub fn pin_face(
+        &mut self,
+        id: impl Into<String>,
+        bytes: Vec<u8>,
+    ) -> Result<FaceRef, WeaveError> {
+        let id = id.into();
+        if id.is_empty() {
+            return Err(WeaveError::Font("pinned face id must be non-empty".into()));
+        }
+        if self.pinned.iter().any(|(k, _)| k == &id) {
+            return Err(WeaveError::Font(format!("duplicate pinned face `{id}`")));
+        }
+        TtfFace::parse(&bytes, 0).map_err(|e| {
+            WeaveError::Font(format!("pinned face `{id}` is not a parseable TTF: {e:?}"))
+        })?;
+        let idx = u16::try_from(self.pinned.len())
+            .map_err(|_| WeaveError::Font("too many pinned faces (u16::MAX)".into()))?;
+        self.pinned.push((id, bytes));
+        Ok(FaceRef::Pinned(idx))
+    }
+
+    /// Resolve a pin id to a [`FaceRef`], if registered.
+    #[must_use]
+    pub fn resolve_pin(&self, id: &str) -> Option<FaceRef> {
+        self.pinned
+            .iter()
+            .position(|(k, _)| k == id)
+            .map(|i| FaceRef::Pinned(i as u16))
+    }
+
+    /// TrueType bytes for `face`.
+    ///
+    /// # Errors
+    ///
+    /// Unknown pinned index.
+    pub fn ttf_bytes(&self, face: FaceRef) -> Result<&[u8], WeaveError> {
+        match face {
+            FaceRef::Bundled(id) => Ok(id.ttf_bytes()),
+            FaceRef::Pinned(i) => self
+                .pinned
+                .get(usize::from(i))
+                .map(|(_, b)| b.as_slice())
+                .ok_or_else(|| WeaveError::Font(format!("unknown pinned face index {i}"))),
+        }
+    }
+
+    fn postscript_name(&self, face: FaceRef) -> String {
+        match face {
+            FaceRef::Bundled(id) => id.postscript_name().into(),
+            FaceRef::Pinned(i) => {
+                let raw = self
+                    .pinned
+                    .get(usize::from(i))
+                    .map(|(k, _)| k.as_str())
+                    .unwrap_or("pinned");
+                let safe: String = raw
+                    .chars()
+                    .map(|c| {
+                        if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                            c
+                        } else {
+                            '-'
+                        }
+                    })
+                    .collect();
+                format!("Pinned-{safe}")
+            }
+        }
+    }
+
+    /// PDF resource name bytes (`R`, `B`, … or `P0`, `P1`, …).
+    #[must_use]
+    pub fn resource_name(&self, face: FaceRef) -> Vec<u8> {
+        match face {
+            FaceRef::Bundled(id) => id.resource_name().to_vec(),
+            FaceRef::Pinned(i) => format!("P{i}").into_bytes(),
+        }
+    }
+
+    fn is_serif(&self, face: FaceRef) -> bool {
+        match face {
+            FaceRef::Bundled(id) => id.is_serif(),
+            FaceRef::Pinned(_) => false,
+        }
+    }
+
+    fn is_italic(&self, face: FaceRef) -> bool {
+        match face {
+            FaceRef::Bundled(id) => id.is_italic(),
+            FaceRef::Pinned(_) => false,
+        }
+    }
+}
+
 /// One shaped glyph with advance in PDF points (at the requested size).
 #[derive(Debug, Clone, Copy)]
 pub struct ShapedGlyph {
@@ -167,21 +304,22 @@ pub struct ShapedGlyph {
     pub advance: f32,
 }
 
-/// Shape `text` with a bundled face at `font_size` points.
+/// Shape `text` with a face from `fonts` at `font_size` points.
 ///
 /// # Errors
 ///
 /// Returns [`WeaveError::Font`] if the face cannot be parsed or shaped.
 pub fn shape_text(
-    face_id: FaceId,
+    fonts: &FontBag,
+    face: FaceRef,
     text: &str,
     font_size: f32,
 ) -> Result<Vec<ShapedGlyph>, WeaveError> {
-    let data = face_id.ttf_bytes();
+    let data = fonts.ttf_bytes(face)?;
     let rb = RbFace::from_slice(data, 0).ok_or_else(|| {
         WeaveError::Font(format!(
             "rustybuzz failed to parse {}",
-            face_id.postscript_name()
+            fonts.postscript_name(face)
         ))
     })?;
     let units = rb.units_per_em() as f32;
@@ -219,8 +357,16 @@ pub fn encode_gids(glyphs: &[ShapedGlyph]) -> Vec<u8> {
 }
 
 /// Collect glyph→unicode mapping from plain text (for `ToUnicode`).
-pub fn collect_glyph_set(face_id: FaceId, text: &str, into: &mut BTreeMap<u16, String>) {
-    let Ok(ttf) = TtfFace::parse(face_id.ttf_bytes(), 0) else {
+pub fn collect_glyph_set(
+    fonts: &FontBag,
+    face: FaceRef,
+    text: &str,
+    into: &mut BTreeMap<u16, String>,
+) {
+    let Ok(data) = fonts.ttf_bytes(face) else {
+        return;
+    };
+    let Ok(ttf) = TtfFace::parse(data, 0) else {
         return;
     };
     for ch in text.chars() {
@@ -259,21 +405,23 @@ impl PreparedSubset {
     }
 }
 
-/// Subset a bundled face to the glyphs in `glyph_set` (original GIDs).
+/// Subset a face to the glyphs in `glyph_set` (original GIDs).
 ///
 /// # Errors
 ///
 /// Returns [`WeaveError::Font`] if subsetting fails.
 pub fn prepare_subset(
-    face_id: FaceId,
+    fonts: &FontBag,
+    face: FaceRef,
     glyph_set: &BTreeMap<u16, String>,
 ) -> Result<PreparedSubset, WeaveError> {
     let mut remapper = GlyphRemapper::new();
     for &gid in glyph_set.keys() {
         remapper.remap(gid);
     }
-    let data = subsetter::subset(face_id.ttf_bytes(), 0, &remapper)
-        .map_err(|e| WeaveError::Font(format!("subset {}: {e}", face_id.postscript_name())))?;
+    let src = fonts.ttf_bytes(face)?;
+    let data = subsetter::subset(src, 0, &remapper)
+        .map_err(|e| WeaveError::Font(format!("subset {}: {e}", fonts.postscript_name(face))))?;
 
     let mut subset_glyphs = BTreeMap::new();
     for (&old, text) in glyph_set {
@@ -304,7 +452,7 @@ pub struct FontObjIds {
     pub data: Ref,
 }
 
-/// Write Type0 + `CIDFontType2` + descriptor + font file + `ToUnicode` for `face_id`.
+/// Write Type0 + `CIDFontType2` + descriptor + font file + `ToUnicode` for `face`.
 ///
 /// Embeds `font_data` (typically a subset) compressed. `glyph_set` must use the
 /// same GIDs as that file (Identity CID↔GID).
@@ -314,7 +462,8 @@ pub struct FontObjIds {
 /// Returns [`WeaveError::Font`] if the face cannot be parsed.
 pub fn write_embedded_font(
     pdf: &mut Pdf,
-    face_id: FaceId,
+    fonts: &FontBag,
+    face: FaceRef,
     font_data: &[u8],
     glyph_set: &BTreeMap<u16, String>,
     ids: FontObjIds,
@@ -324,7 +473,7 @@ pub fn write_embedded_font(
     let units = f32::from(ttf.units_per_em());
     let to_font_units = |v: f32| (v / units) * 1000.0;
 
-    let base_font = format!("AAAAAA+{}", face_id.postscript_name());
+    let base_font = format!("AAAAAA+{}", fonts.postscript_name(face));
 
     pdf.type0_font(ids.type0)
         .base_font(Name(base_font.as_bytes()))
@@ -353,9 +502,9 @@ pub fn write_embedded_font(
     }
 
     let mut flags = FontFlags::empty();
-    flags.set(FontFlags::SERIF, face_id.is_serif());
+    flags.set(FontFlags::SERIF, fonts.is_serif(face));
     flags.set(FontFlags::FIXED_PITCH, ttf.is_monospaced());
-    flags.set(FontFlags::ITALIC, face_id.is_italic());
+    flags.set(FontFlags::ITALIC, fonts.is_italic(face));
     flags.insert(FontFlags::SYMBOLIC);
 
     let global_bbox = ttf.global_bounding_box();
@@ -413,19 +562,18 @@ fn create_cmap(glyph_set: &BTreeMap<u16, String>) -> UnicodeCmap {
     cmap
 }
 
-/// Public resource name bytes for a face (for page resources / `set_font`).
-#[must_use]
-pub fn resource_name(face_id: FaceId) -> &'static [u8] {
-    face_id.resource_name()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn bag() -> FontBag {
+        FontBag::default()
+    }
+
     #[test]
     fn shapes_ascii() {
-        let glyphs = shape_text(FaceId::SansRegular, "Hello", 12.0).expect("shape");
+        let fonts = bag();
+        let glyphs = shape_text(&fonts, FaceId::SansRegular.into(), "Hello", 12.0).expect("shape");
         assert!(!glyphs.is_empty());
         assert!(shaped_width(&glyphs) > 0.0);
     }
@@ -450,17 +598,20 @@ mod tests {
 
     #[test]
     fn shapes_unicode_beyond_winansi() {
+        let fonts = bag();
         // Em-dash — previously rejected by Helvetica MVP path.
-        let glyphs = shape_text(FaceId::SansRegular, "a—b", 12.0).expect("shape");
+        let glyphs = shape_text(&fonts, FaceId::SansRegular.into(), "a—b", 12.0).expect("shape");
         assert!(glyphs.len() >= 3);
     }
 
     #[test]
     fn subset_is_much_smaller_than_full_face() {
+        let fonts = bag();
+        let face = FaceRef::Bundled(FaceId::SansRegular);
         let mut set = BTreeMap::new();
-        collect_glyph_set(FaceId::SansRegular, "Hello world", &mut set);
-        let prepared = prepare_subset(FaceId::SansRegular, &set).expect("subset");
-        let full = FaceId::SansRegular.ttf_bytes().len();
+        collect_glyph_set(&fonts, face, "Hello world", &mut set);
+        let prepared = prepare_subset(&fonts, face, &set).expect("subset");
+        let full = fonts.ttf_bytes(face).expect("bytes").len();
         assert!(
             prepared.data.len() * 10 < full,
             "subset {} vs full {full}",
@@ -468,33 +619,57 @@ mod tests {
         );
     }
 
+    #[test]
+    fn pinned_face_shapes_and_subsets() {
+        let mut fonts = FontBag::default();
+        let face = fonts
+            .pin_face(
+                "mono-pin",
+                include_bytes!("../fonts/LiberationMono-Regular.ttf").to_vec(),
+            )
+            .expect("pin");
+        let glyphs = shape_text(&fonts, face, "Pin", 12.0).expect("shape");
+        assert!(!glyphs.is_empty());
+        let mut set = BTreeMap::new();
+        collect_glyph_set(&fonts, face, "Pin", &mut set);
+        note_shaped_glyphs(&glyphs, &mut set);
+        let prepared = prepare_subset(&fonts, face, &set).expect("subset");
+        assert!(prepared.data.len() < fonts.ttf_bytes(face).expect("bytes").len());
+        assert_eq!(fonts.resource_name(face), b"P0");
+    }
+
     #[cfg(feature = "icons")]
     #[test]
     fn shapes_and_subsets_fa_solid_house() {
+        let fonts = bag();
+        let face = FaceRef::Bundled(FaceId::IconSolid);
         // Font Awesome Free 6 solid "house" (Private Use Area).
         const HOUSE: &str = "\u{f015}";
-        let glyphs = shape_text(FaceId::IconSolid, HOUSE, 16.0).expect("shape");
+        let glyphs = shape_text(&fonts, face, HOUSE, 16.0).expect("shape");
         assert_eq!(glyphs.len(), 1);
         assert_ne!(glyphs[0].gid, 0);
         assert!(shaped_width(&glyphs) > 0.0);
 
         let mut set = BTreeMap::new();
-        collect_glyph_set(FaceId::IconSolid, HOUSE, &mut set);
+        collect_glyph_set(&fonts, face, HOUSE, &mut set);
         note_shaped_glyphs(&glyphs, &mut set);
-        let prepared = prepare_subset(FaceId::IconSolid, &set).expect("subset");
+        let prepared = prepare_subset(&fonts, face, &set).expect("subset");
         let remapped = prepared.remap_glyph(glyphs[0]);
         assert_ne!(remapped.gid, 0);
-        assert!(prepared.data.len() < FaceId::IconSolid.ttf_bytes().len());
+        assert!(prepared.data.len() < fonts.ttf_bytes(face).expect("bytes").len());
     }
 
     #[cfg(feature = "icons")]
     #[test]
     fn shapes_fa_brands_and_regular() {
+        let fonts = bag();
         // Brands "github" / Regular "user" — common Free codepoints.
-        let brands = shape_text(FaceId::IconBrands, "\u{f09b}", 14.0).expect("brands");
+        let brands =
+            shape_text(&fonts, FaceId::IconBrands.into(), "\u{f09b}", 14.0).expect("brands");
         assert_eq!(brands.len(), 1);
         assert_ne!(brands[0].gid, 0);
-        let regular = shape_text(FaceId::IconRegular, "\u{f007}", 14.0).expect("regular");
+        let regular =
+            shape_text(&fonts, FaceId::IconRegular.into(), "\u{f007}", 14.0).expect("regular");
         assert_eq!(regular.len(), 1);
         assert_ne!(regular[0].gid, 0);
     }

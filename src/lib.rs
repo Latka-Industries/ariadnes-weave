@@ -17,7 +17,7 @@ mod profile;
 
 pub use emit::{emit_pdf, emit_pdf_with};
 pub use error::WeaveError;
-pub use font::FaceId;
+pub use font::{FaceId, FaceRef, FontBag};
 pub use ir::{
     BreakHint, FigurePlacement, InlineStyle, ListItem, PrintBlock, PrintDocument, PrintImage,
     PrintMeta, PrintProfileId, SlideRegionContent, TableRow, TextRun,

@@ -203,6 +203,12 @@ pub struct TextRun {
     pub text: String,
     /// Inline style flags; MVP emit may ignore most of these.
     pub style: InlineStyle,
+    /// Optional pin id matching [`crate::EmitOptions::pinned_faces`].
+    ///
+    /// When set, emit uses that host-supplied TTF instead of Liberation style
+    /// mapping. Unknown ids fail emit with [`crate::WeaveError::Font`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub face: Option<String>,
 }
 
 impl TextRun {
@@ -211,6 +217,16 @@ impl TextRun {
         Self {
             text: text.into(),
             style: InlineStyle::default(),
+            face: None,
+        }
+    }
+
+    /// Plain run that uses a pinned face id from [`crate::EmitOptions`].
+    pub fn pinned(text: impl Into<String>, face: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            style: InlineStyle::default(),
+            face: Some(face.into()),
         }
     }
 }

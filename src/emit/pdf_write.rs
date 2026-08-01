@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use pdf_writer::{Name, Pdf, Rect, Ref};
 
 use crate::error::WeaveError;
-use crate::font::{FaceId, FontObjIds, prepare_subset, resource_name, write_embedded_font};
+use crate::font::{FaceRef, FontBag, FontObjIds, prepare_subset, write_embedded_font};
 use crate::image_prep::PreparedImage;
 use crate::profile::ProfileMetrics;
 
@@ -13,10 +13,13 @@ use super::paint::{build_page_content, image_resource_name};
 use super::types::{GlyphSets, LaidItem, LaidLine, SubsetMap};
 
 /// Subset each face that contributed glyphs during layout.
-pub(super) fn prepare_subsets(glyph_sets: &GlyphSets) -> Result<SubsetMap, WeaveError> {
+pub(super) fn prepare_subsets(
+    fonts: &FontBag,
+    glyph_sets: &GlyphSets,
+) -> Result<SubsetMap, WeaveError> {
     let mut subsets = SubsetMap::new();
-    for (&face_id, set) in glyph_sets {
-        subsets.insert(face_id, prepare_subset(face_id, set)?);
+    for (&face, set) in glyph_sets {
+        subsets.insert(face, prepare_subset(fonts, face, set)?);
     }
     Ok(subsets)
 }
@@ -24,11 +27,12 @@ pub(super) fn prepare_subsets(glyph_sets: &GlyphSets) -> Result<SubsetMap, Weave
 /// Embed Type0 subsets; returns face → Type0 object ref (`BTreeMap` for determinism).
 pub(super) fn embed_fonts(
     pdf: &mut Pdf,
+    fonts: &FontBag,
     subsets: &SubsetMap,
     next_id: &mut i32,
-) -> Result<BTreeMap<FaceId, Ref>, WeaveError> {
+) -> Result<BTreeMap<FaceRef, Ref>, WeaveError> {
     let mut font_refs = BTreeMap::new();
-    for (&face_id, subset) in subsets {
+    for (&face, subset) in subsets {
         let ids = FontObjIds {
             type0: Ref::new(*next_id),
             cid: Ref::new(*next_id + 1),
@@ -37,8 +41,8 @@ pub(super) fn embed_fonts(
             data: Ref::new(*next_id + 4),
         };
         *next_id += 5;
-        write_embedded_font(pdf, face_id, &subset.data, &subset.glyph_set, ids)?;
-        font_refs.insert(face_id, ids.type0);
+        write_embedded_font(pdf, fonts, face, &subset.data, &subset.glyph_set, ids)?;
+        font_refs.insert(face, ids.type0);
     }
     Ok(font_refs)
 }
@@ -111,7 +115,8 @@ pub(super) struct WritePagesArgs<'a> {
     pub page_tree_id: Ref,
     pub page_ids: &'a [Ref],
     pub content_ids: &'a [Ref],
-    pub font_refs: &'a BTreeMap<FaceId, Ref>,
+    pub font_refs: &'a BTreeMap<FaceRef, Ref>,
+    pub fonts: &'a FontBag,
     pub image_refs: &'a [(Ref, Option<Ref>)],
     pub subsets: &'a SubsetMap,
 }
@@ -127,6 +132,7 @@ impl WritePagesArgs<'_> {
             page_ids,
             content_ids,
             font_refs,
+            fonts,
             image_refs,
             subsets,
         } = self;
@@ -145,12 +151,19 @@ impl WritePagesArgs<'_> {
                 page_tree_id,
                 metrics,
                 font_refs,
+                fonts,
                 image_refs,
                 page_items,
             }
             .run();
-            let content_bytes =
-                build_page_content(page_items, metrics, page_idx + 1, page_count, subsets)?;
+            let content_bytes = build_page_content(
+                page_items,
+                metrics,
+                page_idx + 1,
+                page_count,
+                fonts,
+                subsets,
+            )?;
             pdf.stream(content_id, &content_bytes);
         }
         Ok(())
@@ -164,7 +177,8 @@ pub(super) struct WritePageDictArgs<'a> {
     pub content_id: Ref,
     pub page_tree_id: Ref,
     pub metrics: &'a ProfileMetrics,
-    pub font_refs: &'a BTreeMap<FaceId, Ref>,
+    pub font_refs: &'a BTreeMap<FaceRef, Ref>,
+    pub fonts: &'a FontBag,
     pub image_refs: &'a [(Ref, Option<Ref>)],
     pub page_items: &'a [LaidItem],
 }
@@ -179,6 +193,7 @@ impl WritePageDictArgs<'_> {
             page_tree_id,
             metrics,
             font_refs,
+            fonts,
             image_refs,
             page_items,
         } = self;
@@ -196,9 +211,10 @@ impl WritePageDictArgs<'_> {
         page.contents(content_id);
         let mut resources = page.resources();
         {
-            let mut fonts = resources.fonts();
-            for (face_id, type0) in font_refs {
-                fonts.pair(Name(resource_name(*face_id)), *type0);
+            let mut font_res = resources.fonts();
+            for (face, type0) in font_refs {
+                let name = fonts.resource_name(*face);
+                font_res.pair(Name(&name), *type0);
             }
         }
         if !used_images.is_empty() {
