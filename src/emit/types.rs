@@ -128,6 +128,24 @@ pub(super) enum LaidMathEl {
         width: f32,
         thickness: f32,
     },
+    /// Stroked stretchy parenthesis; `axis_y` is the math-axis distance from the box top.
+    Paren {
+        x: f32,
+        axis_y: f32,
+        half_h: f32,
+        width: f32,
+        thickness: f32,
+        left: bool,
+    },
+    /// Geometric arrow; `y` is the shaft midline from the box top.
+    Arrow {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        thickness: f32,
+        left: bool,
+    },
 }
 
 /// Structured math formula (fractions, scripts, matrices).

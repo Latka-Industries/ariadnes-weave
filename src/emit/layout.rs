@@ -480,8 +480,9 @@ fn wrap_plain_text(
     while !remaining.is_empty() {
         let (chunk, rest) = next_wrap_chunk(remaining);
         remaining = rest;
-        let chunk = chunk.trim_end();
-        if chunk.is_empty() {
+        // Keep trailing spaces so inter-word advances are shaped; drop
+        // whitespace-only chunks at the start of a line.
+        if current.is_empty() && skip_wrap_chunk_at_line_start(chunk) {
             continue;
         }
         let glyphs = shape_text(fonts, face, chunk, font_size)?;
@@ -495,6 +496,9 @@ fn wrap_plain_text(
                 center: false,
             });
             current_width = 0.0;
+            if skip_wrap_chunk_at_line_start(chunk) {
+                continue;
+            }
         }
         if w > max_width && current.is_empty() {
             for piece in hard_break_text(fonts, face, chunk, font_size, max_width)? {
@@ -722,8 +726,9 @@ pub(super) fn push_styled_runs(
         while !remaining.is_empty() {
             let (chunk, rest) = next_wrap_chunk(remaining);
             remaining = rest;
-            let chunk = chunk.trim_end();
-            if chunk.is_empty() {
+            // Keep trailing spaces so inter-word advances are shaped; drop
+            // whitespace-only chunks at the start of a line.
+            if current_spans.is_empty() && skip_wrap_chunk_at_line_start(chunk) {
                 continue;
             }
             let glyphs = shape_text(fonts, face, chunk, layout.font_size)?;
@@ -731,6 +736,9 @@ pub(super) fn push_styled_runs(
             if current_width + w > max_width && !current_spans.is_empty() {
                 flush_line(&mut current_spans, out, false);
                 current_width = 0.0;
+                if skip_wrap_chunk_at_line_start(chunk) {
+                    continue;
+                }
             }
             if w > max_width && current_spans.is_empty() {
                 // Hard-break tokens wider than the content box (URLs, long code).
@@ -821,6 +829,11 @@ fn hard_break_text(
         pieces.push(String::new());
     }
     Ok(pieces)
+}
+
+/// True when `chunk` should not start a new line (leading / orphan whitespace).
+fn skip_wrap_chunk_at_line_start(chunk: &str) -> bool {
+    chunk.is_empty() || chunk.chars().all(char::is_whitespace)
 }
 
 /// Take the next whitespace-delimited chunk (word + trailing spaces).

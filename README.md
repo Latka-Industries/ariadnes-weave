@@ -62,7 +62,7 @@ cargo test
 cargo test --features icons
 cargo clippy --all-targets -- -D warnings
 cargo run --example prose
-# tmp/hello_world.pdf, tmp/prose_sample.pdf, tmp/prose_example.pdf
+mise samples   # regenerates tmp/*.pdf (prose, math, hello, prose_sample, …)
 ```
 
 CI (`.github/workflows/ci.yml`, same layout as Tessera): fmt / clippy / test on

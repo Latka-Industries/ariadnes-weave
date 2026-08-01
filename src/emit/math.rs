@@ -8,6 +8,7 @@ use crate::font::{
     shaped_width,
 };
 use crate::profile::ProfileMetrics;
+use ttf_parser::Face as TtfFace;
 
 use super::types::{GlyphSets, LaidItem, LaidLine, LaidMath, LaidMathEl, LayoutSegment};
 
@@ -233,7 +234,7 @@ fn flatten(expr: MathExpr) -> MathExpr {
                 .map(|r| r.into_iter().map(flatten).collect())
                 .collect(),
         },
-        other => other,
+        MathExpr::Ord(text) => MathExpr::Ord(text),
     }
 }
 
@@ -323,7 +324,7 @@ impl Parser {
 
     fn at_seq_stop(&self) -> bool {
         match self.peek() {
-            None | Some('}') | Some('&') => true,
+            None | Some('}' | '&') => true,
             Some('\\') => self.starts_with("\\\\") || self.starts_with("\\end"),
             _ => false,
         }
@@ -481,6 +482,84 @@ impl Parser {
 
 // --- Box layout ------------------------------------------------------------
 
+/// Math axis above the baseline (TeX-ish); fraction bars and big ops share this.
+fn math_axis(font_size: f32) -> f32 {
+    font_size * 0.25
+}
+
+/// Convert math units (18 mu = 1 em ≈ `font_size`) to PDF points.
+fn mu(font_size: f32, n: f32) -> f32 {
+    font_size * n / 18.0
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AtomKind {
+    Ord,
+    Bin,
+    Rel,
+    Open,
+    Close,
+    Op,
+    /// Delimited matrix / similar “inner” atom (needs pad outside fences).
+    Inner,
+}
+
+fn atom_kind(expr: &MathExpr) -> AtomKind {
+    match expr {
+        MathExpr::Ord(text) => classify_symbol(text),
+        MathExpr::Scripts { base, .. } => atom_kind(base),
+        MathExpr::Matrix {
+            delimited: true, ..
+        } => AtomKind::Inner,
+        MathExpr::Row(_) | MathExpr::Frac(_, _) | MathExpr::Matrix { .. } => AtomKind::Ord,
+    }
+}
+
+fn classify_symbol(text: &str) -> AtomKind {
+    match text.trim() {
+        "+" | "-" | "−" | "±" | "×" | "·" => AtomKind::Bin,
+        // ∞ grouped with relations for spacing; drawn upright like arrows.
+        "=" | "≤" | "≥" | "≠" | "≈" | "→" | "←" | "⇒" | "∞" => AtomKind::Rel,
+        "(" | "[" | "{" => AtomKind::Open,
+        ")" | "]" | "}" => AtomKind::Close,
+        "∑" | "∏" | "∫" => AtomKind::Op,
+        _ => AtomKind::Ord,
+    }
+}
+
+/// TeX-like inter-atom space in mu (0 = tight).
+fn space_mu(left: AtomKind, right: AtomKind) -> f32 {
+    use AtomKind::{Bin, Close, Inner, Op, Open, Ord, Rel};
+    match (left, right) {
+        // Pad around delimited matrices (covers most Inner-* / *-Inner pairs).
+        (Ord | Bin | Rel | Op | Close, Inner) | (Inner, Ord | Bin | Rel | Op | Close) => 3.5,
+        (Ord | Close, Bin) | (Bin, Ord | Open) => 4.0,
+        (Ord | Close | Op | Bin, Rel) | (Rel, Ord | Open | Op | Bin) => 5.0,
+        (Ord | Close, Op) | (Op, Ord | Open) => 3.0,
+        // Subtle pad outside `(…)`; Inner→Open is the remaining Inner case.
+        (Ord | Inner, Open) | (Close, Open | Ord) => 2.0,
+        _ => 0.0,
+    }
+}
+
+/// Unary minus / plus: Bin at list start or after Bin/Rel/Open/Op → Ord.
+fn normalize_row_kinds(items: &[MathExpr]) -> Vec<AtomKind> {
+    let mut kinds: Vec<AtomKind> = items.iter().map(atom_kind).collect();
+    for i in 0..kinds.len() {
+        if kinds[i] != AtomKind::Bin {
+            continue;
+        }
+        let unary = match i.checked_sub(1).map(|j| kinds[j]) {
+            None | Some(AtomKind::Bin | AtomKind::Rel | AtomKind::Open | AtomKind::Op) => true,
+            Some(_) => false,
+        };
+        if unary {
+            kinds[i] = AtomKind::Ord;
+        }
+    }
+    kinds
+}
+
 #[derive(Debug, Clone)]
 struct MathBox {
     width: f32,
@@ -506,6 +585,24 @@ enum RelEl {
         y: f32,
         width: f32,
         thickness: f32,
+    },
+    /// Stroked paren; `axis` is the math-axis offset from the baseline.
+    Paren {
+        x: f32,
+        axis: f32,
+        half_h: f32,
+        width: f32,
+        thickness: f32,
+        left: bool,
+    },
+    /// Geometric arrow; `y` is the shaft midline relative to the baseline.
+    Arrow {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        thickness: f32,
+        left: bool,
     },
 }
 
@@ -536,10 +633,44 @@ impl RelEl {
                 width,
                 thickness,
             },
+            Self::Paren {
+                x,
+                axis,
+                half_h,
+                width,
+                thickness,
+                left,
+            } => Self::Paren {
+                x: x + dx,
+                axis: axis + dy,
+                half_h,
+                width,
+                thickness,
+                left,
+            },
+            Self::Arrow {
+                x,
+                y,
+                width,
+                height,
+                thickness,
+                left,
+            } => Self::Arrow {
+                x: x + dx,
+                y: y + dy,
+                width,
+                height,
+                thickness,
+                left,
+            },
         }
     }
 
     fn into_laid(self, top: f32) -> LaidMathEl {
+        /// Baseline-relative `y` → distance from the box top (PDF paint space).
+        fn from_top_y(top: f32, y: f32) -> f32 {
+            top - y
+        }
         match self {
             Self::Text {
                 x,
@@ -549,7 +680,7 @@ impl RelEl {
                 glyphs,
             } => LaidMathEl::Text {
                 x,
-                y: top - y,
+                y: from_top_y(top, y),
                 face,
                 font_size,
                 glyphs,
@@ -561,16 +692,66 @@ impl RelEl {
                 thickness,
             } => LaidMathEl::Rule {
                 x,
-                y: top - y,
+                y: from_top_y(top, y),
                 width,
                 thickness,
+            },
+            Self::Paren {
+                x,
+                axis,
+                half_h,
+                width,
+                thickness,
+                left,
+            } => LaidMathEl::Paren {
+                x,
+                axis_y: from_top_y(top, axis),
+                half_h,
+                width,
+                thickness,
+                left,
+            },
+            Self::Arrow {
+                x,
+                y,
+                width,
+                height,
+                thickness,
+                left,
+            } => LaidMathEl::Arrow {
+                x,
+                y: from_top_y(top, y),
+                width,
+                height,
+                thickness,
+                left,
             },
         }
     }
 }
 
+fn offset_elements(elements: Vec<RelEl>, dx: f32, dy: f32) -> Vec<RelEl> {
+    elements.into_iter().map(|el| el.offset(dx, dy)).collect()
+}
+
+/// Horizontal centering offset for content inside a container.
+fn h_center(container: f32, content: f32) -> f32 {
+    (container - content) / 2.0
+}
+
+fn paren_element(x: f32, axis: f32, half_h: f32, width: f32, thickness: f32, left: bool) -> RelEl {
+    RelEl::Paren {
+        x,
+        axis,
+        half_h,
+        width,
+        thickness,
+        left,
+    }
+}
+
 fn append_box(dst: &mut Vec<RelEl>, src: MathBox, dx: f32, dy: f32) {
-    dst.extend(src.elements.into_iter().map(|el| el.offset(dx, dy)));
+    dst.extend(offset_elements(src.elements, dx, dy));
 }
 
 fn shift_to_top_origin(math: MathBox) -> Vec<LaidMathEl> {
@@ -618,6 +799,63 @@ fn layout_opt(
         .transpose()
 }
 
+fn symbol_scale(text: &str) -> f32 {
+    match text.trim() {
+        "∑" | "∏" | "∫" => 1.35,
+        _ => 1.0,
+    }
+}
+
+fn upright_face(face: FaceRef) -> FaceRef {
+    match face {
+        FaceRef::Bundled(
+            FaceId::SerifRegular
+            | FaceId::SerifBold
+            | FaceId::SerifItalic
+            | FaceId::SerifBoldItalic,
+        ) => FaceRef::Bundled(FaceId::SerifRegular),
+        FaceRef::Bundled(_) => FaceRef::Bundled(FaceId::SansRegular),
+        other => other,
+    }
+}
+
+#[derive(Clone, Copy)]
+struct InkBox {
+    above: f32,
+    below: f32,
+}
+
+impl InkBox {
+    fn span(self) -> f32 {
+        self.above + self.below
+    }
+
+    fn center(self) -> f32 {
+        (self.above - self.below) / 2.0
+    }
+}
+
+fn char_ink(fonts: &FontBag, face: FaceRef, ch: char, font_size: f32) -> Option<InkBox> {
+    let data = fonts.ttf_bytes(face).ok()?;
+    let ttf = TtfFace::parse(data, 0).ok()?;
+    let gid = ttf.glyph_index(ch)?;
+    let bb = ttf.glyph_bounding_box(gid)?;
+    let scale = font_size / f32::from(ttf.units_per_em());
+    Some(InkBox {
+        above: f32::from(bb.y_max) * scale,
+        below: (-f32::from(bb.y_min) * scale).max(0.0),
+    })
+}
+
+fn letter_ink_ref(fonts: &FontBag, face: FaceRef, font_size: f32) -> InkBox {
+    char_ink(fonts, face, 'α', font_size)
+        .or_else(|| char_ink(fonts, face, 'x', font_size))
+        .unwrap_or(InkBox {
+            above: font_size * 0.5,
+            below: 0.0,
+        })
+}
+
 fn layout_ord(
     text: &str,
     fonts: &FontBag,
@@ -625,23 +863,93 @@ fn layout_ord(
     font_size: f32,
     glyph_sets: &mut GlyphSets,
 ) -> Result<MathBox, WeaveError> {
-    let text = if text.is_empty() { "\u{00A0}" } else { text };
-    let glyphs = shape_text(fonts, face, text, font_size)?;
-    let set = glyph_sets.entry(face).or_default();
-    collect_glyph_set(fonts, face, text, set);
-    note_shaped_glyphs(&glyphs, set);
-    Ok(MathBox {
-        width: shaped_width(&glyphs),
-        height: font_size * 0.75,
-        depth: font_size * 0.25,
-        elements: vec![RelEl::Text {
+    match text.trim() {
+        "←" => return Ok(layout_geo_arrow(fonts, face, font_size, true)),
+        "→" | "⇒" => return Ok(layout_geo_arrow(fonts, face, font_size, false)),
+        "∞" => return layout_infinity(fonts, face, font_size, glyph_sets),
+        _ => {}
+    }
+    let draw_size = font_size * symbol_scale(text);
+    let mut box_ = layout_ord_raw(text, fonts, face, draw_size, glyph_sets)?;
+    if classify_symbol(text) == AtomKind::Op {
+        let center = (box_.height - box_.depth) / 2.0;
+        let dy = math_axis(font_size) - center;
+        box_ = shift_box_vert(box_, dy);
+    }
+    Ok(box_)
+}
+
+/// Stroked arrow sized/centered to match surrounding letter ink (not the tiny → glyph).
+fn layout_geo_arrow(fonts: &FontBag, face: FaceRef, font_size: f32, left: bool) -> MathBox {
+    let ink = letter_ink_ref(fonts, face, font_size);
+    let height = ink.span().max(font_size * 0.35);
+    let width = font_size * 0.95;
+    let thickness = (font_size * 0.07).clamp(0.7, 1.4);
+    let y = ink.center();
+    MathBox {
+        width,
+        height: y + height / 2.0,
+        depth: (height / 2.0 - y).max(0.0),
+        elements: vec![RelEl::Arrow {
             x: 0.0,
-            y: 0.0,
-            face,
-            font_size,
-            glyphs,
+            y,
+            width,
+            height,
+            thickness,
+            left,
         }],
-    })
+    }
+}
+
+/// Upright ∞: ink-matched to letters, then optically enlarged / lowered / padded.
+fn layout_infinity(
+    fonts: &FontBag,
+    face: FaceRef,
+    font_size: f32,
+    glyph_sets: &mut GlyphSets,
+) -> Result<MathBox, WeaveError> {
+    let face_u = upright_face(face);
+    let reference = letter_ink_ref(fonts, face, font_size);
+    let probe = char_ink(fonts, face_u, '∞', font_size).unwrap_or(InkBox {
+        above: font_size * 0.35,
+        below: font_size * 0.05,
+    });
+    // ∞ reads optically small/light vs Greek; bump past geometric ink match.
+    let scale = if probe.span() > 0.01 {
+        (reference.span() / probe.span() * 1.22).clamp(1.2, 2.8)
+    } else {
+        1.65
+    };
+    let draw_size = font_size * scale;
+    let mut box_ = layout_ord_raw("∞", fonts, face_u, draw_size, glyph_sets)?;
+    if let Some(ink) = char_ink(fonts, face_u, '∞', draw_size) {
+        // Center-match, then nudge down — glyph centers sit optically high.
+        let dy = reference.center() - ink.center() - font_size * 0.05;
+        box_ = shift_box_vert(box_, dy);
+        box_.height = box_.height.max(ink.above + dy);
+        box_.depth = box_.depth.max((ink.below - dy).max(0.0));
+    }
+    // Tiny breath after → / before ∞ only (size/vertical already set).
+    let pad = mu(font_size, 0.9);
+    Ok(pad_box_h(box_, pad, pad))
+}
+
+fn shift_box_vert(box_: MathBox, dy: f32) -> MathBox {
+    MathBox {
+        width: box_.width,
+        height: (box_.height + dy).max(0.0),
+        depth: (box_.depth - dy).max(0.0),
+        elements: offset_elements(box_.elements, 0.0, dy),
+    }
+}
+
+fn pad_box_h(box_: MathBox, left: f32, right: f32) -> MathBox {
+    MathBox {
+        width: box_.width + left + right,
+        height: box_.height,
+        depth: box_.depth,
+        elements: offset_elements(box_.elements, left, 0.0),
+    }
 }
 
 fn layout_row(
@@ -654,14 +962,18 @@ fn layout_row(
     if items.is_empty() {
         return layout_ord("", fonts, face, font_size, glyph_sets);
     }
+    let kinds = normalize_row_kinds(items);
     let mut x = 0.0;
     let mut height = 0.0_f32;
     let mut depth = 0.0_f32;
     let mut elements = Vec::new();
-    let thin = font_size * 0.05;
     for (i, item) in items.iter().enumerate() {
         if i > 0 {
-            x += thin;
+            x += mu(font_size, space_mu(kinds[i - 1], kinds[i]));
+            // Extra clearance only after large-op limits (∑_{i=1}^{n} i), not ordinary x^y.
+            if kinds[i - 1] == AtomKind::Op && matches!(&items[i - 1], MathExpr::Scripts { .. }) {
+                x += mu(font_size, 2.5);
+            }
         }
         let box_ = layout_expr(item, fonts, face, font_size, glyph_sets)?;
         height = height.max(box_.height);
@@ -690,14 +1002,16 @@ fn layout_frac(
     let num_b = layout_expr(num, fonts, face, script, glyph_sets)?;
     let den_b = layout_expr(den, fonts, face, script, glyph_sets)?;
     let thickness = (font_size * 0.045).max(0.5);
-    let gap = font_size * 0.12;
-    let axis = font_size * 0.25;
+    // Slightly more air under the bar than above so num/den look even optically.
+    let gap_num = font_size * 0.10;
+    let gap_den = font_size * 0.17;
+    let axis = math_axis(font_size);
     let pad = font_size * 0.12;
     let width = num_b.width.max(den_b.width) + 2.0 * pad;
-    let num_x = (width - num_b.width) / 2.0;
-    let den_x = (width - den_b.width) / 2.0;
-    let num_baseline = axis + thickness / 2.0 + gap + num_b.depth;
-    let den_baseline = axis - thickness / 2.0 - gap - den_b.height;
+    let num_x = h_center(width, num_b.width);
+    let den_x = h_center(width, den_b.width);
+    let num_baseline = axis + thickness / 2.0 + gap_num + num_b.depth;
+    let den_baseline = axis - thickness / 2.0 - gap_den - den_b.height;
     let height = num_baseline + num_b.height;
     let depth = -den_baseline + den_b.depth;
     let mut elements = Vec::new();
@@ -726,29 +1040,30 @@ fn layout_scripts(
     font_size: f32,
     glyph_sets: &mut GlyphSets,
 ) -> Result<MathBox, WeaveError> {
-    let base_b = layout_expr(base, fonts, face, font_size, glyph_sets)?;
+    let base_box = layout_expr(base, fonts, face, font_size, glyph_sets)?;
     let script_size = font_size * 0.7;
-    let sup_b = layout_opt(sup, fonts, face, script_size, glyph_sets)?;
-    let sub_b = layout_opt(sub, fonts, face, script_size, glyph_sets)?;
-    let script_w = sup_b
+    let superscript = layout_opt(sup, fonts, face, script_size, glyph_sets)?;
+    let subscript = layout_opt(sub, fonts, face, script_size, glyph_sets)?;
+    let script_w = superscript
         .as_ref()
-        .map(|b| b.width)
-        .unwrap_or(0.0)
-        .max(sub_b.as_ref().map(|b| b.width).unwrap_or(0.0));
-    let width = base_b.width + script_w;
-    let base_w = base_b.width;
-    let mut height = base_b.height;
-    let mut depth = base_b.depth;
-    let mut elements = base_b.elements;
-    if let Some(sup_b) = sup_b {
+        .map_or(0.0, |b| b.width)
+        .max(subscript.as_ref().map_or(0.0, |b| b.width));
+    // Asymmetric: a little air before y; trim advance sidebearing after y.
+    let script_gap = mu(font_size, 1.30);
+    let script_x = base_box.width + script_gap;
+    let width = (script_x + script_w - mu(font_size, 2.0)).max(script_x);
+    let mut height = base_box.height;
+    let mut depth = base_box.depth;
+    let mut elements = base_box.elements;
+    if let Some(superscript) = superscript {
         let y = font_size * 0.45;
-        height = height.max(y + sup_b.height);
-        append_box(&mut elements, sup_b, base_w, y);
+        height = height.max(y + superscript.height);
+        append_box(&mut elements, superscript, script_x, y);
     }
-    if let Some(sub_b) = sub_b {
+    if let Some(subscript) = subscript {
         let y = -font_size * 0.2;
-        depth = depth.max(-y + sub_b.depth);
-        append_box(&mut elements, sub_b, base_w, y);
+        depth = depth.max(-y + subscript.depth);
+        append_box(&mut elements, subscript, script_x, y);
     }
     Ok(MathBox {
         width,
@@ -798,27 +1113,42 @@ fn layout_matrix(
     let inner_w = col_w.iter().sum::<f32>() + col_gap * cols.saturating_sub(1) as f32;
     let row_totals: Vec<f32> = row_h.iter().zip(&row_d).map(|(h, d)| h + d).collect();
     let inner_h = row_totals.iter().sum::<f32>() + row_gap * rows.len().saturating_sub(1) as f32;
-    let delim_w = if delimited { font_size * 0.45 } else { 0.0 };
-    let width = inner_w + 2.0 * pad + 2.0 * delim_w;
-    let height = inner_h / 2.0 + font_size * 0.1;
-    let depth = inner_h / 2.0 + font_size * 0.1;
-    let mut elements = Vec::new();
+    let axis = math_axis(font_size);
+    // Center the matrix body on the math axis (aligns with fraction bars).
+    let half = inner_h / 2.0;
+    let body_top = axis + half;
+    let body_bot = axis - half;
+    let height = body_top + pad * 0.5;
+    let depth = -body_bot + pad * 0.5;
 
-    if delimited {
-        let left = layout_ord("(", fonts, face, font_size * 1.35, glyph_sets)?;
-        let right = layout_ord(")", fonts, face, font_size * 1.35, glyph_sets)?;
-        let right_x = width - right.width;
-        append_box(&mut elements, left, 0.0, 0.0);
-        append_box(&mut elements, right, right_x, 0.0);
-    }
+    // Stroked upright parens (not italic glyphs) sized to the matrix body.
+    let mut elements = Vec::new();
+    let (delim_w, width) = if delimited {
+        let half_h = half + pad * 0.15;
+        let paren_w = (half_h * 0.3).clamp(4.0, 18.0);
+        let thick = (font_size * 0.055).clamp(0.65, 1.35);
+        let width = inner_w + 2.0 * pad + 2.0 * paren_w;
+        elements.push(paren_element(0.0, axis, half_h, paren_w, thick, true));
+        elements.push(paren_element(
+            width - paren_w,
+            axis,
+            half_h,
+            paren_w,
+            thick,
+            false,
+        ));
+        (paren_w, width)
+    } else {
+        (0.0, inner_w + 2.0 * pad)
+    };
 
     let origin_x = delim_w + pad;
-    let mut y_top = height - pad * 0.5;
+    let mut y_top = body_top;
     for (r, row) in cells.into_iter().enumerate() {
         let baseline = y_top - row_h[r];
         let mut x = origin_x;
         for (c, cell) in row.into_iter().enumerate() {
-            let cell_x = x + (col_w[c] - cell.width) / 2.0;
+            let cell_x = x + h_center(col_w[c], cell.width);
             let w = col_w[c];
             append_box(&mut elements, cell, cell_x, baseline);
             x += w + col_gap;
@@ -830,6 +1160,33 @@ fn layout_matrix(
         height,
         depth,
         elements,
+    })
+}
+
+/// Shape an Ord without Bin/Rel axis centering (used for stretchy-ish delims).
+fn layout_ord_raw(
+    text: &str,
+    fonts: &FontBag,
+    face: FaceRef,
+    font_size: f32,
+    glyph_sets: &mut GlyphSets,
+) -> Result<MathBox, WeaveError> {
+    let text = if text.is_empty() { "\u{00A0}" } else { text };
+    let glyphs = shape_text(fonts, face, text, font_size)?;
+    let set = glyph_sets.entry(face).or_default();
+    collect_glyph_set(fonts, face, text, set);
+    note_shaped_glyphs(&glyphs, set);
+    Ok(MathBox {
+        width: shaped_width(&glyphs),
+        height: font_size * 0.75,
+        depth: font_size * 0.25,
+        elements: vec![RelEl::Text {
+            x: 0.0,
+            y: 0.0,
+            face,
+            font_size,
+            glyphs,
+        }],
     })
 }
 

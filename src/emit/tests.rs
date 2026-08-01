@@ -56,6 +56,36 @@ fn emits_pdf_magic() {
 }
 
 #[test]
+fn prose_word_spacing_is_wider_than_glued_words() {
+    use crate::font::{FaceId, FaceRef, FontBag, shape_text, shaped_width};
+
+    let fonts = FontBag::from_pinned(&Default::default()).expect("fonts");
+    let face = FaceRef::Bundled(FaceId::SansRegular);
+    // Layout keeps trailing spaces from wrap chunks; glued words must be narrower.
+    let spaced = shaped_width(&shape_text(&fonts, face, "Hello world", 12.0).expect("shape"));
+    let glued = shaped_width(&shape_text(&fonts, face, "Helloworld", 12.0).expect("shape"));
+    assert!(
+        spaced > glued + 1.0,
+        "expected inter-word space advance: spaced={spaced} glued={glued}"
+    );
+
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "Spaces".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::Paragraph {
+            runs: vec![TextRun::plain("Hello world from weave")],
+        }],
+    };
+    let bytes = emit_pdf(&doc).expect("emit");
+    assert!(bytes.starts_with(b"%PDF-"));
+}
+
+#[test]
 fn emit_pdf_with_bundled_only_matches_emit_pdf() {
     let doc = hello_doc();
     let a = emit_pdf(&doc).expect("emit");
