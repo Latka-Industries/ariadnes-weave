@@ -22,8 +22,11 @@ cjk = []
 emoji = []
 # Font Awesome Free Solid/Regular/Brands TTFs (SIL OFL; see fonts/LICENSE-FontAwesome.txt).
 icons = []
+# OS font stack via `fontdb` (Fontconfig / platform dirs). Enables `FontResolveMode::OsWithFallback`.
+os-fonts = ["dep:fontdb"]
 
 [dependencies]
+fontdb = { version = "0.24.0", optional = true }
 image = { version = "0.25.9", default-features = false, features = ["png", "jpeg"] }
 miniz_oxide = "0.8.9"
 pdf-writer = "0.15.0"

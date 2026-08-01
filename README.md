@@ -23,8 +23,9 @@ crates.io. Local suite work can still path-dep when cutting paired releases.
   `Table` / `Figure` / `Slide` / `Math`
 * Faces: Liberation Sans (R/B/I/BI), Serif (R/B/I/BI) for `manuscript@0`, Mono
   for `code`; optional Font Awesome Free behind `--features icons`
-* Host fonts: pin TTFs on [`EmitOptions`] and select with `TextRun::face` /
-  `TextRun::pinned` (`FaceRef` / `FontBag`)
+* Host fonts: pin TTFs on `EmitOptions` and select with `TextRun::face` /
+  `TextRun::pinned` (`FaceRef` / `FontBag`); optional `--features os-fonts` +
+  `FontResolveMode::OsWithFallback` for OS lookup with Liberation fallback
 * Shaping: `rustybuzz` + Type0 / CIDFontType2 / Identity-H; `subsetter` for
   used glyphs only
 * Profiles: `print@0` (A4), `manuscript@0` (US Letter, double-spaced, H1 page
@@ -42,7 +43,7 @@ sealed packs.
 
 | Later | Where |
 | --- | --- |
-| OS font scan / `OsWithFallback` | [THI-311](https://linear.app/thicclatka/issue/THI-311) |
+| OS font scan polish / collections / CFF | [THI-311](https://linear.app/thicclatka/issue/THI-311) |
 | Real math layout | [THI-310](https://linear.app/thicclatka/issue/THI-310) |
 | Literary pagination polish | [THI-295](https://linear.app/thicclatka/issue/THI-295) |
 | Richer slide regions | [THI-293](https://linear.app/thicclatka/issue/THI-293) |

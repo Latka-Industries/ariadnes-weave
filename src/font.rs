@@ -11,6 +11,7 @@ use ttf_parser::{Face as TtfFace, GlyphId};
 
 use crate::error::WeaveError;
 use crate::ir::InlineStyle;
+use crate::options::FontResolveMode;
 
 const SYSTEM_INFO: SystemInfo = SystemInfo {
     registry: Str(b"Adobe"),
@@ -178,10 +179,12 @@ impl From<FaceId> for FaceRef {
 pub struct FontBag {
     /// `(id, ttf_bytes)` in sorted pin-id order.
     pinned: Vec<(String, Vec<u8>)>,
+    /// How unknown [`crate::TextRun::face`] ids are handled.
+    resolve: FontResolveMode,
 }
 
 impl FontBag {
-    /// Register pinned faces from a sorted map (BTreeMap → deterministic indices).
+    /// Register pinned faces from a sorted map (`BTreeMap` → deterministic indices).
     ///
     /// # Errors
     ///
@@ -194,6 +197,17 @@ impl FontBag {
             bag.pin_face(id.clone(), bytes.clone())?;
         }
         Ok(bag)
+    }
+
+    /// Set font resolve policy for layout (unknown face ids).
+    pub fn set_resolve_mode(&mut self, mode: FontResolveMode) {
+        self.resolve = mode;
+    }
+
+    /// Current resolve policy.
+    #[must_use]
+    pub fn resolve_mode(&self) -> FontResolveMode {
+        self.resolve
     }
 
     /// Add a named TTF; returns its [`FaceRef::Pinned`] index.
@@ -254,8 +268,7 @@ impl FontBag {
                 let raw = self
                     .pinned
                     .get(usize::from(i))
-                    .map(|(k, _)| k.as_str())
-                    .unwrap_or("pinned");
+                    .map_or("pinned", |(k, _)| k.as_str());
                 let safe: String = raw
                     .chars()
                     .map(|c| {
@@ -280,14 +293,14 @@ impl FontBag {
         }
     }
 
-    fn is_serif(&self, face: FaceRef) -> bool {
+    fn is_serif(face: FaceRef) -> bool {
         match face {
             FaceRef::Bundled(id) => id.is_serif(),
             FaceRef::Pinned(_) => false,
         }
     }
 
-    fn is_italic(&self, face: FaceRef) -> bool {
+    fn is_italic(face: FaceRef) -> bool {
         match face {
             FaceRef::Bundled(id) => id.is_italic(),
             FaceRef::Pinned(_) => false,
@@ -502,9 +515,9 @@ pub fn write_embedded_font(
     }
 
     let mut flags = FontFlags::empty();
-    flags.set(FontFlags::SERIF, fonts.is_serif(face));
+    flags.set(FontFlags::SERIF, FontBag::is_serif(face));
     flags.set(FontFlags::FIXED_PITCH, ttf.is_monospaced());
-    flags.set(FontFlags::ITALIC, fonts.is_italic(face));
+    flags.set(FontFlags::ITALIC, FontBag::is_italic(face));
     flags.insert(FontFlags::SYMBOLIC);
 
     let global_bbox = ttf.global_bounding_box();

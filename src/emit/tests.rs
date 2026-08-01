@@ -109,6 +109,57 @@ fn unknown_pinned_face_errors() {
 }
 
 #[test]
+fn os_with_fallback_requires_feature() {
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "OS".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::Paragraph {
+            runs: vec![TextRun::plain("hi")],
+        }],
+    };
+    let err = emit_pdf_with(&doc, &EmitOptions::os_with_fallback());
+    #[cfg(feature = "os-fonts")]
+    {
+        assert!(err.is_ok(), "os-fonts enabled: {err:?}");
+    }
+    #[cfg(not(feature = "os-fonts"))]
+    {
+        let err = err.expect_err("feature gate");
+        assert!(
+            matches!(err, WeaveError::Font(ref msg) if msg.contains("os-fonts")),
+            "{err:?}"
+        );
+    }
+}
+
+#[cfg(feature = "os-fonts")]
+#[test]
+fn os_missing_family_falls_back_to_liberation() {
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "OS fallback".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::Paragraph {
+            runs: vec![TextRun::pinned(
+                "still emits",
+                "DefinitelyNotARealFontFamily_ariadnes_weave_311",
+            )],
+        }],
+    };
+    let bytes = emit_pdf_with(&doc, &EmitOptions::os_with_fallback()).expect("fallback emit");
+    assert!(bytes.starts_with(b"%PDF-"));
+}
+
+#[test]
 fn subsetted_hello_pdf_is_compact() {
     let bytes = emit_pdf(&hello_doc()).expect("emit");
     // Full Liberation Sans alone is ~400KB; subset prose should stay well under that.

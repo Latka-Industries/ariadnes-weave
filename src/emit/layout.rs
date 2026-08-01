@@ -247,9 +247,24 @@ fn resolve_run_face(
     fonts: &FontBag,
 ) -> Result<FaceRef, WeaveError> {
     if let Some(id) = &run.face {
-        return fonts
-            .resolve_pin(id)
-            .ok_or_else(|| WeaveError::Font(format!("unknown pinned face `{id}`")));
+        #[cfg(feature = "os-fonts")]
+        let os_key = crate::os_fonts::os_pin_key(id, run.style);
+        #[cfg(feature = "os-fonts")]
+        if let Some(face) = fonts.resolve_pin(&os_key) {
+            return Ok(face);
+        }
+        if let Some(face) = fonts.resolve_pin(id) {
+            return Ok(face);
+        }
+        return match fonts.resolve_mode() {
+            crate::options::FontResolveMode::BundledOnly => {
+                Err(WeaveError::Font(format!("unknown pinned face `{id}`")))
+            }
+            crate::options::FontResolveMode::OsWithFallback => {
+                // Missing OS face → sealed Liberation for this run's style.
+                Ok(resolve_face(run.style, metrics, mode))
+            }
+        };
     }
     Ok(resolve_face(run.style, metrics, mode))
 }
@@ -537,8 +552,6 @@ fn layout_slide(
     }
 
     let seg = segments.last_mut().expect("segment");
-    let title_scale = if metrics.is_deck { 1.45 } else { 1.8 };
-    let title_gap = if metrics.is_deck { 20.0 } else { 16.0 };
     let (titles, rest): (Vec<_>, Vec<_>) = regions.iter().partition(|r| {
         let slot = r.slot.to_ascii_lowercase();
         slot_name_is(&slot, "title") || slot_name_is(&slot, "heading")
@@ -558,11 +571,69 @@ fn layout_slide(
             glyph_sets,
         )?));
     } else {
-        for region in titles {
+        push_slide_title_regions(&mut seg.1, &titles, metrics, fonts, glyph_sets)?;
+        push_slide_body_regions(&mut seg.1, &rest, metrics, fonts, glyph_sets)?;
+    }
+
+    segments.push((ForcedBreak::Always, Vec::new()));
+    Ok(())
+}
+
+fn push_slide_title_regions(
+    out: &mut Vec<LaidItem>,
+    titles: &[&SlideRegionContent],
+    metrics: &ProfileMetrics,
+    fonts: &FontBag,
+    glyph_sets: &mut GlyphSets,
+) -> Result<(), WeaveError> {
+    let title_scale = if metrics.is_deck { 1.45 } else { 1.8 };
+    let title_gap = if metrics.is_deck { 20.0 } else { 16.0 };
+    for region in titles {
+        push_styled_runs(
+            out,
+            &[TextRun {
+                text: region.text.clone(),
+                style: InlineStyle {
+                    strong: true,
+                    ..InlineStyle::default()
+                },
+                face: None,
+            }],
+            metrics,
+            fonts,
+            glyph_sets,
+            RunLayout {
+                font_size: metrics.body_size * title_scale,
+                leading: metrics.body_size * title_scale * 1.2,
+                gap_after: title_gap,
+                glue_last_content: false,
+                mode: FaceMode::Heading,
+                indent: 0.0,
+            },
+        )?;
+    }
+    Ok(())
+}
+
+fn push_slide_body_regions(
+    out: &mut Vec<LaidItem>,
+    regions: &[&SlideRegionContent],
+    metrics: &ProfileMetrics,
+    fonts: &FontBag,
+    glyph_sets: &mut GlyphSets,
+) -> Result<(), WeaveError> {
+    for region in regions {
+        let slot = region.slot.to_ascii_lowercase();
+        let (size, gap, mode, strong) = if slot_name_is(&slot, "subtitle") {
+            (metrics.body_size * 1.15, 14.0, FaceMode::Body, false)
+        } else {
+            (metrics.body_size, 12.0, FaceMode::Body, false)
+        };
+        if !matches!(slot.as_str(), "body" | "content" | "text") && !region.slot.is_empty() {
             push_styled_runs(
-                &mut seg.1,
+                out,
                 &[TextRun {
-                    text: region.text.clone(),
+                    text: format!("{}:", region.slot),
                     style: InlineStyle {
                         strong: true,
                         ..InlineStyle::default()
@@ -573,73 +644,39 @@ fn layout_slide(
                 fonts,
                 glyph_sets,
                 RunLayout {
-                    font_size: metrics.body_size * title_scale,
-                    leading: metrics.body_size * title_scale * 1.2,
-                    gap_after: title_gap,
-                    glue_last_content: false,
-                    mode: FaceMode::Heading,
+                    font_size: metrics.body_size * 0.85,
+                    leading: metrics.body_leading,
+                    gap_after: 2.0,
+                    glue_last_content: true,
+                    mode: FaceMode::Body,
                     indent: 0.0,
                 },
             )?;
         }
-        for region in rest {
-            let slot = region.slot.to_ascii_lowercase();
-            let (size, gap, mode, strong) = if slot_name_is(&slot, "subtitle") {
-                (metrics.body_size * 1.15, 14.0, FaceMode::Body, false)
-            } else {
-                (metrics.body_size, 12.0, FaceMode::Body, false)
-            };
-            if !matches!(slot.as_str(), "body" | "content" | "text") && !region.slot.is_empty() {
-                push_styled_runs(
-                    &mut seg.1,
-                    &[TextRun {
-                        text: format!("{}:", region.slot),
-                        style: InlineStyle {
-                            strong: true,
-                            ..InlineStyle::default()
-                        },
-                        face: None,
-                    }],
-                    metrics,
-                    fonts,
-                    glyph_sets,
-                    RunLayout {
-                        font_size: metrics.body_size * 0.85,
-                        leading: metrics.body_leading,
-                        gap_after: 2.0,
-                        glue_last_content: true,
-                        mode: FaceMode::Body,
-                        indent: 0.0,
-                    },
-                )?;
-            }
-            push_styled_runs(
-                &mut seg.1,
-                &[TextRun {
-                    text: region.text.clone(),
-                    style: InlineStyle {
-                        strong,
-                        emphasis: slot_name_is(&slot, "subtitle"),
-                        ..InlineStyle::default()
-                    },
-                    face: None,
-                }],
-                metrics,
-                fonts,
-                glyph_sets,
-                RunLayout {
-                    font_size: size,
-                    leading: size * 1.35,
-                    gap_after: gap,
-                    glue_last_content: false,
-                    mode,
-                    indent: 0.0,
+        push_styled_runs(
+            out,
+            &[TextRun {
+                text: region.text.clone(),
+                style: InlineStyle {
+                    strong,
+                    emphasis: slot_name_is(&slot, "subtitle"),
+                    ..InlineStyle::default()
                 },
-            )?;
-        }
+                face: None,
+            }],
+            metrics,
+            fonts,
+            glyph_sets,
+            RunLayout {
+                font_size: size,
+                leading: size * 1.35,
+                gap_after: gap,
+                glue_last_content: false,
+                mode,
+                indent: 0.0,
+            },
+        )?;
     }
-
-    segments.push((ForcedBreak::Always, Vec::new()));
     Ok(())
 }
 

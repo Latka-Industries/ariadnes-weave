@@ -11,10 +11,8 @@
 //! # Features
 //!
 //! * `icons` — Font Awesome Free Solid / Regular / Brands (`FaceId::Icon*`).
+//! * `os-fonts` — OS font stack via `fontdb` ([`FontResolveMode::OsWithFallback`]).
 //! * `cjk` / `emoji` — stubs for future sealed packs (not bundled yet).
-//!
-//! OS fontconfig lookup is tracked separately (THI-311); pins cover the
-//! “GUI already resolved the bytes” path.
 
 #![deny(missing_docs)]
 
@@ -24,7 +22,10 @@ mod font;
 mod image_prep;
 mod ir;
 mod options;
+#[cfg(feature = "os-fonts")]
+mod os_fonts;
 mod profile;
+mod resolve_fonts;
 
 pub use emit::{emit_pdf, emit_pdf_with};
 pub use error::WeaveError;
@@ -47,3 +48,6 @@ pub const FEATURE_EMOJI: bool = cfg!(feature = "emoji");
 
 /// Font Awesome Free icon faces compiled in (`--features icons`).
 pub const FEATURE_ICONS: bool = cfg!(feature = "icons");
+
+/// OS font database compiled in (`--features os-fonts`).
+pub const FEATURE_OS_FONTS: bool = cfg!(feature = "os-fonts");
