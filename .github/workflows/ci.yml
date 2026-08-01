@@ -1,41 +1,85 @@
 name: Build
 
+# Run only when Rust / fonts / this workflow change. Docs-only pushes skip the matrix.
+# Markdown under matching trees is excluded with `!**/*.md` (GitHub forbids pairing `paths`
+# with `paths-ignore` on the same event — use `!` negation instead).
 on:
   push:
-    branches: [main]
+    branches: [main, master]
+    paths:
+      - "src/**"
+      - "examples/**"
+      - "tests/**"
+      - "fonts/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/ci.yml"
+      - "!**/*.md"
   pull_request:
-    branches: [main]
+    branches: [main, master]
+    paths:
+      - "src/**"
+      - "examples/**"
+      - "tests/**"
+      - "fonts/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/ci.yml"
+      - "!**/*.md"
 
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
 
 jobs:
-  check:
-    name: fmt · clippy · test
-    runs-on: ubuntu-latest
+  test:
+    name: Test Suite
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v6
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.95"
           components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "ci-${{ matrix.os }}"
 
-      - name: rustfmt
+      - name: Check formatting
         run: cargo fmt --all -- --check
 
-      - name: clippy
+      - name: Run clippy
         run: cargo clippy --all-targets -- -D warnings
 
-      - name: clippy (icons)
+      - name: Run tests
+        run: cargo test --verbose
+
+      - name: Run clippy (icons)
         run: cargo clippy --all-targets --features icons -- -D warnings
 
-      - name: test
-        run: cargo test
+      - name: Run tests (icons)
+        run: cargo test --verbose --features icons
 
-      - name: test (icons)
-        run: cargo test --features icons
+  msrv:
+    name: MSRV Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust (MSRV)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "ci-ubuntu-latest"
+
+      - name: Check MSRV
+        run: cargo check --all-targets

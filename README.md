@@ -67,8 +67,9 @@ cargo run --example prose
 # tmp/hello_world.pdf, tmp/prose_sample.pdf, tmp/prose_example.pdf
 ```
 
-CI (`.github/workflows/ci.yml`): `cargo fmt --check`, clippy `-D warnings`, and
-`cargo test` (+ `--features icons`), including SHA-256 fixtures in
+CI (`.github/workflows/ci.yml`, same layout as Tessera): fmt / clippy / test on
+Ubuntu · macOS · Windows (+ `--features icons`), plus an MSRV `cargo check` on
+1.95. Path filters skip docs-only pushes. SHA-256 fixtures live in
 `tests/determinism.rs`.
 
 ## API
