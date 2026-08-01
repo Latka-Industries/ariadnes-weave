@@ -462,6 +462,48 @@ fn math_prettify_and_emit() {
 }
 
 #[test]
+fn math_frac_draws_rule() {
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "Frac".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::Math {
+            display: true,
+            latex: r"\frac{a^{10}}{b_{ij}}".into(),
+        }],
+    };
+    let bytes = emit_pdf(&doc).expect("emit frac");
+    assert!(bytes.starts_with(b"%PDF-"));
+    let s = String::from_utf8_lossy(&bytes);
+    // Fraction bar uses a stroked path (line width + move/line).
+    assert!(s.contains(" m"), "expected path move in content stream");
+    assert!(s.contains(" l"), "expected path line in content stream");
+}
+
+#[test]
+fn math_pmatrix_emits() {
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "Matrix".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::Math {
+            display: true,
+            latex: r"\begin{pmatrix} 1 & 0 \\ 0 & 1 \end{pmatrix}".into(),
+        }],
+    };
+    let bytes = emit_pdf(&doc).expect("emit matrix");
+    assert!(bytes.starts_with(b"%PDF-"));
+}
+
+#[test]
 fn float_near_figure_emits() {
     let png = tiny_png_bytes();
     let doc = PrintDocument {

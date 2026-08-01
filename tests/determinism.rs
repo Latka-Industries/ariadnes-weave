@@ -29,6 +29,29 @@ fn hello_doc() -> PrintDocument {
     }
 }
 
+fn quadratic_formula_doc() -> PrintDocument {
+    PrintDocument {
+        meta: PrintMeta {
+            title: "Quadratic".into(),
+            doc_kind: "note".into(),
+            language: Some("en".into()),
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![
+            PrintBlock::Heading {
+                level: 1,
+                runs: vec![TextRun::plain("Quadratic formula")],
+                break_before: BreakHint::None,
+            },
+            PrintBlock::Math {
+                display: true,
+                latex: r"x = \frac{-b \pm \sqrt{b^{2} - 4ac}}{2a}".into(),
+            },
+        ],
+    }
+}
+
 fn manuscript_two_chapters() -> PrintDocument {
     PrintDocument {
         meta: PrintMeta {
@@ -77,6 +100,10 @@ const HELLO_PRINT_V0_SHA256: &str =
 const MANUSCRIPT_TWO_CHAPTER_SHA256: &str =
     "4a43228d8f93922ecc43f791d4773d949715713416ddfc0a9f4740acf08015e0";
 
+/// Pin: bump intentionally when math box layout changes.
+const QUADRATIC_FORMULA_SHA256: &str =
+    "f451cdb3bce8c7124c5dde94b124741d8f3e6c5288c90b2c40fd0b9e16e35c7f";
+
 #[test]
 fn emit_is_byte_identical_across_runs() {
     let a = emit_pdf(&hello_doc()).expect("emit a");
@@ -102,4 +129,12 @@ fn manuscript_h1_starts_new_page() {
         "manuscript@0 should page-break before second H1; got {page_dicts} page dicts"
     );
     assert_eq!(sha256_hex(&bytes), MANUSCRIPT_TWO_CHAPTER_SHA256);
+}
+
+#[test]
+fn quadratic_formula_sha256_fixture() {
+    let a = emit_pdf(&quadratic_formula_doc()).expect("emit a");
+    let b = emit_pdf(&quadratic_formula_doc()).expect("emit b");
+    assert_eq!(a, b, "math PDF must be deterministic");
+    assert_eq!(sha256_hex(&a), QUADRATIC_FORMULA_SHA256);
 }

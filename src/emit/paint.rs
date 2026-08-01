@@ -6,7 +6,7 @@ use crate::error::WeaveError;
 use crate::font::{FaceId, FaceRef, FontBag, encode_gids, shape_text, shaped_width};
 use crate::profile::ProfileMetrics;
 
-use super::types::{LaidItem, LaidTable, SubsetMap};
+use super::types::{LaidItem, LaidMath, LaidMathEl, LaidTable, SubsetMap};
 
 /// Resource name bytes for image `XObject` `Im{idx}`.
 pub(super) fn image_resource_name(idx: usize) -> Vec<u8> {
@@ -79,6 +79,20 @@ pub(super) fn build_page_content(
                 }
                 paint_table(&mut content, table, metrics.margin, y, fonts);
                 y -= table_h + table.gap_after;
+            }
+            LaidItem::Math(math) => {
+                if y - math.height < metrics.margin + 18.0 {
+                    break;
+                }
+                paint_math(
+                    &mut content,
+                    math,
+                    metrics.margin,
+                    y,
+                    metrics.content_width(),
+                    fonts,
+                );
+                y -= math.height + math.gap_after;
             }
         }
     }
@@ -170,5 +184,54 @@ pub(super) fn paint_table(
             cell_x += col_w;
         }
         row_top -= row.height;
+    }
+}
+
+/// Paint a structured math box; `top_y` is the top edge in PDF space.
+pub(super) fn paint_math(
+    content: &mut Content,
+    math: &LaidMath,
+    origin_x: f32,
+    top_y: f32,
+    content_width: f32,
+    fonts: &FontBag,
+) {
+    let origin_x = if math.center {
+        origin_x + (content_width - math.width) / 2.0
+    } else {
+        origin_x
+    };
+    for el in &math.elements {
+        match el {
+            LaidMathEl::Text {
+                x,
+                y,
+                face,
+                font_size,
+                glyphs,
+            } => {
+                let face_name = fonts.resource_name(*face);
+                content.begin_text();
+                content.set_font(Name(&face_name), *font_size);
+                content.set_text_matrix([1.0, 0.0, 0.0, 1.0, origin_x + x, top_y - y]);
+                content.show(Str(&encode_gids(glyphs)));
+                content.end_text();
+            }
+            LaidMathEl::Rule {
+                x,
+                y,
+                width,
+                thickness,
+            } => {
+                content.save_state();
+                content.set_stroke_gray(0.1);
+                content.set_line_width(*thickness);
+                let rule_y = top_y - y;
+                content.move_to(origin_x + x, rule_y);
+                content.line_to(origin_x + x + width, rule_y);
+                content.stroke();
+                content.restore_state();
+            }
+        }
     }
 }

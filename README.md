@@ -35,16 +35,14 @@ crates.io. Local suite work can still path-dep when cutting paired releases.
 * Deterministic emit: sorted font object order + SHA-256 fixtures in
   `tests/determinism.rs`
 * `Table` → drawn grid + wrapped cells; `Figure` → PNG/JPEG XObject
-  (`FloatNear` glue); `Slide` → one page; `Math` → centered prettified LaTeX
-  tokens (not full TeX)
+  (`FloatNear` glue); `Slide` → one page; `Math` → structured layout for
+  `\frac`, multi-char scripts, and simple `matrix`/`pmatrix` (not full TeX)
 
-Not yet: real TeX/MathML layout, automatic OS fontconfig lookup, CJK/emoji
-sealed packs.
+Not yet: full TeX/MathML, OS font collection/CFF polish, CJK/emoji sealed packs.
 
 | Later | Where |
 | --- | --- |
 | OS font scan polish / collections / CFF | [THI-311](https://linear.app/thicclatka/issue/THI-311) |
-| Real math layout | [THI-310](https://linear.app/thicclatka/issue/THI-310) |
 | Literary pagination polish | [THI-295](https://linear.app/thicclatka/issue/THI-295) |
 | Richer slide regions | [THI-293](https://linear.app/thicclatka/issue/THI-293) |
 | Sealed `cjk` / `emoji` packs | [THI-308](https://linear.app/thicclatka/issue/THI-308) |
@@ -56,8 +54,7 @@ sealed packs.
 `--features icons` for Font Awesome Free (Solid / Regular / Brands) as
 `FaceId::IconSolid` / `IconRegular` / `IconBrands`. Tessera exposes these as
 `weave-icons` / `weave-cjk` / `weave-emoji`. Large script packs stay stubbed so
-default binaries stay small. Host/GUI faces use pins today; OS lookup is
-[THI-311](https://linear.app/thicclatka/issue/THI-311).
+default binaries stay small. Host/GUI faces use pins; OS lookup is behind `--features os-fonts`.
 
 ```bash
 mise trust   # rust 1.95 via .mise.toml

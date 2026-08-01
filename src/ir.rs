@@ -128,7 +128,7 @@ pub enum PrintBlock {
         /// Placement hint.
         placement: FigurePlacement,
     },
-    /// Math (LaTeX source; emit prettifies common tokens, not full TeX).
+    /// Math (LaTeX source; structured layout for `\frac` / scripts / matrices).
     Math {
         /// Display vs inline.
         display: bool,
