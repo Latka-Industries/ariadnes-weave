@@ -45,14 +45,15 @@ pub fn emit_pdf(doc: &PrintDocument) -> Result<Vec<u8>, WeaveError> {
 /// writes a PDF 1.7 file with page-number footers.
 ///
 /// Today only [`FontResolveMode::BundledOnly`] is implemented (sealed Liberation
-/// / optional icon faces). OS font resolution lands under THI-307.
+/// / optional icon faces, plus [`EmitOptions::pinned_faces`]). OS fontconfig
+/// resolution is THI-311.
 ///
 /// # Errors
 ///
 /// Returns [`WeaveError`] if the profile is unsupported, font
 /// subsetting/embedding fails, or an image cannot be decoded.
 pub fn emit_pdf_with(doc: &PrintDocument, opts: &EmitOptions) -> Result<Vec<u8>, WeaveError> {
-    // Only sealed + pinned faces today; `OsWithFallback` will branch here (THI-307).
+    // Only sealed + pinned faces today; `OsWithFallback` will branch here (THI-311).
     let FontResolveMode::BundledOnly = opts.fonts;
     let fonts = FontBag::from_pinned(&opts.pinned_faces)?;
 

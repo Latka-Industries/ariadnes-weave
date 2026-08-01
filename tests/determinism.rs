@@ -71,11 +71,11 @@ fn sha256_hex(bytes: &[u8]) -> String {
 
 /// Pin: bump intentionally when emit layout/fonts change.
 const HELLO_PRINT_V0_SHA256: &str =
-    "3349a920a7698d0627998873e58a6430dc45df0f349d0f923da7ed0f66e29ea0";
+    "35e551b906e9f17549ab22b907b29cb9f4ae945c34c1288a8c9c3bac7b86da3a";
 
 /// Pin: bump intentionally when emit layout/fonts change.
 const MANUSCRIPT_TWO_CHAPTER_SHA256: &str =
-    "4e09987a4942fe30307ced3efbb438b1d330acb69ba37a14af13ff502a779897";
+    "4a43228d8f93922ecc43f791d4773d949715713416ddfc0a9f4740acf08015e0";
 
 #[test]
 fn emit_is_byte_identical_across_runs() {

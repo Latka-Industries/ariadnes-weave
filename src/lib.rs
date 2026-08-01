@@ -2,8 +2,19 @@
 //!
 //! See Tessera `docs/print_ir.md` / D21.
 //!
-//! Bundled Liberation TTFs with rustybuzz shaping (+ table/figure/math/slide stubs).
-//! Richer pagination policy deepens in later issues.
+//! # Emit
+//!
+//! * [`emit_pdf`] — sealed Liberation faces ([`FontResolveMode::BundledOnly`]).
+//! * [`emit_pdf_with`] — same, plus optional [`EmitOptions::pinned_faces`] for
+//!   host-supplied TTFs selected via [`TextRun::face`].
+//!
+//! # Features
+//!
+//! * `icons` — Font Awesome Free Solid / Regular / Brands (`FaceId::Icon*`).
+//! * `cjk` / `emoji` — stubs for future sealed packs (not bundled yet).
+//!
+//! OS fontconfig lookup is tracked separately (THI-311); pins cover the
+//! “GUI already resolved the bytes” path.
 
 #![deny(missing_docs)]
 

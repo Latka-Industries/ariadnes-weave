@@ -12,39 +12,51 @@ HTML + CSS stays Tessera’s browser preview path. This crate owns pagination an
 PDF bytes so the same document + print profile yields the same layout (see
 Tessera `docs/print_ir.md` / D21).
 
-## Status
+Consumers: Tessera `0.2` (`--features native-pdf`) depends on this crate from
+crates.io. Local suite work can still path-dep when cutting paired releases.
 
-**Prose + structure emit:** print IR + Liberation TTF `emit_pdf` for:
+## Status (0.2.2)
 
-* Blocks: `Heading` / `Paragraph` / `List` / `Code` / `Quote` / `Break` / `Table` / `Figure` / `Slide`
-* Faces: Liberation Sans (R/B/I/BI), Serif (R/B/I/BI) for `manuscript@0`, Mono for `code`
-* Shaping: `rustybuzz` + Type0 / CIDFontType2 / Identity-H; `subsetter` for used glyphs only
-* Profiles: `print@0` (A4), `manuscript@0` (US Letter, double-spaced, H1 page breaks), `deck@0` (16:9 landscape)
-* Forced page breaks + keep-with-next + basic widow/orphan glue; page-number footers
-* Deterministic emit: sorted font object order + SHA-256 fixtures in `tests/determinism.rs`
-* `Table` → drawn grid + wrapped cell text; `Figure` → PNG/JPEG XObject (+ `FloatNear` glue); `Slide` → one page per slide; `Math` → centered prettified LaTeX tokens (not full TeX)
+**Prose + structure emit** via `emit_pdf` / `emit_pdf_with`:
 
-Not yet: real TeX/MathML layout, OS font provider, CJK/emoji sealed packs.
+* Blocks: `Heading` / `Paragraph` / `List` / `Code` / `Quote` / `Break` /
+  `Table` / `Figure` / `Slide` / `Math`
+* Faces: Liberation Sans (R/B/I/BI), Serif (R/B/I/BI) for `manuscript@0`, Mono
+  for `code`; optional Font Awesome Free behind `--features icons`
+* Host fonts: pin TTFs on [`EmitOptions`] and select with `TextRun::face` /
+  `TextRun::pinned` (`FaceRef` / `FontBag`)
+* Shaping: `rustybuzz` + Type0 / CIDFontType2 / Identity-H; `subsetter` for
+  used glyphs only
+* Profiles: `print@0` (A4), `manuscript@0` (US Letter, double-spaced, H1 page
+  breaks), `deck@0` (16:9 landscape)
+* Forced page breaks + keep-with-next + basic widow/orphan glue; page-number
+  footers
+* Deterministic emit: sorted font object order + SHA-256 fixtures in
+  `tests/determinism.rs`
+* `Table` → drawn grid + wrapped cells; `Figure` → PNG/JPEG XObject
+  (`FloatNear` glue); `Slide` → one page; `Math` → centered prettified LaTeX
+  tokens (not full TeX)
+
+Not yet: real TeX/MathML layout, automatic OS fontconfig lookup, CJK/emoji
+sealed packs.
 
 | Later | Where |
 | --- | --- |
-| Tessera `.tes` → print tree | THI-290 |
-| Math layout quality | THI-291 |
-| Deck page size / richer regions | THI-293 |
-| Literary pagination polish | THI-295 |
-| OS font scan (pins work via `EmitOptions` today) | THI-307 |
-| Sealed `cjk` / `emoji` packs | THI-308 |
-| Real math layout | THI-310 |
+| OS font scan / `OsWithFallback` | [THI-311](https://linear.app/thicclatka/issue/THI-311) |
+| Real math layout | [THI-310](https://linear.app/thicclatka/issue/THI-310) |
+| Literary pagination polish | [THI-295](https://linear.app/thicclatka/issue/THI-295) |
+| Richer slide regions | [THI-293](https://linear.app/thicclatka/issue/THI-293) |
+| Sealed `cjk` / `emoji` packs | [THI-308](https://linear.app/thicclatka/issue/THI-308) |
 
 **Bricks:** `pdf-writer` + `rustybuzz` + `ttf-parser`. Fonts under `fonts/`
 (Liberation + optional Font Awesome Free; SIL OFL). Not cosmic-text / krilla for v0.
 
 **Font packs:** default sealed set = Liberation sans/serif/mono. Opt in with
 `--features icons` for Font Awesome Free (Solid / Regular / Brands) as
-`FaceId::IconSolid` / `IconRegular` / `IconBrands`. Large script packs stay
-behind `cjk` / `emoji` so default binaries stay small. OS/GUI faces are separate
-([THI-307](https://linear.app/thicclatka/issue/THI-307);
-pack layout [THI-308](https://linear.app/thicclatka/issue/THI-308)).
+`FaceId::IconSolid` / `IconRegular` / `IconBrands`. Tessera exposes these as
+`weave-icons` / `weave-cjk` / `weave-emoji`. Large script packs stay stubbed so
+default binaries stay small. Host/GUI faces use pins today; OS lookup is
+[THI-311](https://linear.app/thicclatka/issue/THI-311).
 
 ```bash
 mise trust   # rust 1.95 via .mise.toml
@@ -66,8 +78,11 @@ use ariadnes_weave::{
     emit_pdf, emit_pdf_with, BreakHint, EmitOptions, ListItem, PrintBlock, PrintDocument,
     PrintMeta, PrintProfileId, TextRun,
 };
+
 // emit_pdf(&doc) == emit_pdf_with(&doc, &EmitOptions::bundled_only())
-// Pin a host-loaded TTF: opts.with_pinned_face("ui", bytes) + TextRun::pinned("…", "ui")
+// Pin a host-loaded TTF:
+//   let opts = EmitOptions::bundled_only().with_pinned_face("ui", ttf_bytes);
+//   TextRun::pinned("…", "ui")  // or TextRun { face: Some("ui".into()), … }
 
 let doc = PrintDocument {
     meta: PrintMeta {

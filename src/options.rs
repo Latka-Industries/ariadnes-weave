@@ -4,8 +4,8 @@ use std::collections::BTreeMap;
 
 /// How weave resolves font bytes during emit.
 ///
-/// CI and SHA fixtures use [`FontResolveMode::BundledOnly`]. OS lookup with
-/// sealed-pack fallback is planned under THI-307.
+/// CI and SHA fixtures use [`FontResolveMode::BundledOnly`]. Automatic OS
+/// fontconfig lookup is planned under THI-311; host pins work today.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum FontResolveMode {
     /// Only sealed/`include_bytes!` faces plus explicitly [`EmitOptions::pinned_faces`].
