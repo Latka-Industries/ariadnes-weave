@@ -12,7 +12,8 @@
 //!
 //! * `icons` — Font Awesome Free Solid / Regular / Brands (`FaceId::Icon*`).
 //! * `os-fonts` — OS font stack via `fontdb` ([`FontResolveMode::OsWithFallback`]).
-//! * `cjk` / `emoji` — stubs for future sealed packs (not bundled yet).
+//! * `cjk` — sealed CJK sans subset (`FaceId::CjkSans`) used as script fallback.
+//! * `emoji` — sealed B&W emoji subset (`FaceId::Emoji`) used as script fallback.
 
 #![deny(missing_docs)]
 

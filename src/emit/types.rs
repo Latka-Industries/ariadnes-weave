@@ -4,7 +4,8 @@ use std::collections::BTreeMap;
 
 use crate::error::WeaveError;
 use crate::font::{
-    FaceRef, FontBag, ShapedGlyph, collect_glyph_set, note_shaped_glyphs, shape_text, shaped_width,
+    FaceRef, FontBag, ShapedGlyph, collect_glyph_set, note_shaped_glyphs, resolve_char_face,
+    shape_text_with_fallback, shaped_runs_width, shaped_width,
 };
 use crate::image_prep::PreparedImage;
 
@@ -14,6 +15,55 @@ pub(super) type GlyphSet = BTreeMap<u16, String>;
 pub(super) type GlyphSets = BTreeMap<FaceRef, GlyphSet>;
 /// Per-face subset packages ready for embedding.
 pub(super) type SubsetMap = BTreeMap<FaceRef, crate::font::PreparedSubset>;
+
+/// Record ToUnicode (first) then shaped GIDs for a fallback-shaped chunk.
+pub(super) fn record_shaped_chunk(
+    fonts: &FontBag,
+    primary: FaceRef,
+    chunk: &str,
+    runs: &[(FaceRef, Vec<ShapedGlyph>)],
+    glyph_sets: &mut GlyphSets,
+) {
+    for ch in chunk.chars() {
+        let run_face = resolve_char_face(fonts, primary, ch);
+        let set = glyph_sets.entry(run_face).or_default();
+        let mut buf = [0u8; 4];
+        let s = ch.encode_utf8(&mut buf);
+        collect_glyph_set(fonts, run_face, s, set);
+    }
+    for (run_face, glyphs) in runs {
+        let set = glyph_sets.entry(*run_face).or_default();
+        note_shaped_glyphs(glyphs, set);
+    }
+}
+
+/// Convert shaped fallback runs into paint spans.
+pub(super) fn spans_from_shaped_runs(
+    font_size: f32,
+    runs: Vec<(FaceRef, Vec<ShapedGlyph>)>,
+) -> Vec<LaidSpan> {
+    runs.into_iter()
+        .map(|(face, glyphs)| LaidSpan {
+            face,
+            font_size,
+            glyphs,
+        })
+        .collect()
+}
+
+/// Shape with sealed script fallback, record glyphs, return spans + width.
+pub(super) fn shape_and_record_spans(
+    fonts: &FontBag,
+    face: FaceRef,
+    text: &str,
+    font_size: f32,
+    glyph_sets: &mut GlyphSets,
+) -> Result<(Vec<LaidSpan>, f32), WeaveError> {
+    let runs = shape_text_with_fallback(fonts, face, text, font_size)?;
+    let width = shaped_runs_width(&runs);
+    record_shaped_chunk(fonts, face, text, &runs, glyph_sets);
+    Ok((spans_from_shaped_runs(font_size, runs), width))
+}
 
 /// One forced-break boundary plus the items that follow until the next segment.
 pub(super) type LayoutSegment = (ForcedBreak, Vec<LaidItem>);
@@ -54,7 +104,7 @@ impl LaidLine {
         }
     }
 
-    /// Shape `text` and record glyphs into `glyph_sets`.
+    /// Shape `text` (with sealed script fallback) and record glyphs into `glyph_sets`.
     pub(super) fn shaped(
         fonts: &FontBag,
         face: FaceRef,
@@ -63,16 +113,9 @@ impl LaidLine {
         leading: f32,
         glyph_sets: &mut GlyphSets,
     ) -> Result<Self, WeaveError> {
-        let glyphs = shape_text(fonts, face, text, font_size)?;
-        let set = glyph_sets.entry(face).or_default();
-        collect_glyph_set(fonts, face, text, set);
-        note_shaped_glyphs(&glyphs, set);
+        let (spans, _) = shape_and_record_spans(fonts, face, text, font_size, glyph_sets)?;
         Ok(Self {
-            spans: vec![LaidSpan {
-                face,
-                font_size,
-                glyphs,
-            }],
+            spans,
             leading,
             glue_after: false,
             indent: 0.0,
