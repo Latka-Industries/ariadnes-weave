@@ -1,6 +1,4 @@
-//! Structured math layout for a small LaTeX subset (fractions, scripts, matrices).
-//!
-//! Leaf tokens still map through [`prettify_tokens`]. This is not a TeX engine.
+//! Box layout for parsed [`super::parse::MathExpr`] trees.
 
 use crate::error::WeaveError;
 use crate::font::{
@@ -8,498 +6,16 @@ use crate::font::{
     shaped_width,
 };
 use crate::knobs::MathKnobs;
-use crate::profile::ProfileMetrics;
 use ttf_parser::Face as TtfFace;
 
-use super::types::{GlyphSets, LaidItem, LaidLine, LaidMath, LaidMathEl, LayoutSegment};
+use super::parse::MathExpr;
+use super::super::types::{GlyphSets, LaidMathEl};
 
-/// Command → Unicode map, longest first (so `\rightarrow` wins over shorter prefixes).
-const TOKEN_REPLACEMENTS: &[(&str, &str)] = &[
-    ("\\rightarrow", "→"),
-    ("\\leftarrow", "←"),
-    ("\\Rightarrow", "⇒"),
-    ("\\approx", "≈"),
-    ("\\infty", "∞"),
-    ("\\times", "×"),
-    ("\\cdot", "·"),
-    ("\\leq", "≤"),
-    ("\\geq", "≥"),
-    ("\\neq", "≠"),
-    ("\\pm", "±"),
-    ("\\alpha", "α"),
-    ("\\beta", "β"),
-    ("\\gamma", "γ"),
-    ("\\delta", "δ"),
-    ("\\epsilon", "ε"),
-    ("\\theta", "θ"),
-    ("\\lambda", "λ"),
-    ("\\mu", "μ"),
-    ("\\pi", "π"),
-    ("\\sigma", "σ"),
-    ("\\phi", "φ"),
-    ("\\omega", "ω"),
-    ("\\sum", "∑"),
-    ("\\prod", "∏"),
-    ("\\int", "∫"),
-    ("\\sqrt", "√"),
-    ("\\ldots", "…"),
-    ("\\dots", "…"),
-    ("\\ ", " "),
-    ("\\,", " "),
-    ("\\;", " "),
-    ("\\!", ""),
-];
-
-/// Lay out display/inline math as a structured box.
-pub(super) fn layout_math(
-    display: bool,
-    latex: &str,
-    metrics: &ProfileMetrics,
-    fonts: &FontBag,
-    knobs: &MathKnobs,
-    segments: &mut [LayoutSegment],
-    glyph_sets: &mut GlyphSets,
-) -> Result<(), WeaveError> {
-    let face = FaceRef::Bundled(if metrics.serif_body {
-        FaceId::SerifItalic
-    } else {
-        FaceId::SansItalic
-    });
-    let font_size = if display {
-        metrics.body_size * knobs.display.size_factor
-    } else {
-        metrics.body_size
-    };
-    let seg = segments.last_mut().expect("segment");
-    if display {
-        seg.1
-            .push(LaidItem::Text(LaidLine::gap(knobs.display.pre_gap)));
-    }
-
-    let body = strip_math_delimiters(latex);
-    let expr = parse_math(&body).unwrap_or_else(|_| MathExpr::Ord(prettify_latex_math(latex)));
-    let mut ctx = MathCtx {
-        fonts,
-        face,
-        knobs,
-        glyph_sets,
-    };
-    let math = layout_expr(&expr, &mut ctx, font_size)?;
-    seg.1.push(LaidItem::Math(LaidMath {
-        width: math.width,
-        height: math.height + math.depth,
-        center: display,
-        gap_after: if display {
-            knobs.display.gap_after
-        } else {
-            knobs.display.inline_gap_after
-        },
-        elements: shift_to_top_origin(math),
-    }));
-    Ok(())
-}
-
-/// Light LaTeX-math prettifier (delimiters + common tokens). Kept for simple
-/// fixtures and as a leaf/fallback path — not a TeX engine.
-pub(super) fn prettify_latex_math(latex: &str) -> String {
-    let mut s = strip_math_delimiters(latex);
-    s = prettify_tokens(&s);
-    s = s.replace(['{', '}'], "");
-    s = apply_script_chars(&s, '^', true);
-    s = apply_script_chars(&s, '_', false);
-    if s.is_empty() { "[math]".into() } else { s }
-}
-
-fn strip_math_delimiters(latex: &str) -> String {
-    let mut s = latex.trim().to_string();
-    for wrap in ["$$", "$", "\\[", "\\]", "\\(", "\\)"] {
-        if let Some(stripped) = s.strip_prefix(wrap) {
-            s = stripped.to_string();
-        }
-        if let Some(stripped) = s.strip_suffix(wrap) {
-            s = stripped.to_string();
-        }
-    }
-    s.trim().to_string()
-}
-
-fn prettify_tokens(input: &str) -> String {
-    let mut s = input.to_string();
-    for &(from, to) in TOKEN_REPLACEMENTS {
-        s = s.replace(from, to);
-    }
-    s
-}
-
-fn apply_script_chars(input: &str, marker: char, super_script: bool) -> String {
-    let map = if super_script {
-        to_superscript
-    } else {
-        to_subscript
-    };
-    let mut out = String::with_capacity(input.len());
-    let mut chars = input.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch == marker
-            && let Some(&next) = chars.peek()
-            && let Some(rep) = map(next)
-        {
-            out.push(rep);
-            chars.next();
-            continue;
-        }
-        out.push(ch);
-    }
-    out
-}
-
-fn to_superscript(ch: char) -> Option<char> {
-    Some(match ch {
-        '0' => '⁰',
-        '1' => '¹',
-        '2' => '²',
-        '3' => '³',
-        '4' => '⁴',
-        '5' => '⁵',
-        '6' => '⁶',
-        '7' => '⁷',
-        '8' => '⁸',
-        '9' => '⁹',
-        '+' => '⁺',
-        '-' => '⁻',
-        'n' => 'ⁿ',
-        'i' => 'ⁱ',
-        _ => return None,
-    })
-}
-
-fn to_subscript(ch: char) -> Option<char> {
-    Some(match ch {
-        '0' => '₀',
-        '1' => '₁',
-        '2' => '₂',
-        '3' => '₃',
-        '4' => '₄',
-        '5' => '₅',
-        '6' => '₆',
-        '7' => '₇',
-        '8' => '₈',
-        '9' => '₉',
-        '+' => '₊',
-        '-' => '₋',
-        'n' => 'ₙ',
-        'i' => 'ᵢ',
-        _ => return None,
-    })
-}
-
-// --- AST -------------------------------------------------------------------
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum MathExpr {
-    Ord(String),
-    Row(Vec<MathExpr>),
-    Frac(Box<MathExpr>, Box<MathExpr>),
-    Scripts {
-        base: Box<MathExpr>,
-        sup: Option<Box<MathExpr>>,
-        sub: Option<Box<MathExpr>>,
-    },
-    Matrix {
-        delimited: bool,
-        rows: Vec<Vec<MathExpr>>,
-    },
-}
-
-#[derive(Debug, Clone, Copy)]
-enum ScriptKind {
-    Sup,
-    Sub,
-}
-
-#[derive(Debug)]
-struct ParseError;
-
-fn parse_math(input: &str) -> Result<MathExpr, ParseError> {
-    let chars: Vec<char> = input.chars().collect();
-    let mut p = Parser { chars, i: 0 };
-    let expr = p.parse_row()?;
-    if p.i != p.chars.len() && matches!(&expr, MathExpr::Row(items) if items.is_empty()) {
-        return Err(ParseError);
-    }
-    Ok(flatten(expr))
-}
-
-fn flatten(expr: MathExpr) -> MathExpr {
-    match expr {
-        MathExpr::Row(mut items) if items.len() == 1 => flatten(items.remove(0)),
-        MathExpr::Row(items) => MathExpr::Row(items.into_iter().map(flatten).collect()),
-        MathExpr::Frac(n, d) => MathExpr::Frac(Box::new(flatten(*n)), Box::new(flatten(*d))),
-        MathExpr::Scripts { base, sup, sub } => MathExpr::Scripts {
-            base: Box::new(flatten(*base)),
-            sup: sup.map(|e| Box::new(flatten(*e))),
-            sub: sub.map(|e| Box::new(flatten(*e))),
-        },
-        MathExpr::Matrix { delimited, rows } => MathExpr::Matrix {
-            delimited,
-            rows: rows
-                .into_iter()
-                .map(|r| r.into_iter().map(flatten).collect())
-                .collect(),
-        },
-        MathExpr::Ord(text) => MathExpr::Ord(text),
-    }
-}
-
-fn attach_script(nucleus: MathExpr, kind: ScriptKind, script: MathExpr) -> MathExpr {
-    let script = Box::new(script);
-    match (kind, nucleus) {
-        (
-            ScriptKind::Sup,
-            MathExpr::Scripts {
-                base,
-                sup: None,
-                sub,
-            },
-        ) => MathExpr::Scripts {
-            base,
-            sup: Some(script),
-            sub,
-        },
-        (
-            ScriptKind::Sub,
-            MathExpr::Scripts {
-                base,
-                sup,
-                sub: None,
-            },
-        ) => MathExpr::Scripts {
-            base,
-            sup,
-            sub: Some(script),
-        },
-        (ScriptKind::Sup, base) => MathExpr::Scripts {
-            base: Box::new(base),
-            sup: Some(script),
-            sub: None,
-        },
-        (ScriptKind::Sub, base) => MathExpr::Scripts {
-            base: Box::new(base),
-            sup: None,
-            sub: Some(script),
-        },
-    }
-}
-
-struct Parser {
-    chars: Vec<char>,
-    i: usize,
-}
-
-impl Parser {
-    fn peek(&self) -> Option<char> {
-        self.chars.get(self.i).copied()
-    }
-
-    fn bump(&mut self) -> Option<char> {
-        let ch = self.peek()?;
-        self.i += 1;
-        Some(ch)
-    }
-
-    fn eat(&mut self, expected: char) -> Result<(), ParseError> {
-        if self.bump() == Some(expected) {
-            Ok(())
-        } else {
-            Err(ParseError)
-        }
-    }
-
-    fn starts_with(&self, s: &str) -> bool {
-        let needle: Vec<char> = s.chars().collect();
-        self.chars[self.i..].starts_with(&needle)
-    }
-
-    fn eat_str(&mut self, s: &str) -> Result<(), ParseError> {
-        if self.starts_with(s) {
-            self.i += s.chars().count();
-            Ok(())
-        } else {
-            Err(ParseError)
-        }
-    }
-
-    fn skip_spaces(&mut self) {
-        while matches!(self.peek(), Some(c) if c.is_whitespace()) {
-            self.i += 1;
-        }
-    }
-
-    fn at_seq_stop(&self) -> bool {
-        match self.peek() {
-            None | Some('}' | '&') => true,
-            Some('\\') => self.starts_with("\\\\") || self.starts_with("\\end"),
-            _ => false,
-        }
-    }
-
-    fn parse_atom_seq(&mut self) -> Result<MathExpr, ParseError> {
-        let mut items = Vec::new();
-        loop {
-            self.skip_spaces();
-            if self.at_seq_stop() {
-                break;
-            }
-            items.push(self.parse_atom()?);
-        }
-        Ok(MathExpr::Row(items))
-    }
-
-    fn parse_row(&mut self) -> Result<MathExpr, ParseError> {
-        self.parse_atom_seq()
-    }
-
-    fn parse_cell(&mut self) -> Result<MathExpr, ParseError> {
-        Ok(flatten(self.parse_atom_seq()?))
-    }
-
-    fn parse_atom(&mut self) -> Result<MathExpr, ParseError> {
-        let mut nucleus = self.parse_nucleus()?;
-        loop {
-            self.skip_spaces();
-            let kind = match self.peek() {
-                Some('^') => ScriptKind::Sup,
-                Some('_') => ScriptKind::Sub,
-                _ => break,
-            };
-            self.bump();
-            self.skip_spaces();
-            let script = self.parse_nucleus()?;
-            nucleus = attach_script(nucleus, kind, script);
-        }
-        Ok(nucleus)
-    }
-
-    fn parse_nucleus(&mut self) -> Result<MathExpr, ParseError> {
-        self.skip_spaces();
-        match self.peek() {
-            Some('{') => {
-                self.bump();
-                let inner = self.parse_row()?;
-                self.skip_spaces();
-                self.eat('}')?;
-                Ok(inner)
-            }
-            Some('\\') => self.parse_command(),
-            Some(ch) if !matches!(ch, '}' | '&' | '^' | '_') => {
-                self.bump();
-                Ok(MathExpr::Ord(ch.to_string()))
-            }
-            _ => Err(ParseError),
-        }
-    }
-
-    fn parse_command(&mut self) -> Result<MathExpr, ParseError> {
-        self.eat('\\')?;
-        if self.starts_with("frac") {
-            self.eat_str("frac")?;
-            self.skip_spaces();
-            let num = self.parse_nucleus()?;
-            self.skip_spaces();
-            let den = self.parse_nucleus()?;
-            return Ok(MathExpr::Frac(Box::new(num), Box::new(den)));
-        }
-        if self.starts_with("begin") {
-            return self.parse_begin_env();
-        }
-        let name = self.read_command_name();
-        if name.is_empty() {
-            let ch = self.bump().ok_or(ParseError)?;
-            return Ok(MathExpr::Ord(prettify_tokens(&format!("\\{ch}"))));
-        }
-        Ok(MathExpr::Ord(prettify_tokens(&format!("\\{name}"))))
-    }
-
-    fn read_command_name(&mut self) -> String {
-        let mut name = String::new();
-        while let Some(ch) = self.peek() {
-            if ch.is_ascii_alphabetic() {
-                name.push(ch);
-                self.i += 1;
-            } else {
-                break;
-            }
-        }
-        name
-    }
-
-    fn read_braced_name(&mut self) -> Result<String, ParseError> {
-        self.skip_spaces();
-        self.eat('{')?;
-        let mut name = String::new();
-        while let Some(ch) = self.peek() {
-            if ch == '}' {
-                break;
-            }
-            name.push(ch);
-            self.i += 1;
-        }
-        self.eat('}')?;
-        Ok(name)
-    }
-
-    fn parse_begin_env(&mut self) -> Result<MathExpr, ParseError> {
-        self.eat_str("begin")?;
-        let env = self.read_braced_name()?;
-        let delimited = match env.as_str() {
-            "matrix" => false,
-            "pmatrix" => true,
-            _ => return Err(ParseError),
-        };
-        let mut rows = Vec::new();
-        let mut row = Vec::new();
-        loop {
-            self.skip_spaces();
-            if self.starts_with("\\end") {
-                break;
-            }
-            if self.starts_with("\\\\") {
-                self.eat_str("\\\\")?;
-                rows.push(std::mem::take(&mut row));
-                continue;
-            }
-            if self.peek() == Some('&') {
-                self.bump();
-                continue;
-            }
-            row.push(self.parse_cell()?);
-            self.skip_spaces();
-            if self.peek() == Some('&') {
-                self.bump();
-            }
-        }
-        if !row.is_empty() {
-            rows.push(row);
-        }
-        self.eat_str("\\end")?;
-        let end_env = self.read_braced_name()?;
-        if end_env != env {
-            return Err(ParseError);
-        }
-        if rows.is_empty() {
-            rows.push(vec![MathExpr::Ord(String::new())]);
-        }
-        Ok(MathExpr::Matrix { delimited, rows })
-    }
-}
-
-// --- Box layout ------------------------------------------------------------
-
-struct MathCtx<'a> {
-    fonts: &'a FontBag,
-    face: FaceRef,
-    knobs: &'a MathKnobs,
-    glyph_sets: &'a mut GlyphSets,
+pub(super) struct MathCtx<'a> {
+    pub(super) fonts: &'a FontBag,
+    pub(super) face: FaceRef,
+    pub(super) knobs: &'a MathKnobs,
+    pub(super) glyph_sets: &'a mut GlyphSets,
 }
 
 /// Math axis above the baseline (TeX-ish); fraction bars and big ops share this.
@@ -581,18 +97,18 @@ fn normalize_row_kinds(items: &[MathExpr]) -> Vec<AtomKind> {
 }
 
 #[derive(Debug, Clone)]
-struct MathBox {
-    width: f32,
+pub(super) struct MathBox {
+    pub(super) width: f32,
     /// Distance above the baseline.
-    height: f32,
+    pub(super) height: f32,
     /// Distance below the baseline.
-    depth: f32,
+    pub(super) depth: f32,
     /// Positions relative to the box baseline (`y` positive = up).
-    elements: Vec<RelEl>,
+    pub(super) elements: Vec<RelEl>,
 }
 
 #[derive(Debug, Clone)]
-enum RelEl {
+pub(super) enum RelEl {
     Text {
         x: f32,
         y: f32,
@@ -774,7 +290,7 @@ fn append_box(dst: &mut Vec<RelEl>, src: MathBox, dx: f32, dy: f32) {
     dst.extend(offset_elements(src.elements, dx, dy));
 }
 
-fn shift_to_top_origin(math: MathBox) -> Vec<LaidMathEl> {
+pub(super) fn shift_to_top_origin(math: MathBox) -> Vec<LaidMathEl> {
     let top = math.height;
     math.elements
         .into_iter()
@@ -782,7 +298,7 @@ fn shift_to_top_origin(math: MathBox) -> Vec<LaidMathEl> {
         .collect()
 }
 
-fn layout_expr(expr: &MathExpr, ctx: &mut MathCtx, font_size: f32) -> Result<MathBox, WeaveError> {
+pub(super) fn layout_expr(expr: &MathExpr, ctx: &mut MathCtx, font_size: f32) -> Result<MathBox, WeaveError> {
     match expr {
         MathExpr::Ord(text) => layout_ord(text, ctx, font_size),
         MathExpr::Row(items) => layout_row(items, ctx, font_size),
@@ -1177,34 +693,4 @@ fn layout_ord_raw(text: &str, ctx: &mut MathCtx, font_size: f32) -> Result<MathB
             glyphs,
         }],
     })
-}
-
-#[cfg(test)]
-mod parse_tests {
-    use super::{MathExpr, parse_math};
-
-    #[test]
-    fn parses_frac_and_scripts() {
-        let e = parse_math(r"\frac{a^{10}}{b_{ij}}").expect("parse");
-        match e {
-            MathExpr::Frac(num, den) => {
-                assert!(matches!(*num, MathExpr::Scripts { .. }));
-                assert!(matches!(*den, MathExpr::Scripts { .. }));
-            }
-            other => panic!("expected frac, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn parses_pmatrix() {
-        let e = parse_math(r"\begin{pmatrix} a & b \\ c & d \end{pmatrix}").expect("parse");
-        match e {
-            MathExpr::Matrix { delimited, rows } => {
-                assert!(delimited);
-                assert_eq!(rows.len(), 2);
-                assert_eq!(rows[0].len(), 2);
-            }
-            other => panic!("expected matrix, got {other:?}"),
-        }
-    }
 }
