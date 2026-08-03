@@ -1,4 +1,4 @@
-//! Deterministic emit fixtures (lean THI-292 slice — no Chromium).
+//! Deterministic emit fixtures (THI-292) + literary unfolding (THI-295).
 
 use ariadnes_weave::{
     BreakHint, PrintBlock, PrintDocument, PrintMeta, PrintProfileId, TextRun, emit_pdf,
@@ -52,6 +52,10 @@ fn quadratic_formula_doc() -> PrintDocument {
     }
 }
 
+/// Two H1 chapters under `manuscript@0` — literary unfolding acceptance IR.
+///
+/// Breaks come from `force_h1_page_break`, not `BreakHint::PageAlways`.
+/// Chapter-scoped Tessera export is host-side; weave accepts this IR shape.
 fn manuscript_two_chapters() -> PrintDocument {
     PrintDocument {
         meta: PrintMeta {
@@ -82,6 +86,13 @@ fn manuscript_two_chapters() -> PrintDocument {
     }
 }
 
+fn assert_emit_deterministic(doc: &PrintDocument) -> Vec<u8> {
+    let a = emit_pdf(doc).expect("emit a");
+    let b = emit_pdf(doc).expect("emit b");
+    assert_eq!(a, b, "PDF must be byte-identical across runs");
+    a
+}
+
 fn sha256_hex(bytes: &[u8]) -> String {
     use std::fmt::Write;
     let digest = Sha256::digest(bytes);
@@ -92,11 +103,29 @@ fn sha256_hex(bytes: &[u8]) -> String {
     out
 }
 
+fn page_dict_count(pdf: &[u8]) -> usize {
+    let needle = b"/Type /Page";
+    let mut count = 0;
+    let mut i = 0;
+    while i + needle.len() <= pdf.len() {
+        if pdf[i..i + needle.len()] == *needle {
+            // Exclude `/Type /Pages` (catalog).
+            if pdf.get(i + needle.len()) != Some(&b's') {
+                count += 1;
+            }
+            i += needle.len();
+        } else {
+            i += 1;
+        }
+    }
+    count
+}
+
 /// Pin: bump intentionally when emit layout/fonts change.
 const HELLO_PRINT_V0_SHA256: &str =
     "78dff97ab02e9241abb08162fced533cdcfc80e2723f0480232ed89f4095bd71";
 
-/// Pin: bump intentionally when emit layout/fonts change.
+/// Pin: bump intentionally when manuscript literary layout/fonts change.
 const MANUSCRIPT_TWO_CHAPTER_SHA256: &str =
     "22ec4075c78b2651784b9a751a8fce66ab2a2f7507cc587272c383a989f1113a";
 
@@ -106,12 +135,7 @@ const QUADRATIC_FORMULA_SHA256: &str =
 
 #[test]
 fn emit_is_byte_identical_across_runs() {
-    let a = emit_pdf(&hello_doc()).expect("emit a");
-    let b = emit_pdf(&hello_doc()).expect("emit b");
-    assert_eq!(
-        a, b,
-        "PDF bytes must be deterministic for fixed IR + profile"
-    );
+    assert_emit_deterministic(&hello_doc());
 }
 
 #[test]
@@ -120,21 +144,44 @@ fn hello_print_v0_sha256_fixture() {
     assert_eq!(sha256_hex(&bytes), HELLO_PRINT_V0_SHA256);
 }
 
+/// THI-295: same IR + `manuscript@0` → stable literary unfolding.
 #[test]
-fn manuscript_h1_starts_new_page() {
-    let bytes = emit_pdf(&manuscript_two_chapters()).expect("emit");
-    let page_dicts = bytes.windows(10).filter(|w| *w == b"/Type /Pag").count();
-    assert!(
-        page_dicts >= 2,
-        "manuscript@0 should page-break before second H1; got {page_dicts} page dicts"
+fn manuscript_literary_unfolding_fixture() {
+    let a = assert_emit_deterministic(&manuscript_two_chapters());
+
+    let pages = page_dict_count(&a);
+    assert_eq!(
+        pages, 2,
+        "manuscript@0 should page-break before second H1; got {pages} pages"
     );
-    assert_eq!(sha256_hex(&bytes), MANUSCRIPT_TWO_CHAPTER_SHA256);
+
+    let text = String::from_utf8_lossy(&a);
+    assert!(
+        text.contains("/MediaBox [0 0 612 792]"),
+        "manuscript@0 must use US Letter MediaBox"
+    );
+    assert!(
+        text.contains("LiberationSerif"),
+        "manuscript@0 body must embed Liberation Serif"
+    );
+    assert_eq!(sha256_hex(&a), MANUSCRIPT_TWO_CHAPTER_SHA256);
+}
+
+/// Contrast: same chapter IR under `print@0` does not force H1 page breaks.
+#[test]
+fn print_profile_does_not_force_h1_chapter_break() {
+    let mut doc = manuscript_two_chapters();
+    doc.profile = PrintProfileId::print_v0();
+    let bytes = emit_pdf(&doc).expect("emit");
+    assert_eq!(
+        page_dict_count(&bytes),
+        1,
+        "print@0 should keep both H1s on one page for this short IR"
+    );
 }
 
 #[test]
 fn quadratic_formula_sha256_fixture() {
-    let a = emit_pdf(&quadratic_formula_doc()).expect("emit a");
-    let b = emit_pdf(&quadratic_formula_doc()).expect("emit b");
-    assert_eq!(a, b, "math PDF must be deterministic");
+    let a = assert_emit_deterministic(&quadratic_formula_doc());
     assert_eq!(sha256_hex(&a), QUADRATIC_FORMULA_SHA256);
 }

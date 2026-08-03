@@ -51,7 +51,7 @@ pub(super) fn layout_block(
 ) -> Result<(), WeaveError> {
     match block {
         PrintBlock::Break(hint) => {
-            if matches!(hint, BreakHint::Page | BreakHint::PageAlways) {
+            if hint.forces_page_break() {
                 segments.push((ForcedBreak::Always, Vec::new()));
             }
         }
@@ -120,6 +120,10 @@ pub(super) fn layout_block(
     Ok(())
 }
 
+fn segment_has_content(segments: &[LayoutSegment]) -> bool {
+    segments.last().is_some_and(|(_, items)| !items.is_empty())
+}
+
 fn body_layout(metrics: &ProfileMetrics, indent: f32) -> RunLayout {
     RunLayout {
         font_size: metrics.body_size,
@@ -140,11 +144,9 @@ fn layout_heading(
     segments: &mut Vec<LayoutSegment>,
     glyph_sets: &mut GlyphSets,
 ) -> Result<(), WeaveError> {
+    // Profile H1 break (manuscript@0) and/or explicit Page / PageAlways.
     let profile_h1_break = metrics.force_h1_page_break && level == 1;
-    let hint_break = matches!(break_before, BreakHint::Page | BreakHint::PageAlways);
-    if (profile_h1_break || hint_break)
-        && segments.last().is_some_and(|(_, items)| !items.is_empty())
-    {
+    if (profile_h1_break || break_before.forces_page_break()) && segment_has_content(segments) {
         segments.push((ForcedBreak::Always, Vec::new()));
     }
     let font_size = profile::heading_size(level, metrics);
@@ -551,7 +553,7 @@ fn layout_slide(
     glyph_sets: &mut GlyphSets,
 ) -> Result<(), WeaveError> {
     let _ = layout_id;
-    if segments.last().is_some_and(|(_, items)| !items.is_empty()) {
+    if segment_has_content(segments) {
         segments.push((ForcedBreak::Always, Vec::new()));
     }
 
