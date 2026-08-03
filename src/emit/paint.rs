@@ -5,9 +5,28 @@ use pdf_writer::{Content, Name, Str};
 
 use crate::error::WeaveError;
 use crate::font::{FaceId, FaceRef, FontBag, encode_gids, shape_text, shaped_width};
+use crate::knobs::{LayoutKnobs, PageChromeKnobs};
 use crate::profile::ProfileMetrics;
 
 use super::types::{LaidColumns, LaidItem, LaidMath, LaidMathEl, LaidTable, SubsetMap};
+
+struct ArrowGeom {
+    x: f32,
+    mid_y: f32,
+    width: f32,
+    height: f32,
+    thickness: f32,
+    left: bool,
+}
+
+struct ParenGeom {
+    x: f32,
+    axis_y: f32,
+    half_h: f32,
+    width: f32,
+    thickness: f32,
+    left: bool,
+}
 
 /// Resource name bytes for image `XObject` `Im{idx}`.
 pub(super) fn image_resource_name(idx: usize) -> Vec<u8> {
@@ -26,15 +45,17 @@ pub(super) fn build_page_content(
     page_count: usize,
     fonts: &FontBag,
     subsets: &SubsetMap,
+    knobs: &LayoutKnobs,
 ) -> Result<Vec<u8>, WeaveError> {
     let mut content = Content::new();
     let mut y = metrics.page_h - metrics.margin;
+    let bottom_limit = metrics.margin + knobs.page.content.bottom_clearance;
 
     for item in items {
         match item {
             LaidItem::Text(line) => {
                 y -= line.leading;
-                if y < metrics.margin + 18.0 {
+                if y < bottom_limit {
                     break;
                 }
                 if line.spans.is_empty() {
@@ -63,7 +84,7 @@ pub(super) fn build_page_content(
                 glue_after: _,
             } => {
                 y -= *height;
-                if y < metrics.margin + 18.0 {
+                if y < bottom_limit {
                     break;
                 }
                 let name = image_resource_name(*img_idx);
@@ -75,7 +96,7 @@ pub(super) fn build_page_content(
             }
             LaidItem::Table(table) => {
                 let table_h = table.rows.iter().map(|r| r.height).sum::<f32>();
-                if y - table_h < metrics.margin + 18.0 {
+                if y - table_h < bottom_limit {
                     break;
                 }
                 paint_table(&mut content, table, metrics.margin, y, fonts);
@@ -83,14 +104,14 @@ pub(super) fn build_page_content(
             }
             LaidItem::Columns(cols) => {
                 let h = cols.height() - cols.gap_after;
-                if y - h < metrics.margin + 18.0 {
+                if y - h < bottom_limit {
                     break;
                 }
                 paint_columns(&mut content, cols, metrics.margin, y, fonts);
                 y -= cols.height();
             }
             LaidItem::Math(math) => {
-                if y - math.height < metrics.margin + 18.0 {
+                if y - math.height < bottom_limit {
                     break;
                 }
                 paint_math(
@@ -100,6 +121,7 @@ pub(super) fn build_page_content(
                     y,
                     metrics.content_width(),
                     fonts,
+                    &knobs.page.chrome,
                 );
                 y -= math.height + math.gap_after;
             }
@@ -108,18 +130,19 @@ pub(super) fn build_page_content(
 
     let footer = format!("{page_no} / {page_count}");
     let footer_face = FaceRef::Bundled(FaceId::SansRegular);
-    let mut footer_glyphs = shape_text(fonts, footer_face, &footer, 9.0)?;
+    let footer_size = knobs.page.footer.font_size;
+    let mut footer_glyphs = shape_text(fonts, footer_face, &footer, footer_size)?;
     if let Some(subset) = subsets.get(&footer_face) {
         for g in &mut footer_glyphs {
             *g = subset.remap_glyph(*g);
         }
     }
     let footer_w = shaped_width(&footer_glyphs);
-    let footer_y = metrics.margin * 0.45;
+    let footer_y = metrics.margin * knobs.page.footer.y_margin_factor;
     let footer_x = (metrics.page_w - footer_w) / 2.0;
     let footer_name = fonts.resource_name(footer_face);
     content.begin_text();
-    content.set_font(Name(&footer_name), 9.0);
+    content.set_font(Name(&footer_name), footer_size);
     content.set_text_matrix([1.0, 0.0, 0.0, 1.0, footer_x, footer_y]);
     content.show(Str(&encode_gids(&footer_glyphs)));
     content.end_text();
@@ -236,6 +259,7 @@ pub(super) fn paint_math(
     top_y: f32,
     content_width: f32,
     fonts: &FontBag,
+    chrome: &PageChromeKnobs,
 ) {
     let origin_x = if math.center {
         origin_x + (content_width - math.width) / 2.0
@@ -283,12 +307,15 @@ pub(super) fn paint_math(
             } => {
                 paint_math_paren(
                     content,
-                    origin_x + x,
-                    top_y - axis_y,
-                    *half_h,
-                    *width,
-                    *thickness,
-                    *left,
+                    ParenGeom {
+                        x: origin_x + x,
+                        axis_y: top_y - axis_y,
+                        half_h: *half_h,
+                        width: *width,
+                        thickness: *thickness,
+                        left: *left,
+                    },
+                    chrome,
                 );
             }
             LaidMathEl::Arrow {
@@ -301,27 +328,30 @@ pub(super) fn paint_math(
             } => {
                 paint_math_arrow(
                     content,
-                    origin_x + x,
-                    top_y - y,
-                    *width,
-                    *height,
-                    *thickness,
-                    *left,
+                    ArrowGeom {
+                        x: origin_x + x,
+                        mid_y: top_y - y,
+                        width: *width,
+                        height: *height,
+                        thickness: *thickness,
+                        left: *left,
+                    },
+                    chrome,
                 );
             }
         }
     }
 }
 
-fn paint_math_arrow(
-    content: &mut Content,
-    x: f32,
-    mid_y: f32,
-    width: f32,
-    height: f32,
-    thickness: f32,
-    left: bool,
-) {
+fn paint_math_arrow(content: &mut Content, geom: ArrowGeom, chrome: &PageChromeKnobs) {
+    let ArrowGeom {
+        x,
+        mid_y,
+        width,
+        height,
+        thickness,
+        left,
+    } = geom;
     let head_w = width * 0.32;
     let head_h = height * 0.55;
     let (tail_x, tip_x, head_base) = if left {
@@ -330,8 +360,8 @@ fn paint_math_arrow(
         (x, x + width, x + width - head_w)
     };
     content.save_state();
-    content.set_stroke_gray(0.12);
-    content.set_fill_gray(0.12);
+    content.set_stroke_gray(chrome.stroke_gray);
+    content.set_fill_gray(chrome.fill_gray);
     content.set_line_width(thickness);
     content.set_line_cap(LineCapStyle::RoundCap);
     content.move_to(tail_x, mid_y);
@@ -346,20 +376,20 @@ fn paint_math_arrow(
 }
 
 /// Stroke a stretchy parenthesis centered on `axis_y` (PDF space).
-fn paint_math_paren(
-    content: &mut Content,
-    x: f32,
-    axis_y: f32,
-    half_h: f32,
-    width: f32,
-    thickness: f32,
-    left: bool,
-) {
+fn paint_math_paren(content: &mut Content, geom: ParenGeom, chrome: &PageChromeKnobs) {
+    let ParenGeom {
+        x,
+        axis_y,
+        half_h,
+        width,
+        thickness,
+        left,
+    } = geom;
     let top = axis_y + half_h;
     let bot = axis_y - half_h;
     let mid = axis_y;
     content.save_state();
-    content.set_stroke_gray(0.12);
+    content.set_stroke_gray(chrome.stroke_gray);
     content.set_line_width(thickness);
     content.set_line_cap(LineCapStyle::RoundCap);
     if left {

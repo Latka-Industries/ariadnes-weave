@@ -57,7 +57,7 @@ pub fn emit_pdf_with(doc: &PrintDocument, opts: &EmitOptions) -> Result<Vec<u8>,
     let fonts = build_font_bag(doc, opts)?;
 
     let metrics = profile::resolve_metrics(&doc.profile)?;
-    let (segments, images, mut glyph_sets) = collect_layout(doc, &metrics, &fonts)?;
+    let (segments, images, mut glyph_sets) = collect_layout(doc, &metrics, &fonts, &opts.layout)?;
     // Digits for page footers (`n / m`).
     let footer_face = FaceRef::Bundled(FaceId::SansRegular);
     collect_glyph_set(
@@ -98,6 +98,7 @@ pub fn emit_pdf_with(doc: &PrintDocument, opts: &EmitOptions) -> Result<Vec<u8>,
         fonts: &fonts,
         image_refs: &image_refs,
         subsets: &subsets,
+        knobs: &opts.layout,
     }
     .run()?;
 

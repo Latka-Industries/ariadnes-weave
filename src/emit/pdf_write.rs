@@ -7,6 +7,7 @@ use pdf_writer::{Name, Pdf, Rect, Ref};
 use crate::error::WeaveError;
 use crate::font::{FaceRef, FontBag, FontObjIds, prepare_subset, write_embedded_font};
 use crate::image_prep::PreparedImage;
+use crate::knobs::LayoutKnobs;
 use crate::profile::ProfileMetrics;
 
 use super::paint::{build_page_content, image_resource_name};
@@ -119,6 +120,7 @@ pub(super) struct WritePagesArgs<'a> {
     pub fonts: &'a FontBag,
     pub image_refs: &'a [(Ref, Option<Ref>)],
     pub subsets: &'a SubsetMap,
+    pub knobs: &'a LayoutKnobs,
 }
 
 impl WritePagesArgs<'_> {
@@ -135,6 +137,7 @@ impl WritePagesArgs<'_> {
             fonts,
             image_refs,
             subsets,
+            knobs,
         } = self;
         let page_count = pages.len().max(1);
         for (page_idx, ((page_id, content_id), page_items)) in page_ids
@@ -163,6 +166,7 @@ impl WritePagesArgs<'_> {
                 page_count,
                 fonts,
                 subsets,
+                knobs,
             )?;
             pdf.stream(content_id, &content_bytes);
         }

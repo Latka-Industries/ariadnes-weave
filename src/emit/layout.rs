@@ -7,6 +7,7 @@ use crate::ir::{
     BreakHint, FigurePlacement, InlineStyle, PrintBlock, PrintDocument, PrintImage,
     SlideRegionContent, TableRow, TextRun,
 };
+use crate::knobs::LayoutKnobs;
 use crate::profile::{self, ProfileMetrics};
 
 use super::math::layout_math;
@@ -15,11 +16,33 @@ use super::types::{
     LaidTableRow, LayoutDoc, LayoutSegment, RunLayout, shape_and_record_spans,
 };
 
+pub(super) struct LayoutCtx<'a> {
+    metrics: &'a ProfileMetrics,
+    fonts: &'a FontBag,
+    knobs: &'a LayoutKnobs,
+    glyph_sets: &'a mut GlyphSets,
+}
+
+fn layout_ctx<'a>(
+    metrics: &'a ProfileMetrics,
+    fonts: &'a FontBag,
+    knobs: &'a LayoutKnobs,
+    glyph_sets: &'a mut GlyphSets,
+) -> LayoutCtx<'a> {
+    LayoutCtx {
+        metrics,
+        fonts,
+        knobs,
+        glyph_sets,
+    }
+}
+
 /// Walk document blocks into layout segments (reading order + break hints).
 pub(super) fn collect_layout(
     doc: &PrintDocument,
     metrics: &ProfileMetrics,
     fonts: &FontBag,
+    knobs: &LayoutKnobs,
 ) -> Result<LayoutDoc, WeaveError> {
     let mut segments: Vec<(ForcedBreak, Vec<LaidItem>)> = vec![(ForcedBreak::None, Vec::new())];
     let mut images: Vec<PreparedImage> = Vec::new();
@@ -30,6 +53,7 @@ pub(super) fn collect_layout(
             block,
             metrics,
             fonts,
+            knobs,
             &mut segments,
             &mut images,
             &mut glyph_sets,
@@ -43,6 +67,7 @@ pub(super) fn layout_block(
     block: &PrintBlock,
     metrics: &ProfileMetrics,
     fonts: &FontBag,
+    knobs: &LayoutKnobs,
     segments: &mut Vec<LayoutSegment>,
     images: &mut Vec<PreparedImage>,
     glyph_sets: &mut GlyphSets,
@@ -57,37 +82,32 @@ pub(super) fn layout_block(
             level,
             runs,
             break_before,
-        } => layout_heading(
-            *level,
-            runs,
-            *break_before,
-            metrics,
-            fonts,
-            segments,
-            glyph_sets,
-        )?,
-        PrintBlock::Paragraph { runs } => {
-            let seg = segments.last_mut().expect("segment");
-            push_styled_runs(
-                &mut seg.1,
-                runs,
-                metrics,
-                fonts,
-                glyph_sets,
-                body_layout(metrics, 0.0),
-            )?;
+        } => {
+            let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
+            layout_heading(*level, runs, *break_before, &mut ctx, segments)?;
         }
-        PrintBlock::Quote { runs } => layout_quote(runs, metrics, fonts, segments, glyph_sets)?,
+        PrintBlock::Paragraph { runs } => {
+            let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
+            let seg = segments.last_mut().expect("segment");
+            push_styled_runs(&mut seg.1, runs, &mut ctx, body_layout(metrics, knobs, 0.0))?;
+        }
+        PrintBlock::Quote { runs } => {
+            let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
+            layout_quote(runs, &mut ctx, segments)?;
+        }
         PrintBlock::Code { lang: _, text } => {
-            layout_code(text, metrics, fonts, segments, glyph_sets)?;
+            let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
+            layout_code(text, &mut ctx, segments)?;
         }
         PrintBlock::List { ordered, items } => {
+            let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
             let seg = segments.last_mut().expect("segment");
-            push_list_lines(&mut seg.1, *ordered, items, 0, metrics, fonts, glyph_sets)?;
+            push_list_lines(&mut seg.1, *ordered, items, 0, &mut ctx)?;
         }
         PrintBlock::Table { rows } => {
+            let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
             let seg = segments.last_mut().expect("segment");
-            push_table(&mut seg.1, rows, metrics, fonts, glyph_sets)?;
+            push_table(&mut seg.1, rows, &mut ctx)?;
         }
         PrintBlock::Figure {
             image,
@@ -104,15 +124,25 @@ pub(super) fn layout_block(
                 placement: *placement,
                 metrics,
                 fonts,
+                knobs,
                 glyph_sets,
             }
             .run()?;
         }
         PrintBlock::Math { display, latex } => {
-            layout_math(*display, latex, metrics, fonts, segments, glyph_sets)?;
+            layout_math(
+                *display,
+                latex,
+                metrics,
+                fonts,
+                &knobs.math,
+                segments,
+                glyph_sets,
+            )?;
         }
         PrintBlock::Slide { layout_id, regions } => {
-            layout_slide(layout_id, regions, metrics, fonts, segments, glyph_sets)?;
+            let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
+            layout_slide(layout_id, regions, &mut ctx, segments)?;
         }
     }
     Ok(())
@@ -122,11 +152,11 @@ fn segment_has_content(segments: &[LayoutSegment]) -> bool {
     segments.last().is_some_and(|(_, items)| !items.is_empty())
 }
 
-fn body_layout(metrics: &ProfileMetrics, indent: f32) -> RunLayout {
+fn body_layout(metrics: &ProfileMetrics, knobs: &LayoutKnobs, indent: f32) -> RunLayout {
     RunLayout {
         font_size: metrics.body_size,
         leading: metrics.body_leading,
-        gap_after: 10.0,
+        gap_after: knobs.prose.paragraph.gap_after,
         glue_last_content: false,
         mode: FaceMode::Body,
         indent,
@@ -138,29 +168,25 @@ fn layout_heading(
     level: u8,
     runs: &[TextRun],
     break_before: BreakHint,
-    metrics: &ProfileMetrics,
-    fonts: &FontBag,
+    ctx: &mut LayoutCtx,
     segments: &mut Vec<LayoutSegment>,
-    glyph_sets: &mut GlyphSets,
 ) -> Result<(), WeaveError> {
     // Profile H1 break (manuscript@0) and/or explicit Page / PageAlways.
-    let profile_h1_break = metrics.force_h1_page_break && level == 1;
+    let profile_h1_break = ctx.metrics.force_h1_page_break && level == 1;
     if (profile_h1_break || break_before.forces_page_break()) && segment_has_content(segments) {
         segments.push((ForcedBreak::Always, Vec::new()));
     }
-    let font_size = profile::heading_size(level, metrics);
+    let font_size = profile::heading_size(level, ctx.metrics);
     let glue = matches!(break_before, BreakHint::KeepWithNext) || level <= 2;
     let seg = segments.last_mut().expect("segment");
     push_styled_runs(
         &mut seg.1,
         runs,
-        metrics,
-        fonts,
-        glyph_sets,
+        ctx,
         RunLayout {
             font_size,
-            leading: font_size * 1.35,
-            gap_after: 8.0,
+            leading: font_size * ctx.knobs.prose.heading.leading_factor,
+            gap_after: ctx.knobs.prose.heading.gap_after,
             glue_last_content: glue,
             mode: FaceMode::Heading,
             indent: 0.0,
@@ -171,10 +197,8 @@ fn layout_heading(
 
 fn layout_quote(
     runs: &[TextRun],
-    metrics: &ProfileMetrics,
-    fonts: &FontBag,
+    ctx: &mut LayoutCtx,
     segments: &mut [LayoutSegment],
-    glyph_sets: &mut GlyphSets,
 ) -> Result<(), WeaveError> {
     let seg = segments.last_mut().expect("segment");
     let mut quoted = vec![TextRun {
@@ -197,34 +221,32 @@ fn layout_quote(
     push_styled_runs(
         &mut seg.1,
         &quoted,
-        metrics,
-        fonts,
-        glyph_sets,
-        body_layout(metrics, 18.0),
+        ctx,
+        body_layout(ctx.metrics, ctx.knobs, ctx.knobs.prose.quote.indent),
     )
 }
 
 fn layout_code(
     text: &str,
-    metrics: &ProfileMetrics,
-    fonts: &FontBag,
+    ctx: &mut LayoutCtx,
     segments: &mut [LayoutSegment],
-    glyph_sets: &mut GlyphSets,
 ) -> Result<(), WeaveError> {
     let seg = segments.last_mut().expect("segment");
-    let font_size = metrics.code_size;
-    let leading = font_size * 1.25;
+    let font_size = ctx.metrics.code_size;
+    let leading = font_size * ctx.knobs.prose.code.leading_factor;
     for line in text.lines() {
         seg.1.push(LaidItem::Text(LaidLine::shaped(
-            fonts,
+            ctx.fonts,
             FaceRef::Bundled(FaceId::MonoRegular),
             line,
             font_size,
             leading,
-            glyph_sets,
+            ctx.glyph_sets,
         )?));
     }
-    seg.1.push(LaidItem::Text(LaidLine::gap(10.0)));
+    seg.1.push(LaidItem::Text(LaidLine::gap(
+        ctx.knobs.prose.code.gap_after,
+    )));
     Ok(())
 }
 
@@ -281,6 +303,7 @@ pub(super) struct PushFigureArgs<'a> {
     pub placement: FigurePlacement,
     pub metrics: &'a ProfileMetrics,
     pub fonts: &'a FontBag,
+    pub knobs: &'a LayoutKnobs,
     pub glyph_sets: &'a mut GlyphSets,
 }
 
@@ -299,6 +322,7 @@ impl PushFigureArgs<'_> {
             placement,
             metrics,
             fonts,
+            knobs,
             glyph_sets,
         } = self;
         let float_near = matches!(placement, FigurePlacement::FloatNear);
@@ -332,15 +356,15 @@ impl PushFigureArgs<'_> {
             line.glue_after = !caption.is_empty() || float_near;
             seg.1.push(LaidItem::Text(line));
             if caption.is_empty() {
-                seg.1.push(LaidItem::Text(LaidLine::gap(10.0)));
+                seg.1.push(LaidItem::Text(LaidLine::gap(
+                    knobs.prose.figure.alt_gap_after,
+                )));
             } else {
                 push_styled_runs(
                     &mut seg.1,
                     caption,
-                    metrics,
-                    fonts,
-                    glyph_sets,
-                    body_layout(metrics, 0.0),
+                    &mut layout_ctx(metrics, fonts, knobs, glyph_sets),
+                    body_layout(metrics, knobs, 0.0),
                 )?;
             }
             return Ok(());
@@ -357,15 +381,14 @@ impl PushFigureArgs<'_> {
             glue_after: !caption.is_empty() || float_near,
         });
         if caption.is_empty() {
-            seg.1.push(LaidItem::Text(LaidLine::gap(6.0)));
+            seg.1
+                .push(LaidItem::Text(LaidLine::gap(knobs.prose.figure.gap_after)));
         } else {
             push_styled_runs(
                 &mut seg.1,
                 caption,
-                metrics,
-                fonts,
-                glyph_sets,
-                body_layout(metrics, 0.0),
+                &mut layout_ctx(metrics, fonts, knobs, glyph_sets),
+                body_layout(metrics, knobs, 0.0),
             )?;
         }
         Ok(())
@@ -375,39 +398,42 @@ impl PushFigureArgs<'_> {
 fn push_table(
     out: &mut Vec<LaidItem>,
     rows: &[TableRow],
-    metrics: &ProfileMetrics,
-    fonts: &FontBag,
-    glyph_sets: &mut GlyphSets,
+    ctx: &mut LayoutCtx,
 ) -> Result<(), WeaveError> {
     if rows.is_empty() {
         out.push(LaidItem::Text(LaidLine::shaped(
-            fonts,
+            ctx.fonts,
             FaceRef::Bundled(FaceId::SansItalic),
             "[table]",
-            metrics.body_size,
-            metrics.body_leading,
-            glyph_sets,
+            ctx.metrics.body_size,
+            ctx.metrics.body_leading,
+            ctx.glyph_sets,
         )?));
-        out.push(LaidItem::Text(LaidLine::gap(10.0)));
+        out.push(LaidItem::Text(LaidLine::gap(
+            ctx.knobs.prose.paragraph.gap_after,
+        )));
         return Ok(());
     }
 
     let cols = rows.iter().map(|r| r.cells.len()).max().unwrap_or(0).max(1);
-    let pad = 5.0_f32;
-    let font_size = metrics.body_size;
-    let leading = metrics.body_leading.min(font_size * 1.25);
-    let face = FaceRef::Bundled(if metrics.serif_body {
+    let pad = ctx.knobs.table.cell.pad;
+    let font_size = ctx.metrics.body_size;
+    let leading = ctx
+        .metrics
+        .body_leading
+        .min(font_size * ctx.knobs.table.cell.leading_factor);
+    let face = FaceRef::Bundled(if ctx.metrics.serif_body {
         FaceId::SerifRegular
     } else {
         FaceId::SansRegular
     });
-    let header_face = FaceRef::Bundled(if metrics.serif_body {
+    let header_face = FaceRef::Bundled(if ctx.metrics.serif_body {
         FaceId::SerifBold
     } else {
         FaceId::SansBold
     });
-    let col_width = metrics.content_width() / cols as f32;
-    let inner_width = (col_width - pad * 2.0).max(24.0);
+    let col_width = ctx.metrics.content_width() / cols as f32;
+    let inner_width = (col_width - pad * 2.0).max(ctx.knobs.table.cell.min_inner_width);
     let col_widths = vec![col_width; cols];
 
     let mut laid_rows = Vec::with_capacity(rows.len());
@@ -417,15 +443,7 @@ fn push_table(
         for col in 0..cols {
             let text = row.cells.get(col).map_or("", String::as_str);
             let cell_face = if row_idx == 0 { header_face } else { face };
-            let lines = wrap_plain_text(
-                text,
-                cell_face,
-                font_size,
-                leading,
-                inner_width,
-                fonts,
-                glyph_sets,
-            )?;
+            let lines = wrap_plain_text(text, cell_face, font_size, leading, inner_width, ctx)?;
             let content_h = if lines.is_empty() {
                 leading
             } else {
@@ -444,7 +462,7 @@ fn push_table(
         col_widths,
         rows: laid_rows,
         pad,
-        gap_after: 12.0,
+        gap_after: ctx.knobs.table.block.gap_after,
     }));
     Ok(())
 }
@@ -455,8 +473,7 @@ fn wrap_plain_text(
     font_size: f32,
     leading: f32,
     max_width: f32,
-    fonts: &FontBag,
-    glyph_sets: &mut GlyphSets,
+    ctx: &mut LayoutCtx,
 ) -> Result<Vec<LaidLine>, WeaveError> {
     if text.is_empty() {
         return Ok(Vec::new());
@@ -473,7 +490,7 @@ fn wrap_plain_text(
         if current.is_empty() && skip_wrap_chunk_at_line_start(chunk) {
             continue;
         }
-        let (spans, w) = shape_and_record_spans(fonts, face, chunk, font_size, glyph_sets)?;
+        let (spans, w) = shape_and_record_spans(ctx.fonts, face, chunk, font_size, ctx.glyph_sets)?;
         if current_width + w > max_width && !current.is_empty() {
             lines.push(LaidLine {
                 spans: std::mem::take(&mut current),
@@ -488,9 +505,9 @@ fn wrap_plain_text(
             }
         }
         if w > max_width && current.is_empty() {
-            for piece in hard_break_text(fonts, face, chunk, font_size, max_width)? {
+            for piece in hard_break_text(ctx.fonts, face, chunk, font_size, max_width)? {
                 let (spans, _) =
-                    shape_and_record_spans(fonts, face, &piece, font_size, glyph_sets)?;
+                    shape_and_record_spans(ctx.fonts, face, &piece, font_size, ctx.glyph_sets)?;
                 lines.push(LaidLine {
                     spans,
                     leading,
@@ -519,28 +536,27 @@ fn wrap_plain_text(
 fn layout_slide(
     layout_id: &str,
     regions: &[SlideRegionContent],
-    metrics: &ProfileMetrics,
-    fonts: &FontBag,
+    ctx: &mut LayoutCtx,
     segments: &mut Vec<LayoutSegment>,
-    glyph_sets: &mut GlyphSets,
 ) -> Result<(), WeaveError> {
     if segment_has_content(segments) {
         segments.push((ForcedBreak::Always, Vec::new()));
     }
 
     let seg = segments.last_mut().expect("segment");
-    if metrics.is_deck {
-        seg.1.push(LaidItem::Text(LaidLine::gap(12.0)));
+    if ctx.metrics.is_deck {
+        seg.1
+            .push(LaidItem::Text(LaidLine::gap(ctx.knobs.deck.slide.top_gap)));
     }
 
     if regions.is_empty() {
         seg.1.push(LaidItem::Text(LaidLine::shaped(
-            fonts,
+            ctx.fonts,
             FaceRef::Bundled(FaceId::SansItalic),
             "[empty slide]",
-            metrics.body_size,
-            metrics.body_leading,
-            glyph_sets,
+            ctx.metrics.body_size,
+            ctx.metrics.body_leading,
+            ctx.glyph_sets,
         )?));
         segments.push((ForcedBreak::Always, Vec::new()));
         return Ok(());
@@ -548,15 +564,13 @@ fn layout_slide(
 
     match parse_slide_layout(layout_id) {
         SlideLayout::TwoColumn => {
-            layout_slide_two_column(&mut seg.1, regions, metrics, fonts, glyph_sets)?;
+            layout_slide_two_column(&mut seg.1, regions, ctx)?;
         }
         layout @ (SlideLayout::TitleSubtitleBody | SlideLayout::TitleBody) => {
             layout_slide_stacked(
                 &mut seg.1,
                 regions,
-                metrics,
-                fonts,
-                glyph_sets,
+                ctx,
                 matches!(layout, SlideLayout::TitleSubtitleBody),
             )?;
         }
@@ -589,9 +603,7 @@ fn parse_slide_layout(layout_id: &str) -> SlideLayout {
 fn layout_slide_stacked(
     out: &mut Vec<LaidItem>,
     regions: &[SlideRegionContent],
-    metrics: &ProfileMetrics,
-    fonts: &FontBag,
-    glyph_sets: &mut GlyphSets,
+    ctx: &mut LayoutCtx,
     force_order: bool,
 ) -> Result<(), WeaveError> {
     let titles: Vec<&SlideRegionContent> = regions
@@ -625,17 +637,15 @@ fn layout_slide_stacked(
             .collect()
     };
 
-    push_slide_title_regions(out, &titles, metrics, fonts, glyph_sets)?;
-    push_slide_body_regions(out, &rest, metrics, fonts, glyph_sets)?;
+    push_slide_title_regions(out, &titles, ctx)?;
+    push_slide_body_regions(out, &rest, ctx)?;
     Ok(())
 }
 
 fn layout_slide_two_column(
     out: &mut Vec<LaidItem>,
     regions: &[SlideRegionContent],
-    metrics: &ProfileMetrics,
-    fonts: &FontBag,
-    glyph_sets: &mut GlyphSets,
+    ctx: &mut LayoutCtx,
 ) -> Result<(), WeaveError> {
     let mut titles = Vec::new();
     let mut subtitles = Vec::new();
@@ -657,21 +667,29 @@ fn layout_slide_two_column(
         }
     }
 
-    push_slide_title_regions(out, &titles, metrics, fonts, glyph_sets)?;
+    push_slide_title_regions(out, &titles, ctx)?;
     if !subtitles.is_empty() {
-        push_slide_body_regions(out, &subtitles, metrics, fonts, glyph_sets)?;
+        push_slide_body_regions(out, &subtitles, ctx)?;
     }
 
-    let gap = if metrics.is_deck { 28.0 } else { 18.0 };
-    let content_w = metrics.content_width();
-    let col_w = ((content_w - gap) / 2.0).max(36.0);
-    let left_lines = wrap_slide_column(&left, col_w, metrics, fonts, glyph_sets)?;
-    let right_lines = wrap_slide_column(&right, col_w, metrics, fonts, glyph_sets)?;
+    let gap = if ctx.metrics.is_deck {
+        ctx.knobs.deck.columns.gap
+    } else {
+        ctx.knobs.deck.columns.gap_non_deck
+    };
+    let content_w = ctx.metrics.content_width();
+    let col_w = ((content_w - gap) / 2.0).max(ctx.knobs.deck.columns.min_width);
+    let left_lines = wrap_slide_column(&left, col_w, ctx)?;
+    let right_lines = wrap_slide_column(&right, col_w, ctx)?;
     out.push(LaidItem::Columns(LaidColumns {
         columns: vec![left_lines, right_lines],
         col_widths: vec![col_w, col_w],
         gap,
-        gap_after: if metrics.is_deck { 12.0 } else { 10.0 },
+        gap_after: if ctx.metrics.is_deck {
+            ctx.knobs.deck.columns.gap_after
+        } else {
+            ctx.knobs.deck.columns.gap_after_non_deck
+        },
     }));
     Ok(())
 }
@@ -693,19 +711,20 @@ fn is_right_column_slot(slot: &str) -> bool {
 fn wrap_slide_column(
     regions: &[&SlideRegionContent],
     col_w: f32,
-    metrics: &ProfileMetrics,
-    fonts: &FontBag,
-    glyph_sets: &mut GlyphSets,
+    ctx: &mut LayoutCtx,
 ) -> Result<Vec<LaidLine>, WeaveError> {
     let mut items = Vec::new();
     for region in regions {
         push_styled_runs(
             &mut items,
             &[slide_run(region.text.clone(), InlineStyle::default())],
-            metrics,
-            fonts,
-            glyph_sets,
-            run_layout_body(metrics.body_size, 8.0, Some(col_w)),
+            ctx,
+            run_layout_body(
+                ctx.metrics.body_size,
+                ctx.knobs.deck.columns.region_gap_after,
+                Some(col_w),
+                ctx.knobs,
+            ),
         )?;
     }
     Ok(items
@@ -720,12 +739,18 @@ fn wrap_slide_column(
 fn push_slide_title_regions(
     out: &mut Vec<LaidItem>,
     titles: &[&SlideRegionContent],
-    metrics: &ProfileMetrics,
-    fonts: &FontBag,
-    glyph_sets: &mut GlyphSets,
+    ctx: &mut LayoutCtx,
 ) -> Result<(), WeaveError> {
-    let title_scale = if metrics.is_deck { 1.45 } else { 1.8 };
-    let title_gap = if metrics.is_deck { 20.0 } else { 16.0 };
+    let title_scale = if ctx.metrics.is_deck {
+        ctx.knobs.deck.title.scale
+    } else {
+        ctx.knobs.deck.title.scale_non_deck
+    };
+    let title_gap = if ctx.metrics.is_deck {
+        ctx.knobs.deck.title.gap_after
+    } else {
+        ctx.knobs.deck.title.gap_after_non_deck
+    };
     for region in titles {
         push_styled_runs(
             out,
@@ -736,10 +761,8 @@ fn push_slide_title_regions(
                     ..InlineStyle::default()
                 },
             )],
-            metrics,
-            fonts,
-            glyph_sets,
-            run_layout_heading_size(metrics.body_size * title_scale, title_gap),
+            ctx,
+            run_layout_heading_size(ctx.metrics.body_size * title_scale, title_gap),
         )?;
     }
     Ok(())
@@ -748,16 +771,18 @@ fn push_slide_title_regions(
 fn push_slide_body_regions(
     out: &mut Vec<LaidItem>,
     regions: &[&SlideRegionContent],
-    metrics: &ProfileMetrics,
-    fonts: &FontBag,
-    glyph_sets: &mut GlyphSets,
+    ctx: &mut LayoutCtx,
 ) -> Result<(), WeaveError> {
     for region in regions {
         let slot = region.slot.to_ascii_lowercase();
         let (size, gap, strong) = if slot_name_is(&slot, "subtitle") {
-            (metrics.body_size * 1.15, 14.0, false)
+            (
+                ctx.metrics.body_size * ctx.knobs.deck.subtitle.size_factor,
+                ctx.knobs.deck.subtitle.gap_after,
+                false,
+            )
         } else {
-            (metrics.body_size, 12.0, false)
+            (ctx.metrics.body_size, ctx.knobs.deck.body.gap_after, false)
         };
         if !matches!(slot.as_str(), "body" | "content" | "text") && !region.slot.is_empty() {
             push_styled_runs(
@@ -769,13 +794,11 @@ fn push_slide_body_regions(
                         ..InlineStyle::default()
                     },
                 )],
-                metrics,
-                fonts,
-                glyph_sets,
+                ctx,
                 RunLayout {
-                    font_size: metrics.body_size * 0.85,
-                    leading: metrics.body_leading,
-                    gap_after: 2.0,
+                    font_size: ctx.metrics.body_size * ctx.knobs.deck.body.list_size_factor,
+                    leading: ctx.metrics.body_leading,
+                    gap_after: ctx.knobs.deck.body.region_gap_after,
                     glue_last_content: true,
                     mode: FaceMode::Body,
                     indent: 0.0,
@@ -793,10 +816,8 @@ fn push_slide_body_regions(
                     ..InlineStyle::default()
                 },
             )],
-            metrics,
-            fonts,
-            glyph_sets,
-            run_layout_body(size, gap, None),
+            ctx,
+            run_layout_body(size, gap, None, ctx.knobs),
         )?;
     }
     Ok(())
@@ -823,10 +844,10 @@ fn slide_run(text: impl Into<String>, style: InlineStyle) -> TextRun {
     }
 }
 
-fn run_layout_body(size: f32, gap: f32, max_width: Option<f32>) -> RunLayout {
+fn run_layout_body(size: f32, gap: f32, max_width: Option<f32>, knobs: &LayoutKnobs) -> RunLayout {
     RunLayout {
         font_size: size,
-        leading: size * 1.35,
+        leading: size * knobs.prose.wrap.body_leading_factor,
         gap_after: gap,
         glue_last_content: false,
         mode: FaceMode::Body,
@@ -851,9 +872,7 @@ fn run_layout_heading_size(size: f32, gap: f32) -> RunLayout {
 pub(super) fn push_styled_runs(
     out: &mut Vec<LaidItem>,
     runs: &[TextRun],
-    metrics: &ProfileMetrics,
-    fonts: &FontBag,
-    glyph_sets: &mut GlyphSets,
+    ctx: &mut LayoutCtx,
     layout: RunLayout,
 ) -> Result<(), WeaveError> {
     if runs.is_empty() {
@@ -863,8 +882,10 @@ pub(super) fn push_styled_runs(
     let start = out.len();
     let max_width = layout
         .max_width
-        .unwrap_or_else(|| (metrics.content_width() - layout.indent).max(36.0))
-        .max(36.0);
+        .unwrap_or_else(|| {
+            (ctx.metrics.content_width() - layout.indent).max(ctx.knobs.prose.wrap.min_width)
+        })
+        .max(ctx.knobs.prose.wrap.min_width);
     let mut current_spans: Vec<LaidSpan> = Vec::new();
     let mut current_width = 0.0_f32;
 
@@ -882,7 +903,7 @@ pub(super) fn push_styled_runs(
     };
 
     for run in runs {
-        let face = resolve_run_face(run, metrics, layout.mode, fonts)?;
+        let face = resolve_run_face(run, ctx.metrics, layout.mode, ctx.fonts)?;
         let mut remaining = run.text.as_str();
         while !remaining.is_empty() {
             let (chunk, rest) = next_wrap_chunk(remaining);
@@ -893,7 +914,7 @@ pub(super) fn push_styled_runs(
                 continue;
             }
             let (spans, w) =
-                shape_and_record_spans(fonts, face, chunk, layout.font_size, glyph_sets)?;
+                shape_and_record_spans(ctx.fonts, face, chunk, layout.font_size, ctx.glyph_sets)?;
             if current_width + w > max_width && !current_spans.is_empty() {
                 flush_line(&mut current_spans, out, false);
                 current_width = 0.0;
@@ -903,9 +924,14 @@ pub(super) fn push_styled_runs(
             }
             if w > max_width && current_spans.is_empty() {
                 // Hard-break tokens wider than the content box (URLs, long code).
-                for piece in hard_break_text(fonts, face, chunk, layout.font_size, max_width)? {
-                    let (spans, _) =
-                        shape_and_record_spans(fonts, face, &piece, layout.font_size, glyph_sets)?;
+                for piece in hard_break_text(ctx.fonts, face, chunk, layout.font_size, max_width)? {
+                    let (spans, _) = shape_and_record_spans(
+                        ctx.fonts,
+                        face,
+                        &piece,
+                        layout.font_size,
+                        ctx.glyph_sets,
+                    )?;
                     current_spans.extend(spans);
                     flush_line(&mut current_spans, out, false);
                     current_width = 0.0;
@@ -1005,9 +1031,7 @@ fn push_list_lines(
     ordered: bool,
     items: &[crate::ir::ListItem],
     depth: usize,
-    metrics: &ProfileMetrics,
-    fonts: &FontBag,
-    glyph_sets: &mut GlyphSets,
+    ctx: &mut LayoutCtx,
 ) -> Result<(), WeaveError> {
     for (i, item) in items.iter().enumerate() {
         let marker = if ordered {
@@ -1020,16 +1044,14 @@ fn push_list_lines(
         push_styled_runs(
             out,
             &runs,
-            metrics,
-            fonts,
-            glyph_sets,
+            ctx,
             RunLayout {
-                font_size: metrics.body_size,
-                leading: metrics.body_size * 1.35,
+                font_size: ctx.metrics.body_size,
+                leading: ctx.metrics.body_size * ctx.knobs.prose.list.item_leading_factor,
                 gap_after: 0.0,
                 glue_last_content: false,
                 mode: FaceMode::Body,
-                indent: 18.0 * depth as f32,
+                indent: ctx.knobs.prose.list.indent_per_depth * depth as f32,
                 max_width: None,
             },
         )?;
@@ -1038,15 +1060,7 @@ fn push_list_lines(
                 PrintBlock::List {
                     ordered: child_ordered,
                     items: child_items,
-                } => push_list_lines(
-                    out,
-                    *child_ordered,
-                    child_items,
-                    depth + 1,
-                    metrics,
-                    fonts,
-                    glyph_sets,
-                )?,
+                } => push_list_lines(out, *child_ordered, child_items, depth + 1, ctx)?,
                 other => return Err(WeaveError::UnsupportedBlock(block_name(other))),
             }
         }

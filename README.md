@@ -34,6 +34,8 @@ crates.io. Local suite work can still path-dep when cutting paired releases.
   [literary unfolding](docs/decisions/D-literary-unfolding.md)),
   `deck@0` (16:9); axes in [`docs/profiles.md`](docs/profiles.md) /
   [D-print-profile-axes](docs/decisions/D-print-profile-axes.md)
+* Layout knobs: per-category TOML under `defaults/` (prose/table/deck/math/page);
+  dump with `cargo run --example dump_knobs` — see [`docs/layout-knobs.md`](docs/layout-knobs.md)
 * Forced page breaks + keep-with-next + basic widow/orphan glue; page-number
   footers
 * Deterministic emit: sorted font object order + SHA-256 fixtures in

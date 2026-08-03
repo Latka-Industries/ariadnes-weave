@@ -1,0 +1,9 @@
+# Table cell padding and trailing gap.
+
+[cell]
+pad = 5.0
+leading_factor = 1.25
+min_inner_width = 24.0
+
+[block]
+gap_after = 12.0

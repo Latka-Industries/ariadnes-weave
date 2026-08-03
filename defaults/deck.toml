@@ -1,0 +1,27 @@
+# Slide / deck region scales and gaps.
+
+[slide]
+top_gap = 12.0
+
+[title]
+scale = 1.45
+scale_non_deck = 1.8
+gap_after = 20.0
+gap_after_non_deck = 16.0
+
+[subtitle]
+size_factor = 1.15
+gap_after = 14.0
+
+[body]
+gap_after = 12.0
+region_gap_after = 2.0
+list_size_factor = 0.85
+
+[columns]
+gap = 28.0
+gap_non_deck = 18.0
+gap_after = 12.0
+gap_after_non_deck = 10.0
+region_gap_after = 8.0
+min_width = 36.0

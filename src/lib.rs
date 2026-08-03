@@ -22,6 +22,7 @@ mod error;
 mod font;
 mod image_prep;
 mod ir;
+mod knobs;
 mod options;
 #[cfg(feature = "os-fonts")]
 mod os_fonts;
@@ -35,6 +36,7 @@ pub use ir::{
     BreakHint, FigurePlacement, InlineStyle, ListItem, PrintBlock, PrintDocument, PrintImage,
     PrintMeta, PrintProfileId, SlideRegionContent, TableRow, TextRun,
 };
+pub use knobs::{DeckKnobs, LayoutKnobs, MathKnobs, PageKnobs, ProseKnobs, TableKnobs};
 pub use options::{EmitOptions, FontResolveMode};
 pub use profile::{PageSize, ProfileMetrics, resolve_metrics};
 
