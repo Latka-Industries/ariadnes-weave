@@ -31,41 +31,47 @@ pub struct PrintMeta {
 
 /// Stable id for a versioned profile (not a CSS file).
 ///
-/// Examples: `print@0` (MVP stub), later `print@1`, `manuscript@1`.
+/// Coupled MVP ids compose mode × page size × margins — see
+/// `docs/decisions/D-print-profile-axes.md`. Examples: `print@0`,
+/// `print-letter@0`, `manuscript@0`, `deck@0`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PrintProfileId {
-    /// Profile family name (`print`, `manuscript`, `deck`, …).
+    /// Profile family name (`print`, `print-letter`, `manuscript`, `deck`, …).
     pub name: String,
     /// Version bumped when pagination rules change.
     pub version: u32,
 }
 
 impl PrintProfileId {
-    /// Construct `print@0` (A4 + Liberation Sans body).
-    #[must_use]
-    pub fn print_v0() -> Self {
+    fn v0(name: &str) -> Self {
         Self {
-            name: "print".into(),
+            name: name.into(),
             version: 0,
         }
+    }
+
+    /// Construct `print@0` (A4 technical prose + Liberation Sans).
+    #[must_use]
+    pub fn print_v0() -> Self {
+        Self::v0("print")
+    }
+
+    /// Construct `print-letter@0` (US Letter + same print mode as `print@0`).
+    #[must_use]
+    pub fn print_letter_v0() -> Self {
+        Self::v0("print-letter")
     }
 
     /// Construct `manuscript@0` (US Letter, double-space, Liberation Serif body).
     #[must_use]
     pub fn manuscript_v0() -> Self {
-        Self {
-            name: "manuscript".into(),
-            version: 0,
-        }
+        Self::v0("manuscript")
     }
 
     /// Construct `deck@0` (16:9 landscape, large type for slides).
     #[must_use]
     pub fn deck_v0() -> Self {
-        Self {
-            name: "deck".into(),
-            version: 0,
-        }
+        Self::v0("deck")
     }
 
     /// Display as `name@version`.

@@ -35,7 +35,7 @@ pub use ir::{
     PrintMeta, PrintProfileId, SlideRegionContent, TableRow, TextRun,
 };
 pub use options::{EmitOptions, FontResolveMode};
-pub use profile::{ProfileMetrics, resolve_metrics};
+pub use profile::{PageSize, ProfileMetrics, resolve_metrics};
 
 /// Crate version string (useful in PDF producer / fixture pins).
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

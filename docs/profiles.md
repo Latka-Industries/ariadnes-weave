@@ -3,14 +3,12 @@
 Versioned metrics resolved by [`resolve_metrics`](../src/profile.rs). Unknown
 `name@version` → `WeaveError::UnsupportedProfile`.
 
-**Axes (product):** mode (prose / manuscript / deck) · page size · margins/coords.
-MVP **couples** them into one `name@version` (e.g. `print@0` = A4 technical
-prose — historical stub, not a hard lock that default print must be A4).
-No `draft` profile. Prefer adding a Letter prose profile or bumping `print@N`
-later over renaming into `print-A4` / `print-usletter` as primary brands.
+**Axes:** mode · page size · margins — see
+[D-print-profile-axes](decisions/D-print-profile-axes.md). MVP **couples** them
+into one id; internals compose via `PageSize` + mode rhythm. No `draft` profile.
 
 **Versioning:** bump `PrintProfileId.version` when any **stable** pagination or
-geometry rule changes. Heuristics listed as best-effort in
+geometry rule for that id changes. Heuristics listed as best-effort in
 [D-literary-unfolding](decisions/D-literary-unfolding.md) may change under the
 same version.
 
@@ -18,13 +16,27 @@ same version.
 
 | | |
 | --- | --- |
+| Mode | print (Sans, compact) |
 | Page | A4 `595 × 842` pt |
 | Margin | `72` pt |
 | Body | `11` pt, leading `×1.4`, Liberation Sans |
 | H1 page break | no |
 | Deck | no |
 
-Default for notes / technical prose.
+Default technical prose (A4 historical stub). Prefer `print-letter@0` for US Letter.
+
+## `print-letter@0`
+
+| | |
+| --- | --- |
+| Mode | print (same as `print@0`) |
+| Page | US Letter `612 × 792` pt |
+| Margin | `72` pt |
+| Body | identical to `print@0` |
+| H1 page break | no |
+| Deck | no |
+
+US Letter technical prose — same mode, different page axis.
 
 ## `manuscript@0`
 
@@ -33,6 +45,7 @@ Literary / beta-reader manuscript. See
 
 | | |
 | --- | --- |
+| Mode | manuscript |
 | Page | US Letter `612 × 792` pt |
 | Margin | `96` pt |
 | Body | `12` pt, leading `×2.0`, Liberation Serif |
@@ -44,6 +57,7 @@ Literary / beta-reader manuscript. See
 
 | | |
 | --- | --- |
+| Mode | deck |
 | Page | 16:9 `960 × 540` pt |
 | Margin | `40` pt |
 | Body | `22` pt, leading `×1.35`, Liberation Sans |
