@@ -15,13 +15,8 @@ use super::types::{GlyphSets, LaidItem, LaidLine, LaidMath, LayoutSegment};
 
 use layout::{MathCtx, layout_expr, shift_to_top_origin};
 use parse::{MathExpr, parse_math};
+pub(in crate::emit) use prettify::prettify_latex_math;
 use prettify::strip_math_delimiters;
-
-/// Light LaTeX-math prettifier (delimiters + common tokens). Kept for simple
-/// fixtures and as a leaf/fallback path — not a TeX engine.
-pub(super) fn prettify_latex_math(latex: &str) -> String {
-    prettify::prettify_latex_math(latex)
-}
 
 /// Lay out display/inline math as a structured box.
 pub(super) fn layout_math(

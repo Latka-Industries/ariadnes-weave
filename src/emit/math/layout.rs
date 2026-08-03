@@ -5,11 +5,11 @@ use crate::font::{
     FaceId, FaceRef, FontBag, ShapedGlyph, collect_glyph_set, note_shaped_glyphs, shape_text,
     shaped_width,
 };
-use crate::knobs::MathKnobs;
+use crate::knobs::{MathArrowKnobs, MathInfinityKnobs, MathKnobs, MathParenKnobs};
 use ttf_parser::Face as TtfFace;
 
-use super::parse::MathExpr;
 use super::super::types::{GlyphSets, LaidMathEl};
+use super::parse::MathExpr;
 
 pub(super) struct MathCtx<'a> {
     pub(super) fonts: &'a FontBag,
@@ -18,14 +18,51 @@ pub(super) struct MathCtx<'a> {
     pub(super) glyph_sets: &'a mut GlyphSets,
 }
 
-/// Math axis above the baseline (TeX-ish); fraction bars and big ops share this.
-fn math_axis(font_size: f32, knobs: &MathKnobs) -> f32 {
-    font_size * knobs.metrics.axis_factor
+impl<'a> MathCtx<'a> {
+    /// Math axis above the baseline (TeX-ish); fraction bars and big ops share this.
+    fn axis(&self, font_size: f32) -> f32 {
+        font_size * self.knobs.metrics.axis_factor
+    }
+
+    /// Convert math units (18 mu = 1 em ≈ `font_size`) to PDF points.
+    fn mu(&self, n: f32, font_size: f32) -> f32 {
+        font_size * n / self.knobs.metrics.mu_per_em
+    }
+
+    fn letter_ink(&self, font_size: f32) -> InkBox {
+        letter_ink_ref(self, font_size)
+    }
+
+    fn with_upright_face<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
+        let upright = upright_face(self.face);
+        let saved = self.face;
+        self.face = upright;
+        let out = f(self);
+        self.face = saved;
+        out
+    }
 }
 
-/// Convert math units (18 mu = 1 em ≈ `font_size`) to PDF points.
-fn mu(font_size: f32, n: f32, knobs: &MathKnobs) -> f32 {
-    font_size * n / knobs.metrics.mu_per_em
+impl MathArrowKnobs {
+    fn stroke_thickness(&self, font_size: f32) -> f32 {
+        (font_size * self.thickness_factor).clamp(self.thickness_min, self.thickness_max)
+    }
+}
+
+impl MathInfinityKnobs {
+    fn clamp_scale(&self, scale: f32) -> f32 {
+        scale.clamp(self.scale_min, self.scale_max)
+    }
+}
+
+impl MathParenKnobs {
+    fn delim_width(&self, half_h: f32) -> f32 {
+        (half_h * self.width_factor).clamp(self.width_min, self.width_max)
+    }
+
+    fn stroke_thickness(&self, font_size: f32) -> f32 {
+        (font_size * self.thickness_factor).clamp(self.thickness_min, self.thickness_max)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -298,7 +335,11 @@ pub(super) fn shift_to_top_origin(math: MathBox) -> Vec<LaidMathEl> {
         .collect()
 }
 
-pub(super) fn layout_expr(expr: &MathExpr, ctx: &mut MathCtx, font_size: f32) -> Result<MathBox, WeaveError> {
+pub(super) fn layout_expr(
+    expr: &MathExpr,
+    ctx: &mut MathCtx,
+    font_size: f32,
+) -> Result<MathBox, WeaveError> {
     match expr {
         MathExpr::Ord(text) => layout_ord(text, ctx, font_size),
         MathExpr::Row(items) => layout_row(items, ctx, font_size),
@@ -386,7 +427,7 @@ fn layout_ord(text: &str, ctx: &mut MathCtx, font_size: f32) -> Result<MathBox, 
     let mut box_ = layout_ord_raw(text, ctx, draw_size)?;
     if classify_symbol(text) == AtomKind::Op {
         let center = (box_.height - box_.depth) / 2.0;
-        let dy = math_axis(font_size, ctx.knobs) - center;
+        let dy = ctx.axis(font_size) - center;
         box_ = shift_box_vert(box_, dy);
     }
     Ok(box_)
@@ -394,13 +435,12 @@ fn layout_ord(text: &str, ctx: &mut MathCtx, font_size: f32) -> Result<MathBox, 
 
 /// Stroked arrow sized/centered to match surrounding letter ink (not the tiny → glyph).
 fn layout_geo_arrow(ctx: &MathCtx, font_size: f32, left: bool) -> MathBox {
-    let ink = letter_ink_ref(ctx, font_size);
+    let ink = ctx.letter_ink(font_size);
     let height = ink
         .span()
         .max(font_size * ctx.knobs.arrow.min_height_factor);
     let width = font_size * ctx.knobs.arrow.width_factor;
-    let thickness = (font_size * ctx.knobs.arrow.thickness_factor)
-        .clamp(ctx.knobs.arrow.thickness_min, ctx.knobs.arrow.thickness_max);
+    let thickness = ctx.knobs.arrow.stroke_thickness(font_size);
     let y = ink.center();
     MathBox {
         width,
@@ -420,23 +460,21 @@ fn layout_geo_arrow(ctx: &MathCtx, font_size: f32, left: bool) -> MathBox {
 /// Upright ∞: ink-matched to letters, then optically enlarged / lowered / padded.
 fn layout_infinity(ctx: &mut MathCtx, font_size: f32) -> Result<MathBox, WeaveError> {
     let face_u = upright_face(ctx.face);
-    let reference = letter_ink_ref(ctx, font_size);
+    let reference = ctx.letter_ink(font_size);
     let probe = char_ink(ctx.fonts, face_u, '∞', font_size).unwrap_or(InkBox {
         above: font_size * ctx.knobs.infinity.ref_above_factor,
         below: font_size * ctx.knobs.infinity.ref_below_factor,
     });
     // ∞ reads optically small/light vs Greek; bump past geometric ink match.
     let scale = if probe.span() > 0.01 {
-        (reference.span() / probe.span() * ctx.knobs.infinity.scale_boost)
-            .clamp(ctx.knobs.infinity.scale_min, ctx.knobs.infinity.scale_max)
+        ctx.knobs
+            .infinity
+            .clamp_scale(reference.span() / probe.span() * ctx.knobs.infinity.scale_boost)
     } else {
         1.65
     };
     let draw_size = font_size * scale;
-    let saved_face = ctx.face;
-    ctx.face = face_u;
-    let mut box_ = layout_ord_raw("∞", ctx, draw_size)?;
-    ctx.face = saved_face;
+    let mut box_ = ctx.with_upright_face(|ctx| layout_ord_raw("∞", ctx, draw_size))?;
     if let Some(ink) = char_ink(ctx.fonts, face_u, '∞', draw_size) {
         // Center-match, then nudge down — glyph centers sit optically high.
         let dy = reference.center() - ink.center() - font_size * ctx.knobs.infinity.lower_factor;
@@ -445,7 +483,7 @@ fn layout_infinity(ctx: &mut MathCtx, font_size: f32) -> Result<MathBox, WeaveEr
         box_.depth = box_.depth.max((ink.below - dy).max(0.0));
     }
     // Tiny breath after → / before ∞ only (size/vertical already set).
-    let pad = mu(font_size, ctx.knobs.infinity.pad_mu, ctx.knobs);
+    let pad = ctx.mu(ctx.knobs.infinity.pad_mu, font_size);
     Ok(pad_box_h(box_, pad, pad))
 }
 
@@ -482,10 +520,10 @@ fn layout_row(
     let mut elements = Vec::new();
     for (i, item) in items.iter().enumerate() {
         if i > 0 {
-            x += mu(font_size, space_mu(kinds[i - 1], kinds[i]), ctx.knobs);
+            x += ctx.mu(space_mu(kinds[i - 1], kinds[i]), font_size);
             // Extra clearance only after large-op limits (∑_{i=1}^{n} i), not ordinary x^y.
             if kinds[i - 1] == AtomKind::Op && matches!(&items[i - 1], MathExpr::Scripts { .. }) {
-                x += mu(font_size, ctx.knobs.metrics.op_after_space_mu, ctx.knobs);
+                x += ctx.mu(ctx.knobs.metrics.op_after_space_mu, font_size);
             }
         }
         let box_ = layout_expr(item, ctx, font_size)?;
@@ -517,7 +555,7 @@ fn layout_frac(
     // Slightly more air under the bar than above so num/den look even optically.
     let gap_num = font_size * ctx.knobs.frac.gap_num_factor;
     let gap_den = font_size * ctx.knobs.frac.gap_den_factor;
-    let axis = math_axis(font_size, ctx.knobs);
+    let axis = ctx.axis(font_size);
     let pad = font_size * ctx.knobs.frac.pad_factor;
     let width = num_b.width.max(den_b.width) + 2.0 * pad;
     let num_x = h_center(width, num_b.width);
@@ -559,10 +597,10 @@ fn layout_scripts(
         .map_or(0.0, |b| b.width)
         .max(subscript.as_ref().map_or(0.0, |b| b.width));
     // Asymmetric: a little air before y; trim advance sidebearing after y.
-    let script_gap = mu(font_size, ctx.knobs.script.gap_mu, ctx.knobs);
+    let script_gap = ctx.mu(ctx.knobs.script.gap_mu, font_size);
     let script_x = base_box.width + script_gap;
     let width =
-        (script_x + script_w - mu(font_size, ctx.knobs.script.overlap_mu, ctx.knobs)).max(script_x);
+        (script_x + script_w - ctx.mu(ctx.knobs.script.overlap_mu, font_size)).max(script_x);
     let mut height = base_box.height;
     let mut depth = base_box.depth;
     let mut elements = base_box.elements;
@@ -622,7 +660,7 @@ fn layout_matrix(
     let inner_w = col_w.iter().sum::<f32>() + col_gap * cols.saturating_sub(1) as f32;
     let row_totals: Vec<f32> = row_h.iter().zip(&row_d).map(|(h, d)| h + d).collect();
     let inner_h = row_totals.iter().sum::<f32>() + row_gap * rows.len().saturating_sub(1) as f32;
-    let axis = math_axis(font_size, ctx.knobs);
+    let axis = ctx.axis(font_size);
     // Center the matrix body on the math axis (aligns with fraction bars).
     let half = inner_h / 2.0;
     let body_top = axis + half;
@@ -634,10 +672,8 @@ fn layout_matrix(
     let mut elements = Vec::new();
     let (delim_w, width) = if delimited {
         let half_h = half + pad * 0.15;
-        let paren_w = (half_h * ctx.knobs.paren.width_factor)
-            .clamp(ctx.knobs.paren.width_min, ctx.knobs.paren.width_max);
-        let thick = (font_size * ctx.knobs.paren.thickness_factor)
-            .clamp(ctx.knobs.paren.thickness_min, ctx.knobs.paren.thickness_max);
+        let paren_w = ctx.knobs.paren.delim_width(half_h);
+        let thick = ctx.knobs.paren.stroke_thickness(font_size);
         let width = inner_w + 2.0 * pad + 2.0 * paren_w;
         elements.push(paren_element(0.0, axis, half_h, paren_w, thick, true));
         elements.push(paren_element(

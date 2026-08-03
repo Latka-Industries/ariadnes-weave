@@ -98,6 +98,10 @@ fn attach_script(nucleus: MathExpr, kind: ScriptKind, script: MathExpr) -> MathE
     }
 }
 
+fn ord_from_command(name: &str) -> MathExpr {
+    MathExpr::Ord(prettify_tokens(&format!("\\{name}")))
+}
+
 struct Parser {
     chars: Vec<char>,
     i: usize,
@@ -222,9 +226,9 @@ impl Parser {
         let name = self.read_command_name();
         if name.is_empty() {
             let ch = self.bump().ok_or(ParseError)?;
-            return Ok(MathExpr::Ord(prettify_tokens(&format!("\\{ch}"))));
+            return Ok(ord_from_command(&ch.to_string()));
         }
-        Ok(MathExpr::Ord(prettify_tokens(&format!("\\{name}"))))
+        Ok(ord_from_command(&name))
     }
 
     fn read_command_name(&mut self) -> String {
@@ -329,4 +333,3 @@ mod parse_tests {
         }
     }
 }
-

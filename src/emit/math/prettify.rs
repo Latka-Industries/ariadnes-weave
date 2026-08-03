@@ -37,7 +37,7 @@ const TOKEN_REPLACEMENTS: &[(&str, &str)] = &[
     ("\\!", ""),
 ];
 
-pub(super) fn prettify_latex_math(latex: &str) -> String {
+pub(in crate::emit) fn prettify_latex_math(latex: &str) -> String {
     let mut s = strip_math_delimiters(latex);
     s = prettify_tokens(&s);
     s = s.replace(['{', '}'], "");
@@ -128,4 +128,3 @@ fn to_subscript(ch: char) -> Option<char> {
         _ => return None,
     })
 }
-
