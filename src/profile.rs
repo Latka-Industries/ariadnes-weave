@@ -1,4 +1,8 @@
 //! Versioned print profile metrics (policy, not CSS).
+//!
+//! Profile rules: [`docs/profiles.md`](../../docs/profiles.md).
+//! Literary unfolding (`manuscript@0`):
+//! [`docs/decisions/D-literary-unfolding.md`](../../docs/decisions/D-literary-unfolding.md).
 
 use crate::error::WeaveError;
 use crate::ir::PrintProfileId;
@@ -59,7 +63,7 @@ pub fn resolve_metrics(profile: &PrintProfileId) -> Result<ProfileMetrics, Weave
             is_deck: false,
         }),
         ("manuscript", 0) => Ok(ProfileMetrics {
-            // US Letter, larger margins, double-spaced body (beta-reader-ish).
+            // US Letter, large margins, double-spaced Liberation Serif body.
             page_w: 612.0,
             page_h: 792.0,
             margin: 96.0,
@@ -100,4 +104,22 @@ pub fn heading_size(level: u8, metrics: &ProfileMetrics) -> f32 {
     };
     // Manuscript keeps display sizes close to print but not smaller than body.
     base.max(metrics.body_size)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ir::PrintProfileId;
+
+    #[test]
+    fn manuscript_v0_literary_metrics() {
+        let m = resolve_metrics(&PrintProfileId::manuscript_v0()).expect("manuscript@0");
+        assert_eq!((m.page_w, m.page_h), (612.0, 792.0));
+        assert_eq!(m.margin, 96.0);
+        assert_eq!(m.body_size, 12.0);
+        assert_eq!(m.body_leading, 24.0);
+        assert!(m.serif_body);
+        assert!(m.force_h1_page_break);
+        assert!(!m.is_deck);
+    }
 }

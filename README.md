@@ -29,7 +29,8 @@ crates.io. Local suite work can still path-dep when cutting paired releases.
 * Shaping: `rustybuzz` + Type0 / CIDFontType2 / Identity-H; `subsetter` for
   used glyphs only
 * Profiles: `print@0` (A4), `manuscript@0` (US Letter, double-spaced, H1 page
-  breaks), `deck@0` (16:9 landscape)
+  breaks — [literary unfolding](docs/decisions/D-literary-unfolding.md)),
+  `deck@0` (16:9 landscape); rules in [`docs/profiles.md`](docs/profiles.md)
 * Forced page breaks + keep-with-next + basic widow/orphan glue; page-number
   footers
 * Deterministic emit: sorted font object order + SHA-256 fixtures in
@@ -43,7 +44,6 @@ Not yet: full TeX/MathML, OS font collection/CFF polish, CJK/emoji sealed packs.
 | Later | Where |
 | --- | --- |
 | OS font scan polish / collections / CFF | [THI-311](https://linear.app/thicclatka/issue/THI-311) |
-| Literary pagination polish | [THI-295](https://linear.app/thicclatka/issue/THI-295) |
 | Richer slide regions | [THI-293](https://linear.app/thicclatka/issue/THI-293) |
 | Sealed `cjk` / `emoji` packs | [THI-308](https://linear.app/thicclatka/issue/THI-308) |
 

@@ -253,16 +253,28 @@ pub struct InlineStyle {
 }
 
 /// Page-break / keep hints.
+///
+/// `manuscript@0` also forces a new page before each H1 after the first content
+/// on a page (`force_h1_page_break`) without requiring [`BreakHint::PageAlways`].
+/// See `docs/profiles.md` and `docs/decisions/D-literary-unfolding.md`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BreakHint {
     /// No special break.
     #[default]
     None,
-    /// Prefer new page (soft).
+    /// Prefer new page. Today treated like [`BreakHint::PageAlways`].
     Page,
-    /// Always new page (e.g. manuscript H1).
+    /// Always new page when the current page already has content.
     PageAlways,
-    /// Keep with following block (heading + first lines).
+    /// Keep with following block (also applied automatically for H1/H2).
     KeepWithNext,
+}
+
+impl BreakHint {
+    /// True when emit should start a new page if the current page already has content.
+    #[must_use]
+    pub fn forces_page_break(self) -> bool {
+        matches!(self, BreakHint::Page | BreakHint::PageAlways)
+    }
 }
