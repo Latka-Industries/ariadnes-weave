@@ -10,6 +10,24 @@ use crate::profile::ProfileMetrics;
 
 use super::types::{LaidColumns, LaidItem, LaidMath, LaidMathEl, LaidTable, SubsetMap};
 
+struct ArrowGeom {
+    x: f32,
+    mid_y: f32,
+    width: f32,
+    height: f32,
+    thickness: f32,
+    left: bool,
+}
+
+struct ParenGeom {
+    x: f32,
+    axis_y: f32,
+    half_h: f32,
+    width: f32,
+    thickness: f32,
+    left: bool,
+}
+
 /// Resource name bytes for image `XObject` `Im{idx}`.
 pub(super) fn image_resource_name(idx: usize) -> Vec<u8> {
     format!("Im{idx}").into_bytes()
@@ -289,12 +307,14 @@ pub(super) fn paint_math(
             } => {
                 paint_math_paren(
                     content,
-                    origin_x + x,
-                    top_y - axis_y,
-                    *half_h,
-                    *width,
-                    *thickness,
-                    *left,
+                    ParenGeom {
+                        x: origin_x + x,
+                        axis_y: top_y - axis_y,
+                        half_h: *half_h,
+                        width: *width,
+                        thickness: *thickness,
+                        left: *left,
+                    },
                     chrome,
                 );
             }
@@ -308,12 +328,14 @@ pub(super) fn paint_math(
             } => {
                 paint_math_arrow(
                     content,
-                    origin_x + x,
-                    top_y - y,
-                    *width,
-                    *height,
-                    *thickness,
-                    *left,
+                    ArrowGeom {
+                        x: origin_x + x,
+                        mid_y: top_y - y,
+                        width: *width,
+                        height: *height,
+                        thickness: *thickness,
+                        left: *left,
+                    },
                     chrome,
                 );
             }
@@ -321,17 +343,15 @@ pub(super) fn paint_math(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn paint_math_arrow(
-    content: &mut Content,
-    x: f32,
-    mid_y: f32,
-    width: f32,
-    height: f32,
-    thickness: f32,
-    left: bool,
-    chrome: &PageChromeKnobs,
-) {
+fn paint_math_arrow(content: &mut Content, geom: ArrowGeom, chrome: &PageChromeKnobs) {
+    let ArrowGeom {
+        x,
+        mid_y,
+        width,
+        height,
+        thickness,
+        left,
+    } = geom;
     let head_w = width * 0.32;
     let head_h = height * 0.55;
     let (tail_x, tip_x, head_base) = if left {
@@ -356,17 +376,15 @@ fn paint_math_arrow(
 }
 
 /// Stroke a stretchy parenthesis centered on `axis_y` (PDF space).
-#[allow(clippy::too_many_arguments)]
-fn paint_math_paren(
-    content: &mut Content,
-    x: f32,
-    axis_y: f32,
-    half_h: f32,
-    width: f32,
-    thickness: f32,
-    left: bool,
-    chrome: &PageChromeKnobs,
-) {
+fn paint_math_paren(content: &mut Content, geom: ParenGeom, chrome: &PageChromeKnobs) {
+    let ParenGeom {
+        x,
+        axis_y,
+        half_h,
+        width,
+        thickness,
+        left,
+    } = geom;
     let top = axis_y + half_h;
     let bot = axis_y - half_h;
     let mid = axis_y;
