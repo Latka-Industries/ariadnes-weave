@@ -64,6 +64,16 @@ Literary / beta-reader manuscript. See
 | H1 page break | no |
 | Deck | yes (`Slide` → one page) |
 
+### Slide `layout_id` templates
+
+| Id | Geometry |
+| --- | --- |
+| `title-body` (default / unknown) | Full-width vertical stack |
+| `title-subtitle-body` | Same stack; order title → subtitle → body |
+| `two-column` / `title-two-column` | Title (+ optional subtitle) band; then equal `left` / `right` columns |
+
+Column slots: `left` / `col1` / `body-left`, `right` / `col2` / `body-right`. Plain `body` without a side goes to the left column.
+
 ## Break hints
 
 `BreakHint` on blocks / headings:
