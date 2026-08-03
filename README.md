@@ -15,33 +15,33 @@ Tessera `docs/print_ir.md` / D21).
 Consumers: Tessera `0.2` (`--features native-pdf`) depends on this crate from
 crates.io. Local suite work can still path-dep when cutting paired releases.
 
-## Status (0.2.4)
+## Status
 
 **Prose + structure emit** via `emit_pdf` / `emit_pdf_with`:
 
-* Blocks: `Heading` / `Paragraph` / `List` / `Code` / `Quote` / `Break` /
+- Blocks: `Heading` / `Paragraph` / `List` / `Code` / `Quote` / `Break` /
   `Table` / `Figure` / `Slide` / `Math`
-* Faces: Liberation Sans (R/B/I/BI), Serif (R/B/I/BI) for `manuscript@0`, Mono
+- Faces: Liberation Sans (R/B/I/BI), Serif (R/B/I/BI) for `manuscript@0`, Mono
   for `code`; optional Font Awesome Free behind `--features icons`; optional
   sealed CJK / emoji subsets behind `--features cjk` / `emoji` (script fallback)
-* Host fonts: pin TTFs on `EmitOptions` and select with `TextRun::face` /
+- Host fonts: pin TTFs on `EmitOptions` and select with `TextRun::face` /
   `TextRun::pinned` (`FaceRef` / `FontBag`); optional `--features os-fonts` +
   `FontResolveMode::OsWithFallback` for OS lookup with Liberation fallback
-* Shaping: `rustybuzz` + Type0 / CIDFontType2 / Identity-H; `subsetter` for
+- Shaping: `rustybuzz` + Type0 / CIDFontType2 / Identity-H; `subsetter` for
   used glyphs only
-* Profiles: `print@0` (A4 prose), `print-letter@0` (US Letter prose),
+- Profiles: `print@0` (A4 prose), `print-letter@0` (US Letter prose),
   `manuscript@0` (Letter, double-spaced, H1 page breaks —
   [literary unfolding](docs/decisions/D-literary-unfolding.md)),
   `deck@0` (16:9); axes in [`docs/profiles.md`](docs/profiles.md) /
   [D-print-profile-axes](docs/decisions/D-print-profile-axes.md)
-* Layout knobs: named optical defaults in `defaults/*.toml` (prose / table /
+- Layout knobs: named optical defaults in `defaults/*.toml` (prose / table /
   deck / math / page), overridable via `EmitOptions.layout`; dump with
   `cargo run --example dump_knobs` — see [`docs/layout-knobs.md`](docs/layout-knobs.md)
-* Forced page breaks + keep-with-next + basic widow/orphan glue; page-number
+- Forced page breaks + keep-with-next + basic widow/orphan glue; page-number
   footers
-* Deterministic emit: sorted font object order + SHA-256 fixtures in
+- Deterministic emit: sorted font object order + SHA-256 fixtures in
   `tests/determinism.rs`
-* `Table` → drawn grid + wrapped cells; `Figure` → PNG/JPEG XObject
+- `Table` → drawn grid + wrapped cells; `Figure` → PNG/JPEG XObject
   `FloatNear` glue); `Slide` → one page with `layout_id` templates (`title-body`,
   `two-column`, …); `Math` → structured layout for
   `\frac`, multi-char scripts, and simple `matrix`/`pmatrix` (not full TeX)
@@ -49,9 +49,9 @@ crates.io. Local suite work can still path-dep when cutting paired releases.
 Not yet: full TeX/MathML, OS font collection/CFF polish, full-coverage CJK/emoji
 packs (only tiny sealed subsets behind features), color-emoji PDF paint.
 
-| Later | Where |
-| --- | --- |
-| OS font scan polish / collections / CFF | [THI-311](https://linear.app/thicclatka/issue/THI-311) |
+| Later                                           | Where                                                                   |
+| ----------------------------------------------- | ----------------------------------------------------------------------- |
+| OS font scan polish / collections / CFF         | [THI-311](https://linear.app/thicclatka/issue/THI-311)                  |
 | Larger / regional sealed CJK packs; color emoji | follow-ons under [THI-308](https://linear.app/thicclatka/issue/THI-308) |
 
 **Bricks:** `pdf-writer` + `rustybuzz` + `ttf-parser`. Fonts under `fonts/`
