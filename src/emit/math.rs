@@ -815,7 +815,7 @@ fn upright_face(face: FaceRef) -> FaceRef {
             | FaceId::SerifBoldItalic,
         ) => FaceRef::Bundled(FaceId::SerifRegular),
         FaceRef::Bundled(_) => FaceRef::Bundled(FaceId::SansRegular),
-        other => other,
+        other @ FaceRef::Pinned(_) => other,
     }
 }
 

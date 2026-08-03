@@ -51,6 +51,12 @@ pub enum FaceId {
     /// Font Awesome Free Brands (`icons` feature).
     #[cfg(feature = "icons")]
     IconBrands,
+    /// Sealed CJK sans fallback (`cjk` feature; tiny subset for CI/smoke).
+    #[cfg(feature = "cjk")]
+    CjkSans,
+    /// Sealed emoji fallback (`emoji` feature; B&W Noto Emoji subset).
+    #[cfg(feature = "emoji")]
+    Emoji,
 }
 
 impl FaceId {
@@ -101,6 +107,10 @@ impl FaceId {
             Self::IconRegular => include_bytes!("../fonts/fa-regular-400.ttf"),
             #[cfg(feature = "icons")]
             Self::IconBrands => include_bytes!("../fonts/fa-brands-400.ttf"),
+            #[cfg(feature = "cjk")]
+            Self::CjkSans => include_bytes!("../fonts/sealed-cjk-subset.ttf"),
+            #[cfg(feature = "emoji")]
+            Self::Emoji => include_bytes!("../fonts/sealed-emoji-subset.ttf"),
         }
     }
 
@@ -121,6 +131,10 @@ impl FaceId {
             Self::IconRegular => "FontAwesome6Free-Regular",
             #[cfg(feature = "icons")]
             Self::IconBrands => "FontAwesome6Brands-Regular",
+            #[cfg(feature = "cjk")]
+            Self::CjkSans => "SealedCjkSans",
+            #[cfg(feature = "emoji")]
+            Self::Emoji => "SealedNotoEmoji",
         }
     }
 
@@ -141,6 +155,10 @@ impl FaceId {
             Self::IconRegular => b"IR",
             #[cfg(feature = "icons")]
             Self::IconBrands => b"IB",
+            #[cfg(feature = "cjk")]
+            Self::CjkSans => b"CJK",
+            #[cfg(feature = "emoji")]
+            Self::Emoji => b"EM",
         }
     }
 
@@ -162,7 +180,7 @@ impl FaceId {
 /// Face used during layout/emit: sealed pack or a host-pinned TTF.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum FaceRef {
-    /// Built-in Liberation / optional icon face.
+    /// Built-in Liberation / optional icon, CJK, or emoji face.
     Bundled(FaceId),
     /// Index into [`FontBag::pinned`] (stable order from sorted pin ids).
     Pinned(u16),
@@ -350,6 +368,163 @@ pub fn shape_text(
         });
     }
     Ok(out)
+}
+
+/// Whether `face` maps `ch` to a non-`.notdef` glyph.
+#[must_use]
+pub fn face_covers_char(fonts: &FontBag, face: FaceRef, ch: char) -> bool {
+    let Ok(data) = fonts.ttf_bytes(face) else {
+        return false;
+    };
+    let Ok(ttf) = TtfFace::parse(data, 0) else {
+        return false;
+    };
+    ttf.glyph_index(ch).is_some_and(|g| g.0 != 0)
+}
+
+/// Conservative CJK / fullwidth / kana / hangul detector for sealed fallback.
+#[cfg(feature = "cjk")]
+#[must_use]
+pub fn is_cjk_script_char(ch: char) -> bool {
+    matches!(
+        ch,
+        '\u{1100}'..='\u{11FF}'   // Hangul Jamo
+        | '\u{2E80}'..='\u{2EFF}' // CJK Radicals Supplement
+        | '\u{2F00}'..='\u{2FDF}' // Kangxi Radicals
+        | '\u{3000}'..='\u{303F}' // CJK Symbols and Punctuation
+        | '\u{3040}'..='\u{309F}' // Hiragana
+        | '\u{30A0}'..='\u{30FF}' // Katakana
+        | '\u{3100}'..='\u{312F}' // Bopomofo
+        | '\u{3130}'..='\u{318F}' // Hangul Compatibility Jamo
+        | '\u{31A0}'..='\u{31BF}' // Bopomofo Extended
+        | '\u{31F0}'..='\u{31FF}' // Katakana Phonetic Extensions
+        | '\u{3200}'..='\u{32FF}' // Enclosed CJK Letters and Months
+        | '\u{3300}'..='\u{33FF}' // CJK Compatibility
+        | '\u{3400}'..='\u{4DBF}' // CJK Extension A
+        | '\u{4E00}'..='\u{9FFF}' // CJK Unified Ideographs
+        | '\u{A960}'..='\u{A97F}' // Hangul Jamo Extended-A
+        | '\u{AC00}'..='\u{D7AF}' // Hangul Syllables
+        | '\u{D7B0}'..='\u{D7FF}' // Hangul Jamo Extended-B
+        | '\u{F900}'..='\u{FAFF}' // CJK Compatibility Ideographs
+        | '\u{FF00}'..='\u{FFEF}' // Halfwidth and Fullwidth Forms
+        | '\u{20000}'..='\u{2A6DF}' // Extension B
+        | '\u{2A700}'..='\u{2B73F}'
+        | '\u{2B740}'..='\u{2B81F}'
+        | '\u{2B820}'..='\u{2CEAF}'
+        | '\u{2CEB0}'..='\u{2EBEF}'
+        | '\u{30000}'..='\u{3134F}'
+    )
+}
+
+/// Conservative emoji / pictograph detector for sealed fallback.
+#[cfg(feature = "emoji")]
+#[must_use]
+pub fn is_emoji_script_char(ch: char) -> bool {
+    matches!(
+        ch,
+        '\u{200D}' // ZWJ
+        | '\u{203C}'
+        | '\u{2049}'
+        | '\u{20E3}' // combining enclosing keycap
+        | '\u{2122}'
+        | '\u{2139}'
+        | '\u{2194}'..='\u{2199}'
+        | '\u{21A9}'..='\u{21AA}'
+        | '\u{231A}'..='\u{231B}'
+        | '\u{2328}'
+        | '\u{23CF}'
+        | '\u{23E9}'..='\u{23F3}'
+        | '\u{23F8}'..='\u{23FA}'
+        | '\u{24C2}'
+        | '\u{25AA}'..='\u{25AB}'
+        | '\u{25B6}'
+        | '\u{25C0}'
+        | '\u{25FB}'..='\u{25FE}'
+        | '\u{2600}'..='\u{27BF}' // Misc symbols + dingbats (incl. ❤)
+        | '\u{2934}'..='\u{2935}'
+        | '\u{2B05}'..='\u{2B07}'
+        | '\u{2B1B}'..='\u{2B1C}'
+        | '\u{2B50}'
+        | '\u{2B55}'
+        | '\u{3030}'
+        | '\u{303D}'
+        | '\u{3297}'
+        | '\u{3299}'
+        | '\u{FE0E}'..='\u{FE0F}' // variation selectors
+        | '\u{1F000}'..='\u{1FAFF}' // emoji blocks
+    )
+}
+
+fn sealed_fallback_for_char(fonts: &FontBag, ch: char) -> Option<FaceRef> {
+    #[cfg(feature = "emoji")]
+    {
+        if is_emoji_script_char(ch) {
+            let face = FaceRef::Bundled(FaceId::Emoji);
+            if face_covers_char(fonts, face, ch) {
+                return Some(face);
+            }
+        }
+    }
+    #[cfg(feature = "cjk")]
+    {
+        if is_cjk_script_char(ch) {
+            let face = FaceRef::Bundled(FaceId::CjkSans);
+            if face_covers_char(fonts, face, ch) {
+                return Some(face);
+            }
+        }
+    }
+    let _ = (fonts, ch);
+    None
+}
+
+/// Resolve the face used for `ch`: primary if it covers the glyph (or is
+/// whitespace/control), else a sealed CJK/emoji pack when compiled in.
+#[must_use]
+pub fn resolve_char_face(fonts: &FontBag, primary: FaceRef, ch: char) -> FaceRef {
+    if ch.is_whitespace() || ch.is_control() || face_covers_char(fonts, primary, ch) {
+        return primary;
+    }
+    sealed_fallback_for_char(fonts, ch).unwrap_or(primary)
+}
+
+/// Shape `text` with script fallback, returning contiguous `(face, glyphs)` runs.
+///
+/// Order: requested/`primary` → sealed `emoji` / `cjk` (when those Cargo features
+/// are on and the face covers the codepoint) → stay on `primary` (`.notdef`).
+///
+/// # Errors
+///
+/// Returns [`WeaveError::Font`] if a selected face cannot be shaped.
+pub fn shape_text_with_fallback(
+    fonts: &FontBag,
+    primary: FaceRef,
+    text: &str,
+    font_size: f32,
+) -> Result<Vec<(FaceRef, Vec<ShapedGlyph>)>, WeaveError> {
+    if text.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut runs: Vec<(FaceRef, String)> = Vec::new();
+    for ch in text.chars() {
+        let face = resolve_char_face(fonts, primary, ch);
+        match runs.last_mut() {
+            Some((f, buf)) if *f == face => buf.push(ch),
+            _ => runs.push((face, ch.to_string())),
+        }
+    }
+    let mut out = Vec::with_capacity(runs.len());
+    for (face, segment) in runs {
+        let glyphs = shape_text(fonts, face, &segment, font_size)?;
+        out.push((face, glyphs));
+    }
+    Ok(out)
+}
+
+/// Total advance of multi-face shaped runs.
+#[must_use]
+pub fn shaped_runs_width(runs: &[(FaceRef, Vec<ShapedGlyph>)]) -> f32 {
+    runs.iter().map(|(_, g)| shaped_width(g)).sum()
 }
 
 /// Total advance width of shaped glyphs.
@@ -685,5 +860,61 @@ mod tests {
             shape_text(&fonts, FaceId::IconRegular.into(), "\u{f007}", 14.0).expect("regular");
         assert_eq!(regular.len(), 1);
         assert_ne!(regular[0].gid, 0);
+    }
+
+    #[cfg(feature = "cjk")]
+    #[test]
+    fn shapes_and_subsets_sealed_cjk() {
+        let fonts = bag();
+        let face = FaceRef::Bundled(FaceId::CjkSans);
+        let text = "中文";
+        let glyphs = shape_text(&fonts, face, text, 14.0).expect("shape");
+        assert_eq!(glyphs.len(), 2);
+        assert!(glyphs.iter().all(|g| g.gid != 0));
+        let mut set = BTreeMap::new();
+        collect_glyph_set(&fonts, face, text, &mut set);
+        note_shaped_glyphs(&glyphs, &mut set);
+        let prepared = prepare_subset(&fonts, face, &set).expect("subset");
+        assert!(prepared.data.len() <= fonts.ttf_bytes(face).expect("bytes").len());
+    }
+
+    #[cfg(feature = "cjk")]
+    #[test]
+    fn latin_run_falls_back_to_sealed_cjk() {
+        let fonts = bag();
+        let primary = FaceRef::Bundled(FaceId::SansRegular);
+        let runs = shape_text_with_fallback(&fonts, primary, "Hi中文", 12.0).expect("shape");
+        assert!(runs.len() >= 2);
+        assert_eq!(runs[0].0, primary);
+        assert_eq!(runs[1].0, FaceRef::Bundled(FaceId::CjkSans));
+        assert!(runs[1].1.iter().all(|g| g.gid != 0));
+    }
+
+    #[cfg(feature = "emoji")]
+    #[test]
+    fn shapes_and_subsets_sealed_emoji() {
+        let fonts = bag();
+        let face = FaceRef::Bundled(FaceId::Emoji);
+        let text = "😀";
+        let glyphs = shape_text(&fonts, face, text, 16.0).expect("shape");
+        assert_eq!(glyphs.len(), 1);
+        assert_ne!(glyphs[0].gid, 0);
+        let mut set = BTreeMap::new();
+        collect_glyph_set(&fonts, face, text, &mut set);
+        note_shaped_glyphs(&glyphs, &mut set);
+        let prepared = prepare_subset(&fonts, face, &set).expect("subset");
+        assert!(prepared.data.len() <= fonts.ttf_bytes(face).expect("bytes").len());
+    }
+
+    #[cfg(feature = "emoji")]
+    #[test]
+    fn latin_run_falls_back_to_sealed_emoji() {
+        let fonts = bag();
+        let primary = FaceRef::Bundled(FaceId::SansRegular);
+        let runs = shape_text_with_fallback(&fonts, primary, "Hi🔥", 12.0).expect("shape");
+        assert!(runs.len() >= 2);
+        assert_eq!(runs[0].0, primary);
+        assert_eq!(runs[1].0, FaceRef::Bundled(FaceId::Emoji));
+        assert!(runs[1].1.iter().all(|g| g.gid != 0));
     }
 }

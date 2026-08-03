@@ -66,6 +66,12 @@ jobs:
       - name: Run tests (icons)
         run: cargo test --verbose --features icons
 
+      - name: Run clippy (cjk,emoji)
+        run: cargo clippy --all-targets --features cjk,emoji -- -D warnings
+
+      - name: Run tests (cjk,emoji)
+        run: cargo test --verbose --features cjk,emoji
+
   msrv:
     name: MSRV Check
     runs-on: ubuntu-latest

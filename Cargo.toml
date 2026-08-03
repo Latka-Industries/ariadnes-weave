@@ -16,9 +16,9 @@ path = "src/lib.rs"
 
 [features]
 default = []
-# Sealed CJK fallback faces (large; e.g. Noto CJK). Off by default.
+# Sealed CJK fallback face (tiny DroidSansFallback subset; see fonts/LICENSE-DroidSansFallback.txt).
 cjk = []
-# Sealed emoji fallback face(s). Off by default; may need color-font emit later.
+# Sealed emoji fallback face (tiny Noto Emoji B&W subset; see fonts/LICENSE-NotoEmoji.txt).
 emoji = []
 # Font Awesome Free Solid/Regular/Brands TTFs (SIL OFL; see fonts/LICENSE-FontAwesome.txt).
 icons = []

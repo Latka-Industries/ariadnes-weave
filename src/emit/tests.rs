@@ -643,3 +643,55 @@ fn float_near_figure_emits() {
     };
     assert!(emit_pdf(&doc).expect("emit").starts_with(b"%PDF-"));
 }
+
+#[cfg(feature = "cjk")]
+#[test]
+fn sealed_cjk_fallback_embeds_in_pdf() {
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "CJK".into(),
+            doc_kind: "note".into(),
+            language: Some("zh".into()),
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::Paragraph {
+            runs: vec![TextRun::plain("Hello 中文测试")],
+        }],
+    };
+    let bytes = emit_pdf(&doc).expect("emit cjk");
+    assert!(bytes.starts_with(b"%PDF-"));
+    let s = String::from_utf8_lossy(&bytes);
+    assert!(
+        s.contains("SealedCjkSans"),
+        "expected sealed CJK face in PDF font names"
+    );
+    std::fs::create_dir_all("tmp").ok();
+    std::fs::write("tmp/cjk_sample.pdf", &bytes).ok();
+}
+
+#[cfg(feature = "emoji")]
+#[test]
+fn sealed_emoji_fallback_embeds_in_pdf() {
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "Emoji".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::Paragraph {
+            runs: vec![TextRun::plain("Hello 😀🔥")],
+        }],
+    };
+    let bytes = emit_pdf(&doc).expect("emit emoji");
+    assert!(bytes.starts_with(b"%PDF-"));
+    let s = String::from_utf8_lossy(&bytes);
+    assert!(
+        s.contains("SealedNotoEmoji"),
+        "expected sealed emoji face in PDF font names"
+    );
+    std::fs::create_dir_all("tmp").ok();
+    std::fs::write("tmp/emoji_sample.pdf", &bytes).ok();
+}

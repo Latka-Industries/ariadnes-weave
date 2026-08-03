@@ -1,9 +1,7 @@
 //! Turn print IR blocks into laid segments, images, and glyph sets.
 
 use crate::error::WeaveError;
-use crate::font::{
-    FaceId, FaceRef, FontBag, collect_glyph_set, note_shaped_glyphs, shape_text, shaped_width,
-};
+use crate::font::{FaceId, FaceRef, FontBag, shape_text_with_fallback, shaped_runs_width};
 use crate::image_prep::{PreparedImage, prepare_image};
 use crate::ir::{
     BreakHint, FigurePlacement, InlineStyle, PrintBlock, PrintDocument, PrintImage,
@@ -14,7 +12,7 @@ use crate::profile::{self, ProfileMetrics};
 use super::math::layout_math;
 use super::types::{
     FaceMode, ForcedBreak, GlyphSets, LaidColumns, LaidItem, LaidLine, LaidSpan, LaidTable,
-    LaidTableRow, LayoutDoc, LayoutSegment, RunLayout,
+    LaidTableRow, LayoutDoc, LayoutSegment, RunLayout, shape_and_record_spans,
 };
 
 /// Walk document blocks into layout segments (reading order + break hints).
@@ -475,8 +473,7 @@ fn wrap_plain_text(
         if current.is_empty() && skip_wrap_chunk_at_line_start(chunk) {
             continue;
         }
-        let glyphs = shape_text(fonts, face, chunk, font_size)?;
-        let w = shaped_width(&glyphs);
+        let (spans, w) = shape_and_record_spans(fonts, face, chunk, font_size, glyph_sets)?;
         if current_width + w > max_width && !current.is_empty() {
             lines.push(LaidLine {
                 spans: std::mem::take(&mut current),
@@ -492,16 +489,10 @@ fn wrap_plain_text(
         }
         if w > max_width && current.is_empty() {
             for piece in hard_break_text(fonts, face, chunk, font_size, max_width)? {
-                let glyphs = shape_text(fonts, face, &piece, font_size)?;
-                let set = glyph_sets.entry(face).or_default();
-                collect_glyph_set(fonts, face, &piece, set);
-                note_shaped_glyphs(&glyphs, set);
+                let (spans, _) =
+                    shape_and_record_spans(fonts, face, &piece, font_size, glyph_sets)?;
                 lines.push(LaidLine {
-                    spans: vec![LaidSpan {
-                        face,
-                        font_size,
-                        glyphs,
-                    }],
+                    spans,
                     leading,
                     glue_after: false,
                     indent: 0.0,
@@ -510,14 +501,7 @@ fn wrap_plain_text(
             }
             continue;
         }
-        let set = glyph_sets.entry(face).or_default();
-        collect_glyph_set(fonts, face, chunk, set);
-        note_shaped_glyphs(&glyphs, set);
-        current.push(LaidSpan {
-            face,
-            font_size,
-            glyphs,
-        });
+        current.extend(spans);
         current_width += w;
     }
     if !current.is_empty() {
@@ -908,8 +892,8 @@ pub(super) fn push_styled_runs(
             if current_spans.is_empty() && skip_wrap_chunk_at_line_start(chunk) {
                 continue;
             }
-            let glyphs = shape_text(fonts, face, chunk, layout.font_size)?;
-            let w = shaped_width(&glyphs);
+            let (spans, w) =
+                shape_and_record_spans(fonts, face, chunk, layout.font_size, glyph_sets)?;
             if current_width + w > max_width && !current_spans.is_empty() {
                 flush_line(&mut current_spans, out, false);
                 current_width = 0.0;
@@ -920,28 +904,15 @@ pub(super) fn push_styled_runs(
             if w > max_width && current_spans.is_empty() {
                 // Hard-break tokens wider than the content box (URLs, long code).
                 for piece in hard_break_text(fonts, face, chunk, layout.font_size, max_width)? {
-                    let glyphs = shape_text(fonts, face, &piece, layout.font_size)?;
-                    let set = glyph_sets.entry(face).or_default();
-                    collect_glyph_set(fonts, face, &piece, set);
-                    note_shaped_glyphs(&glyphs, set);
-                    current_spans.push(LaidSpan {
-                        face,
-                        font_size: layout.font_size,
-                        glyphs,
-                    });
+                    let (spans, _) =
+                        shape_and_record_spans(fonts, face, &piece, layout.font_size, glyph_sets)?;
+                    current_spans.extend(spans);
                     flush_line(&mut current_spans, out, false);
                     current_width = 0.0;
                 }
                 continue;
             }
-            let set = glyph_sets.entry(face).or_default();
-            collect_glyph_set(fonts, face, chunk, set);
-            note_shaped_glyphs(&glyphs, set);
-            current_spans.push(LaidSpan {
-                face,
-                font_size: layout.font_size,
-                glyphs,
-            });
+            current_spans.extend(spans);
             current_width += w;
         }
     }
@@ -990,7 +961,7 @@ fn hard_break_text(
     for ch in text.chars() {
         let mut trial = buf.clone();
         trial.push(ch);
-        let tw = shaped_width(&shape_text(fonts, face, &trial, font_size)?);
+        let tw = shaped_runs_width(&shape_text_with_fallback(fonts, face, &trial, font_size)?);
         if tw > max_width && !buf.is_empty() {
             pieces.push(std::mem::take(&mut buf));
             buf.push(ch);

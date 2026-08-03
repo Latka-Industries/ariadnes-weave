@@ -22,7 +22,8 @@ crates.io. Local suite work can still path-dep when cutting paired releases.
 * Blocks: `Heading` / `Paragraph` / `List` / `Code` / `Quote` / `Break` /
   `Table` / `Figure` / `Slide` / `Math`
 * Faces: Liberation Sans (R/B/I/BI), Serif (R/B/I/BI) for `manuscript@0`, Mono
-  for `code`; optional Font Awesome Free behind `--features icons`
+  for `code`; optional Font Awesome Free behind `--features icons`; optional
+  sealed CJK / emoji subsets behind `--features cjk` / `emoji` (script fallback)
 * Host fonts: pin TTFs on `EmitOptions` and select with `TextRun::face` /
   `TextRun::pinned` (`FaceRef` / `FontBag`); optional `--features os-fonts` +
   `FontResolveMode::OsWithFallback` for OS lookup with Liberation fallback
@@ -42,34 +43,38 @@ crates.io. Local suite work can still path-dep when cutting paired releases.
   `two-column`, …); `Math` → structured layout for
   `\frac`, multi-char scripts, and simple `matrix`/`pmatrix` (not full TeX)
 
-Not yet: full TeX/MathML, OS font collection/CFF polish, CJK/emoji sealed packs.
+Not yet: full TeX/MathML, OS font collection/CFF polish, full-coverage CJK/emoji
+packs (only tiny sealed subsets behind features), color-emoji PDF paint.
 
 | Later | Where |
 | --- | --- |
 | OS font scan polish / collections / CFF | [THI-311](https://linear.app/thicclatka/issue/THI-311) |
-| Sealed `cjk` / `emoji` packs | [THI-308](https://linear.app/thicclatka/issue/THI-308) |
+| Larger / regional sealed CJK packs; color emoji | follow-ons under [THI-308](https://linear.app/thicclatka/issue/THI-308) |
 
 **Bricks:** `pdf-writer` + `rustybuzz` + `ttf-parser`. Fonts under `fonts/`
-(Liberation + optional Font Awesome Free; SIL OFL). Not cosmic-text / krilla for v0.
+(Liberation + optional FA / CJK / emoji; see [`docs/fonts.md`](docs/fonts.md)).
+Not cosmic-text / krilla for v0.
 
 **Font packs:** default sealed set = Liberation sans/serif/mono. Opt in with
-`--features icons` for Font Awesome Free (Solid / Regular / Brands) as
-`FaceId::IconSolid` / `IconRegular` / `IconBrands`. Tessera exposes these as
-`weave-icons` / `weave-cjk` / `weave-emoji`. Large script packs stay stubbed so
-default binaries stay small. Host/GUI faces use pins; OS lookup is behind `--features os-fonts`.
+`--features icons` for Font Awesome Free (`FaceId::Icon*`), `--features cjk` for
+`FaceId::CjkSans`, `--features emoji` for `FaceId::Emoji`. Tessera may expose
+these as `weave-icons` / `weave-cjk` / `weave-emoji`. Script fallback uses sealed
+CJK/emoji when the primary face lacks a glyph. Host/GUI faces use pins; OS lookup
+is behind `--features os-fonts`.
 
 ```bash
 mise trust   # rust 1.95 via .mise.toml
 cargo test
 cargo test --features icons
+cargo test --features cjk,emoji
 cargo clippy --all-targets -- -D warnings
 cargo run --example prose
 mise samples   # regenerates tmp/*.pdf (prose, math, hello, prose_sample, …)
 ```
 
 CI (`.github/workflows/ci.yml`, same layout as Tessera): fmt / clippy / test on
-Ubuntu · macOS · Windows (+ `--features icons`), plus an MSRV `cargo check` on
-1.95. Path filters skip docs-only pushes. SHA-256 fixtures live in
+Ubuntu · macOS · Windows (+ `--features icons`, `cjk`, `emoji`), plus an MSRV
+`cargo check` on 1.95. Path filters skip docs-only pushes. SHA-256 fixtures live in
 `tests/determinism.rs`.
 
 ## API
