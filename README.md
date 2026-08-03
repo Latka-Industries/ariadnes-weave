@@ -28,9 +28,11 @@ crates.io. Local suite work can still path-dep when cutting paired releases.
   `FontResolveMode::OsWithFallback` for OS lookup with Liberation fallback
 * Shaping: `rustybuzz` + Type0 / CIDFontType2 / Identity-H; `subsetter` for
   used glyphs only
-* Profiles: `print@0` (A4), `manuscript@0` (US Letter, double-spaced, H1 page
-  breaks — [literary unfolding](docs/decisions/D-literary-unfolding.md)),
-  `deck@0` (16:9 landscape); rules in [`docs/profiles.md`](docs/profiles.md)
+* Profiles: `print@0` (A4 prose), `print-letter@0` (US Letter prose),
+  `manuscript@0` (Letter, double-spaced, H1 page breaks —
+  [literary unfolding](docs/decisions/D-literary-unfolding.md)),
+  `deck@0` (16:9); axes in [`docs/profiles.md`](docs/profiles.md) /
+  [D-print-profile-axes](docs/decisions/D-print-profile-axes.md)
 * Forced page breaks + keep-with-next + basic widow/orphan glue; page-number
   footers
 * Deterministic emit: sorted font object order + SHA-256 fixtures in

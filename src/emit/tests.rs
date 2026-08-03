@@ -8,7 +8,7 @@ use crate::ir::{
     PrintProfileId, SlideRegionContent, TableRow, TextRun,
 };
 use crate::options::EmitOptions;
-use crate::profile;
+use crate::profile::{self, PageSize};
 use image::{ImageBuffer, ImageFormat, Rgb};
 
 fn hello_doc() -> PrintDocument {
@@ -237,6 +237,19 @@ fn accepts_manuscript_v0() {
     let mut doc = hello_doc();
     doc.profile = PrintProfileId::manuscript_v0();
     assert!(emit_pdf(&doc).expect("emit").starts_with(b"%PDF-"));
+}
+
+#[test]
+fn accepts_print_letter_v0_us_letter() {
+    let mut doc = hello_doc();
+    doc.profile = PrintProfileId::print_letter_v0();
+    let bytes = emit_pdf(&doc).expect("emit");
+    let (w, h) = PageSize::UsLetter.dimensions();
+    let text = String::from_utf8_lossy(&bytes);
+    assert!(
+        text.contains(&format!("/MediaBox [0 0 {} {}]", w as i32, h as i32)),
+        "print-letter@0 must use US Letter MediaBox"
+    );
 }
 
 #[test]
