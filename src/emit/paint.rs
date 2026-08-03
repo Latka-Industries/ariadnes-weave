@@ -7,7 +7,7 @@ use crate::error::WeaveError;
 use crate::font::{FaceId, FaceRef, FontBag, encode_gids, shape_text, shaped_width};
 use crate::profile::ProfileMetrics;
 
-use super::types::{LaidItem, LaidMath, LaidMathEl, LaidTable, SubsetMap};
+use super::types::{LaidColumns, LaidItem, LaidMath, LaidMathEl, LaidTable, SubsetMap};
 
 /// Resource name bytes for image `XObject` `Im{idx}`.
 pub(super) fn image_resource_name(idx: usize) -> Vec<u8> {
@@ -81,6 +81,14 @@ pub(super) fn build_page_content(
                 paint_table(&mut content, table, metrics.margin, y, fonts);
                 y -= table_h + table.gap_after;
             }
+            LaidItem::Columns(cols) => {
+                let h = cols.height() - cols.gap_after;
+                if y - h < metrics.margin + 18.0 {
+                    break;
+                }
+                paint_columns(&mut content, cols, metrics.margin, y, fonts);
+                y -= cols.height();
+            }
             LaidItem::Math(math) => {
                 if y - math.height < metrics.margin + 18.0 {
                     break;
@@ -117,6 +125,38 @@ pub(super) fn build_page_content(
     content.end_text();
 
     Ok(content.finish().into_vec())
+}
+
+/// Paint side-by-side columns; `top_y` is the top edge in PDF space.
+pub(super) fn paint_columns(
+    content: &mut Content,
+    cols: &LaidColumns,
+    origin_x: f32,
+    top_y: f32,
+    fonts: &FontBag,
+) {
+    let mut x = origin_x;
+    for (i, lines) in cols.columns.iter().enumerate() {
+        let mut text_y = top_y;
+        for line in lines {
+            text_y -= line.leading;
+            if line.spans.is_empty() {
+                continue;
+            }
+            content.begin_text();
+            let mut span_x = x;
+            for span in &line.spans {
+                let face_name = fonts.resource_name(span.face);
+                content.set_font(Name(&face_name), span.font_size);
+                content.set_text_matrix([1.0, 0.0, 0.0, 1.0, span_x, text_y]);
+                content.show(Str(&encode_gids(&span.glyphs)));
+                span_x += shaped_width(&span.glyphs);
+            }
+            content.end_text();
+        }
+        let col_w = cols.col_widths.get(i).copied().unwrap_or(0.0);
+        x += col_w + cols.gap;
+    }
 }
 
 /// Stroke the table grid and draw cell text; `top_y` is the top edge in PDF space.

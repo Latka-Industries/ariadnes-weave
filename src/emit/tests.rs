@@ -482,6 +482,73 @@ fn deck_v0_is_landscape_16x9() {
 }
 
 #[test]
+fn two_column_slide_emits_both_sides() {
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "Two column".into(),
+            doc_kind: "deck".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::deck_v0(),
+        blocks: vec![PrintBlock::Slide {
+            layout_id: "two-column".into(),
+            regions: vec![
+                SlideRegionContent {
+                    slot: "title".into(),
+                    text: "Split layout".into(),
+                },
+                SlideRegionContent {
+                    slot: "left".into(),
+                    text: "LEFT_COLUMN_UNIQUE".into(),
+                },
+                SlideRegionContent {
+                    slot: "right".into(),
+                    text: "RIGHT_COLUMN_UNIQUE".into(),
+                },
+            ],
+        }],
+    };
+    let bytes = emit_pdf(&doc).expect("emit");
+    // Content streams are binary-ish; ensure we did not fall back to labeled prefixes.
+    let s = String::from_utf8_lossy(&bytes);
+    assert!(
+        !s.contains("left:") && !s.contains("right:"),
+        "two-column must not label left/right as body slots"
+    );
+    assert!(bytes.starts_with(b"%PDF-"));
+    std::fs::create_dir_all("tmp").ok();
+    std::fs::write("tmp/deck_two_column.pdf", &bytes).ok();
+}
+
+#[test]
+fn unknown_slide_layout_falls_back_to_stack() {
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "Fallback".into(),
+            doc_kind: "deck".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::deck_v0(),
+        blocks: vec![PrintBlock::Slide {
+            layout_id: "nope-not-a-layout".into(),
+            regions: vec![
+                SlideRegionContent {
+                    slot: "title".into(),
+                    text: "Still works".into(),
+                },
+                SlideRegionContent {
+                    slot: "body".into(),
+                    text: "Stacked body.".into(),
+                },
+            ],
+        }],
+    };
+    assert!(emit_pdf(&doc).expect("emit").starts_with(b"%PDF-"));
+}
+
+#[test]
 fn math_prettify_and_emit() {
     assert_eq!(prettify_latex_math(r"$E = mc^2$"), "E = mc²");
     assert!(prettify_latex_math(r"\alpha + \beta").contains('α'));

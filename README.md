@@ -38,7 +38,8 @@ crates.io. Local suite work can still path-dep when cutting paired releases.
 * Deterministic emit: sorted font object order + SHA-256 fixtures in
   `tests/determinism.rs`
 * `Table` → drawn grid + wrapped cells; `Figure` → PNG/JPEG XObject
-  (`FloatNear` glue); `Slide` → one page; `Math` → structured layout for
+  `FloatNear` glue); `Slide` → one page with `layout_id` templates (`title-body`,
+  `two-column`, …); `Math` → structured layout for
   `\frac`, multi-char scripts, and simple `matrix`/`pmatrix` (not full TeX)
 
 Not yet: full TeX/MathML, OS font collection/CFF polish, CJK/emoji sealed packs.
@@ -46,7 +47,6 @@ Not yet: full TeX/MathML, OS font collection/CFF polish, CJK/emoji sealed packs.
 | Later | Where |
 | --- | --- |
 | OS font scan polish / collections / CFF | [THI-311](https://linear.app/thicclatka/issue/THI-311) |
-| Richer slide regions | [THI-293](https://linear.app/thicclatka/issue/THI-293) |
 | Sealed `cjk` / `emoji` packs | [THI-308](https://linear.app/thicclatka/issue/THI-308) |
 
 **Bricks:** `pdf-writer` + `rustybuzz` + `ttf-parser`. Fonts under `fonts/`

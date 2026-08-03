@@ -123,15 +123,15 @@ fn page_dict_count(pdf: &[u8]) -> usize {
 
 /// Pin: bump intentionally when emit layout/fonts change.
 const HELLO_PRINT_V0_SHA256: &str =
-    "78dff97ab02e9241abb08162fced533cdcfc80e2723f0480232ed89f4095bd71";
+    "c616fb5bb6d8634e444541f9dafa9e284e903d1310d4c4c68ad8ef052d6ae9b5";
 
 /// Pin: bump intentionally when manuscript literary layout/fonts change.
 const MANUSCRIPT_TWO_CHAPTER_SHA256: &str =
-    "22ec4075c78b2651784b9a751a8fce66ab2a2f7507cc587272c383a989f1113a";
+    "56f55a6ff7828c97da27d912362f9941a2aded10f467236edc34584020f2ad43";
 
 /// Pin: bump intentionally when math box layout changes.
 const QUADRATIC_FORMULA_SHA256: &str =
-    "39f2ba38bd622f8ca627a441832a0b30a85231067c4b471afbfd0395b40e06c8";
+    "ddfbe59e163b1c7b93d91c472aa765deb8ff93e801def21d69470c7334206d6b";
 
 #[test]
 fn emit_is_byte_identical_across_runs() {

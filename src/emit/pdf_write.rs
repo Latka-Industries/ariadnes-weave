@@ -201,7 +201,10 @@ impl WritePageDictArgs<'_> {
             .iter()
             .filter_map(|item| match item {
                 LaidItem::Image { img_idx, .. } => Some(*img_idx),
-                LaidItem::Text(_) | LaidItem::Table(_) | LaidItem::Math(_) => None,
+                LaidItem::Text(_)
+                | LaidItem::Table(_)
+                | LaidItem::Columns(_)
+                | LaidItem::Math(_) => None,
             })
             .collect();
 
@@ -239,6 +242,13 @@ pub(super) fn remap_pages(pages: &mut [Vec<LaidItem>], subsets: &SubsetMap) {
                             for line in cell {
                                 remap_line(line, subsets);
                             }
+                        }
+                    }
+                }
+                LaidItem::Columns(cols) => {
+                    for column in &mut cols.columns {
+                        for line in column {
+                            remap_line(line, subsets);
                         }
                     }
                 }

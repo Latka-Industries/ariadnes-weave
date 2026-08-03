@@ -13,8 +13,8 @@ use crate::profile::{self, ProfileMetrics};
 
 use super::math::layout_math;
 use super::types::{
-    FaceMode, ForcedBreak, GlyphSets, LaidItem, LaidLine, LaidSpan, LaidTable, LaidTableRow,
-    LayoutDoc, LayoutSegment, RunLayout,
+    FaceMode, ForcedBreak, GlyphSets, LaidColumns, LaidItem, LaidLine, LaidSpan, LaidTable,
+    LaidTableRow, LayoutDoc, LayoutSegment, RunLayout,
 };
 
 /// Walk document blocks into layout segments (reading order + break hints).
@@ -132,6 +132,7 @@ fn body_layout(metrics: &ProfileMetrics, indent: f32) -> RunLayout {
         glue_last_content: false,
         mode: FaceMode::Body,
         indent,
+        max_width: None,
     }
 }
 
@@ -165,6 +166,7 @@ fn layout_heading(
             glue_last_content: glue,
             mode: FaceMode::Heading,
             indent: 0.0,
+            max_width: None,
         },
     )
 }
@@ -340,14 +342,7 @@ impl PushFigureArgs<'_> {
                     metrics,
                     fonts,
                     glyph_sets,
-                    RunLayout {
-                        font_size: metrics.body_size,
-                        leading: metrics.body_leading,
-                        gap_after: 10.0,
-                        glue_last_content: false,
-                        mode: FaceMode::Body,
-                        indent: 0.0,
-                    },
+                    body_layout(metrics, 0.0),
                 )?;
             }
             return Ok(());
@@ -372,14 +367,7 @@ impl PushFigureArgs<'_> {
                 metrics,
                 fonts,
                 glyph_sets,
-                RunLayout {
-                    font_size: metrics.body_size,
-                    leading: metrics.body_leading,
-                    gap_after: 10.0,
-                    glue_last_content: false,
-                    mode: FaceMode::Body,
-                    indent: 0.0,
-                },
+                body_layout(metrics, 0.0),
             )?;
         }
         Ok(())
@@ -552,22 +540,16 @@ fn layout_slide(
     segments: &mut Vec<LayoutSegment>,
     glyph_sets: &mut GlyphSets,
 ) -> Result<(), WeaveError> {
-    let _ = layout_id;
     if segment_has_content(segments) {
         segments.push((ForcedBreak::Always, Vec::new()));
     }
 
     let seg = segments.last_mut().expect("segment");
-    let (titles, rest): (Vec<_>, Vec<_>) = regions.iter().partition(|r| {
-        let slot = r.slot.to_ascii_lowercase();
-        slot_name_is(&slot, "title") || slot_name_is(&slot, "heading")
-    });
-
     if metrics.is_deck {
         seg.1.push(LaidItem::Text(LaidLine::gap(12.0)));
     }
 
-    if titles.is_empty() && rest.is_empty() {
+    if regions.is_empty() {
         seg.1.push(LaidItem::Text(LaidLine::shaped(
             fonts,
             FaceRef::Bundled(FaceId::SansItalic),
@@ -576,13 +558,179 @@ fn layout_slide(
             metrics.body_leading,
             glyph_sets,
         )?));
-    } else {
-        push_slide_title_regions(&mut seg.1, &titles, metrics, fonts, glyph_sets)?;
-        push_slide_body_regions(&mut seg.1, &rest, metrics, fonts, glyph_sets)?;
+        segments.push((ForcedBreak::Always, Vec::new()));
+        return Ok(());
+    }
+
+    match parse_slide_layout(layout_id) {
+        SlideLayout::TwoColumn => {
+            layout_slide_two_column(&mut seg.1, regions, metrics, fonts, glyph_sets)?;
+        }
+        layout @ (SlideLayout::TitleSubtitleBody | SlideLayout::TitleBody) => {
+            layout_slide_stacked(
+                &mut seg.1,
+                regions,
+                metrics,
+                fonts,
+                glyph_sets,
+                matches!(layout, SlideLayout::TitleSubtitleBody),
+            )?;
+        }
     }
 
     segments.push((ForcedBreak::Always, Vec::new()));
     Ok(())
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SlideLayout {
+    /// Full-width vertical stack (default / unknown `layout_id`).
+    TitleBody,
+    /// Same stack, fixed order title → subtitle → body.
+    TitleSubtitleBody,
+    /// Optional title band + two equal columns (`left` / `right`).
+    TwoColumn,
+}
+
+fn parse_slide_layout(layout_id: &str) -> SlideLayout {
+    match layout_id.trim().to_ascii_lowercase().as_str() {
+        "two-column" | "two_column" | "title-two-column" | "title_two_column" => {
+            SlideLayout::TwoColumn
+        }
+        "title-subtitle-body" | "title_subtitle_body" => SlideLayout::TitleSubtitleBody,
+        _ => SlideLayout::TitleBody,
+    }
+}
+
+fn layout_slide_stacked(
+    out: &mut Vec<LaidItem>,
+    regions: &[SlideRegionContent],
+    metrics: &ProfileMetrics,
+    fonts: &FontBag,
+    glyph_sets: &mut GlyphSets,
+    force_order: bool,
+) -> Result<(), WeaveError> {
+    let titles: Vec<&SlideRegionContent> = regions
+        .iter()
+        .filter(|r| is_title_slot(&r.slot.to_ascii_lowercase()))
+        .collect();
+    let rest: Vec<&SlideRegionContent> = if force_order {
+        let mut subs = Vec::new();
+        let mut bodies = Vec::new();
+        let mut other = Vec::new();
+        for r in regions {
+            let slot = r.slot.to_ascii_lowercase();
+            if is_title_slot(&slot) {
+                continue;
+            }
+            if slot_name_is(&slot, "subtitle") {
+                subs.push(r);
+            } else if is_body_slot(&slot) {
+                bodies.push(r);
+            } else {
+                other.push(r);
+            }
+        }
+        subs.extend(bodies);
+        subs.extend(other);
+        subs
+    } else {
+        regions
+            .iter()
+            .filter(|r| !is_title_slot(&r.slot.to_ascii_lowercase()))
+            .collect()
+    };
+
+    push_slide_title_regions(out, &titles, metrics, fonts, glyph_sets)?;
+    push_slide_body_regions(out, &rest, metrics, fonts, glyph_sets)?;
+    Ok(())
+}
+
+fn layout_slide_two_column(
+    out: &mut Vec<LaidItem>,
+    regions: &[SlideRegionContent],
+    metrics: &ProfileMetrics,
+    fonts: &FontBag,
+    glyph_sets: &mut GlyphSets,
+) -> Result<(), WeaveError> {
+    let mut titles = Vec::new();
+    let mut subtitles = Vec::new();
+    let mut left = Vec::new();
+    let mut right = Vec::new();
+    for r in regions {
+        let slot = r.slot.to_ascii_lowercase();
+        if is_title_slot(&slot) {
+            titles.push(r);
+        } else if slot_name_is(&slot, "subtitle") {
+            subtitles.push(r);
+        } else if is_left_column_slot(&slot) {
+            left.push(r);
+        } else if is_right_column_slot(&slot) {
+            right.push(r);
+        } else {
+            // body/content/text (and unknown) → left column by default
+            left.push(r);
+        }
+    }
+
+    push_slide_title_regions(out, &titles, metrics, fonts, glyph_sets)?;
+    if !subtitles.is_empty() {
+        push_slide_body_regions(out, &subtitles, metrics, fonts, glyph_sets)?;
+    }
+
+    let gap = if metrics.is_deck { 28.0 } else { 18.0 };
+    let content_w = metrics.content_width();
+    let col_w = ((content_w - gap) / 2.0).max(36.0);
+    let left_lines = wrap_slide_column(&left, col_w, metrics, fonts, glyph_sets)?;
+    let right_lines = wrap_slide_column(&right, col_w, metrics, fonts, glyph_sets)?;
+    out.push(LaidItem::Columns(LaidColumns {
+        columns: vec![left_lines, right_lines],
+        col_widths: vec![col_w, col_w],
+        gap,
+        gap_after: if metrics.is_deck { 12.0 } else { 10.0 },
+    }));
+    Ok(())
+}
+
+fn is_left_column_slot(slot: &str) -> bool {
+    slot_name_is(slot, "left")
+        || slot_name_is(slot, "col1")
+        || slot_name_is(slot, "body-left")
+        || slot_name_is(slot, "body_left")
+}
+
+fn is_right_column_slot(slot: &str) -> bool {
+    slot_name_is(slot, "right")
+        || slot_name_is(slot, "col2")
+        || slot_name_is(slot, "body-right")
+        || slot_name_is(slot, "body_right")
+}
+
+fn wrap_slide_column(
+    regions: &[&SlideRegionContent],
+    col_w: f32,
+    metrics: &ProfileMetrics,
+    fonts: &FontBag,
+    glyph_sets: &mut GlyphSets,
+) -> Result<Vec<LaidLine>, WeaveError> {
+    let mut items = Vec::new();
+    for region in regions {
+        push_styled_runs(
+            &mut items,
+            &[slide_run(region.text.clone(), InlineStyle::default())],
+            metrics,
+            fonts,
+            glyph_sets,
+            run_layout_body(metrics.body_size, 8.0, Some(col_w)),
+        )?;
+    }
+    Ok(items
+        .into_iter()
+        .filter_map(|item| match item {
+            LaidItem::Text(line) => Some(line),
+            _ => None,
+        })
+        .collect())
 }
 
 fn push_slide_title_regions(
@@ -597,25 +745,17 @@ fn push_slide_title_regions(
     for region in titles {
         push_styled_runs(
             out,
-            &[TextRun {
-                text: region.text.clone(),
-                style: InlineStyle {
+            &[slide_run(
+                region.text.clone(),
+                InlineStyle {
                     strong: true,
                     ..InlineStyle::default()
                 },
-                face: None,
-            }],
+            )],
             metrics,
             fonts,
             glyph_sets,
-            RunLayout {
-                font_size: metrics.body_size * title_scale,
-                leading: metrics.body_size * title_scale * 1.2,
-                gap_after: title_gap,
-                glue_last_content: false,
-                mode: FaceMode::Heading,
-                indent: 0.0,
-            },
+            run_layout_heading_size(metrics.body_size * title_scale, title_gap),
         )?;
     }
     Ok(())
@@ -630,22 +770,21 @@ fn push_slide_body_regions(
 ) -> Result<(), WeaveError> {
     for region in regions {
         let slot = region.slot.to_ascii_lowercase();
-        let (size, gap, mode, strong) = if slot_name_is(&slot, "subtitle") {
-            (metrics.body_size * 1.15, 14.0, FaceMode::Body, false)
+        let (size, gap, strong) = if slot_name_is(&slot, "subtitle") {
+            (metrics.body_size * 1.15, 14.0, false)
         } else {
-            (metrics.body_size, 12.0, FaceMode::Body, false)
+            (metrics.body_size, 12.0, false)
         };
         if !matches!(slot.as_str(), "body" | "content" | "text") && !region.slot.is_empty() {
             push_styled_runs(
                 out,
-                &[TextRun {
-                    text: format!("{}:", region.slot),
-                    style: InlineStyle {
+                &[slide_run(
+                    format!("{}:", region.slot),
+                    InlineStyle {
                         strong: true,
                         ..InlineStyle::default()
                     },
-                    face: None,
-                }],
+                )],
                 metrics,
                 fonts,
                 glyph_sets,
@@ -656,31 +795,24 @@ fn push_slide_body_regions(
                     glue_last_content: true,
                     mode: FaceMode::Body,
                     indent: 0.0,
+                    max_width: None,
                 },
             )?;
         }
         push_styled_runs(
             out,
-            &[TextRun {
-                text: region.text.clone(),
-                style: InlineStyle {
+            &[slide_run(
+                region.text.clone(),
+                InlineStyle {
                     strong,
                     emphasis: slot_name_is(&slot, "subtitle"),
                     ..InlineStyle::default()
                 },
-                face: None,
-            }],
+            )],
             metrics,
             fonts,
             glyph_sets,
-            RunLayout {
-                font_size: size,
-                leading: size * 1.35,
-                gap_after: gap,
-                glue_last_content: false,
-                mode,
-                indent: 0.0,
-            },
+            run_layout_body(size, gap, None),
         )?;
     }
     Ok(())
@@ -689,6 +821,46 @@ fn push_slide_body_regions(
 /// Match a slide slot name exactly, or as a dotted suffix (`main.title` → `title`).
 fn slot_name_is(slot: &str, name: &str) -> bool {
     slot == name || slot.rsplit_once('.').is_some_and(|(_, tail)| tail == name)
+}
+
+fn is_title_slot(slot: &str) -> bool {
+    slot_name_is(slot, "title") || slot_name_is(slot, "heading")
+}
+
+fn is_body_slot(slot: &str) -> bool {
+    matches!(slot, "body" | "content" | "text") || slot_name_is(slot, "body")
+}
+
+fn slide_run(text: impl Into<String>, style: InlineStyle) -> TextRun {
+    TextRun {
+        text: text.into(),
+        style,
+        face: None,
+    }
+}
+
+fn run_layout_body(size: f32, gap: f32, max_width: Option<f32>) -> RunLayout {
+    RunLayout {
+        font_size: size,
+        leading: size * 1.35,
+        gap_after: gap,
+        glue_last_content: false,
+        mode: FaceMode::Body,
+        indent: 0.0,
+        max_width,
+    }
+}
+
+fn run_layout_heading_size(size: f32, gap: f32) -> RunLayout {
+    RunLayout {
+        font_size: size,
+        leading: size * 1.2,
+        gap_after: gap,
+        glue_last_content: false,
+        mode: FaceMode::Heading,
+        indent: 0.0,
+        max_width: None,
+    }
 }
 
 /// Wrap styled runs into lines, then apply widow/orphan glue and optional gap.
@@ -705,7 +877,10 @@ pub(super) fn push_styled_runs(
     }
 
     let start = out.len();
-    let max_width = (metrics.content_width() - layout.indent).max(36.0);
+    let max_width = layout
+        .max_width
+        .unwrap_or_else(|| (metrics.content_width() - layout.indent).max(36.0))
+        .max(36.0);
     let mut current_spans: Vec<LaidSpan> = Vec::new();
     let mut current_width = 0.0_f32;
 
@@ -780,7 +955,6 @@ pub(super) fn push_styled_runs(
     Ok(())
 }
 
-/// Keep at least two content lines together at paragraph start/end.
 /// Keep at least two content lines together at paragraph start and end.
 fn apply_widow_orphan(items: &mut [LaidItem]) {
     let idxs: Vec<usize> = items
@@ -885,6 +1059,7 @@ fn push_list_lines(
                 glue_last_content: false,
                 mode: FaceMode::Body,
                 indent: 18.0 * depth as f32,
+                max_width: None,
             },
         )?;
         for child in &item.children {

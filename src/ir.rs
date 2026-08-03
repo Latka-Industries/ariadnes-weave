@@ -141,11 +141,14 @@ pub enum PrintBlock {
         /// LaTeX source.
         latex: String,
     },
-    /// Deck slide (one page; regions laid out by slot name).
+    /// Deck slide (one page; regions laid out by `layout_id`).
+    ///
+    /// Supported templates: `title-body` (default), `title-subtitle-body`,
+    /// `two-column` / `title-two-column` (title band + `left`/`right` columns).
     Slide {
-        /// Layout template id.
+        /// Layout template id (`title-body`, `two-column`, …).
         layout_id: String,
-        /// Region payloads (`title`, `body`, …).
+        /// Region payloads (`title`, `body`, `left`, `right`, …).
         regions: Vec<SlideRegionContent>,
     },
     /// Explicit author/export break (e.g. chapter boundary).

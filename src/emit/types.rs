@@ -110,6 +110,29 @@ impl LaidTable {
     }
 }
 
+/// Side-by-side column band (slide `two-column` layouts).
+#[derive(Debug, Clone)]
+pub(super) struct LaidColumns {
+    /// Per-column wrapped lines (same length as `col_widths`).
+    pub columns: Vec<Vec<LaidLine>>,
+    pub col_widths: Vec<f32>,
+    /// Gap between columns (points).
+    pub gap: f32,
+    pub gap_after: f32,
+}
+
+impl LaidColumns {
+    /// Height of the tallest column plus trailing gap.
+    pub(super) fn height(&self) -> f32 {
+        let col_h = self
+            .columns
+            .iter()
+            .map(|lines| lines.iter().map(|l| l.leading).sum::<f32>())
+            .fold(0.0_f32, f32::max);
+        col_h + self.gap_after
+    }
+}
+
 /// One drawn element inside a [`LaidMath`] box (coords from the box top).
 #[derive(Debug, Clone)]
 pub(super) enum LaidMathEl {
@@ -169,6 +192,7 @@ pub(super) enum LaidItem {
         glue_after: bool,
     },
     Table(LaidTable),
+    Columns(LaidColumns),
     Math(LaidMath),
 }
 
@@ -179,6 +203,7 @@ impl LaidItem {
             Self::Text(line) => line.leading,
             Self::Image { height, .. } => *height + 8.0,
             Self::Table(table) => table.height(),
+            Self::Columns(cols) => cols.height(),
             Self::Math(math) => math.height + math.gap_after,
         }
     }
@@ -188,7 +213,7 @@ impl LaidItem {
         match self {
             Self::Text(line) => line.glue_after,
             Self::Image { glue_after, .. } => *glue_after,
-            Self::Table(_) | Self::Math(_) => false,
+            Self::Table(_) | Self::Columns(_) | Self::Math(_) => false,
         }
     }
 
@@ -196,7 +221,7 @@ impl LaidItem {
         match self {
             Self::Text(line) => line.glue_after = glue,
             Self::Image { glue_after, .. } => *glue_after = glue,
-            Self::Table(_) | Self::Math(_) => {}
+            Self::Table(_) | Self::Columns(_) | Self::Math(_) => {}
         }
     }
 }
@@ -225,4 +250,6 @@ pub(super) struct RunLayout {
     pub glue_last_content: bool,
     pub mode: FaceMode,
     pub indent: f32,
+    /// Override wrap width; `None` uses content width minus indent.
+    pub max_width: Option<f32>,
 }
