@@ -16,7 +16,7 @@ pub(super) type GlyphSets = BTreeMap<FaceRef, GlyphSet>;
 /// Per-face subset packages ready for embedding.
 pub(super) type SubsetMap = BTreeMap<FaceRef, crate::font::PreparedSubset>;
 
-/// Record ToUnicode (first) then shaped GIDs for a fallback-shaped chunk.
+/// Record `ToUnicode` (first) then shaped GIDs for a fallback-shaped chunk.
 pub(super) fn record_shaped_chunk(
     fonts: &FontBag,
     primary: FaceRef,

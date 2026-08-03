@@ -1,6 +1,8 @@
-//! Emit-time options (fonts, later: more policy knobs).
+//! Emit-time options (fonts, layout knobs, later: more policy).
 
 use std::collections::BTreeMap;
+
+use crate::knobs::LayoutKnobs;
 
 /// How weave resolves font bytes during emit.
 ///
@@ -25,8 +27,8 @@ pub enum FontResolveMode {
 /// Options for [`crate::emit_pdf_with`].
 ///
 /// [`crate::emit_pdf`] is equivalent to `EmitOptions::default()`
-/// (`FontResolveMode::BundledOnly`, no pins).
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// (`FontResolveMode::BundledOnly`, bundled [`LayoutKnobs`], no pins).
+#[derive(Debug, Clone, PartialEq)]
 pub struct EmitOptions {
     /// Font resolution policy.
     pub fonts: FontResolveMode,
@@ -35,6 +37,14 @@ pub struct EmitOptions {
     /// Reference from [`crate::TextRun::face`]. Under
     /// [`FontResolveMode::BundledOnly`], unknown ids error at emit time.
     pub pinned_faces: BTreeMap<String, Vec<u8>>,
+    /// Optical paddings / gaps / scales (`defaults/*.toml`).
+    pub layout: LayoutKnobs,
+}
+
+impl Default for EmitOptions {
+    fn default() -> Self {
+        Self::bundled_only()
+    }
 }
 
 impl EmitOptions {
@@ -44,6 +54,7 @@ impl EmitOptions {
         Self {
             fonts: FontResolveMode::BundledOnly,
             pinned_faces: BTreeMap::new(),
+            layout: LayoutKnobs::bundled(),
         }
     }
 
@@ -53,6 +64,7 @@ impl EmitOptions {
         Self {
             fonts: FontResolveMode::OsWithFallback,
             pinned_faces: BTreeMap::new(),
+            layout: LayoutKnobs::bundled(),
         }
     }
 
@@ -60,6 +72,13 @@ impl EmitOptions {
     #[must_use]
     pub fn with_pinned_face(mut self, id: impl Into<String>, bytes: Vec<u8>) -> Self {
         self.pinned_faces.insert(id.into(), bytes);
+        self
+    }
+
+    /// Replace layout knobs (builder-style).
+    #[must_use]
+    pub fn with_layout(mut self, layout: LayoutKnobs) -> Self {
+        self.layout = layout;
         self
     }
 }
@@ -70,8 +89,8 @@ mod tests {
 
     #[test]
     fn default_is_bundled_only() {
-        assert_eq!(EmitOptions::default(), EmitOptions::bundled_only());
         assert_eq!(EmitOptions::default().fonts, FontResolveMode::BundledOnly);
         assert!(EmitOptions::default().pinned_faces.is_empty());
+        assert_eq!(EmitOptions::default().layout, LayoutKnobs::bundled());
     }
 }
