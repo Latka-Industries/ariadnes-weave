@@ -15,7 +15,7 @@ Tessera `docs/print_ir.md` / D21).
 Consumers: Tessera `0.2` (`--features native-pdf`) depends on this crate from
 crates.io. Local suite work can still path-dep when cutting paired releases.
 
-## Status (0.2.2)
+## Status (0.2.3)
 
 **Prose + structure emit** via `emit_pdf` / `emit_pdf_with`:
 
