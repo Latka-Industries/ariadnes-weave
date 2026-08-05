@@ -9,6 +9,7 @@ gap_after = 8.0
 
 [quote]
 indent = 18.0
+italic = true
 
 [code]
 leading_factor = 1.25

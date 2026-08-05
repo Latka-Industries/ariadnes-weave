@@ -307,7 +307,7 @@ pub(super) fn paint_math(
             } => {
                 paint_math_paren(
                     content,
-                    ParenGeom {
+                    &ParenGeom {
                         x: origin_x + x,
                         axis_y: top_y - axis_y,
                         half_h: *half_h,
@@ -328,7 +328,7 @@ pub(super) fn paint_math(
             } => {
                 paint_math_arrow(
                     content,
-                    ArrowGeom {
+                    &ArrowGeom {
                         x: origin_x + x,
                         mid_y: top_y - y,
                         width: *width,
@@ -343,7 +343,7 @@ pub(super) fn paint_math(
     }
 }
 
-fn paint_math_arrow(content: &mut Content, geom: ArrowGeom, chrome: &PageChromeKnobs) {
+fn paint_math_arrow(content: &mut Content, geom: &ArrowGeom, chrome: &PageChromeKnobs) {
     let ArrowGeom {
         x,
         mid_y,
@@ -351,7 +351,7 @@ fn paint_math_arrow(content: &mut Content, geom: ArrowGeom, chrome: &PageChromeK
         height,
         thickness,
         left,
-    } = geom;
+    } = *geom;
     let head_w = width * 0.32;
     let head_h = height * 0.55;
     let (tail_x, tip_x, head_base) = if left {
@@ -376,7 +376,7 @@ fn paint_math_arrow(content: &mut Content, geom: ArrowGeom, chrome: &PageChromeK
 }
 
 /// Stroke a stretchy parenthesis centered on `axis_y` (PDF space).
-fn paint_math_paren(content: &mut Content, geom: ParenGeom, chrome: &PageChromeKnobs) {
+fn paint_math_paren(content: &mut Content, geom: &ParenGeom, chrome: &PageChromeKnobs) {
     let ParenGeom {
         x,
         axis_y,
@@ -384,7 +384,7 @@ fn paint_math_paren(content: &mut Content, geom: ParenGeom, chrome: &PageChromeK
         width,
         thickness,
         left,
-    } = geom;
+    } = *geom;
     let top = axis_y + half_h;
     let bot = axis_y - half_h;
     let mid = axis_y;

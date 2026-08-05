@@ -107,7 +107,7 @@ pub struct ProseKnobs {
     pub paragraph: ProseParagraphKnobs,
     /// Heading leading / trailing gap.
     pub heading: ProseHeadingKnobs,
-    /// Quote indent.
+    /// Quote indent / body italic.
     pub quote: ProseQuoteKnobs,
     /// Code block leading / gap.
     pub code: ProseCodeKnobs,
@@ -140,6 +140,8 @@ pub struct ProseHeadingKnobs {
 pub struct ProseQuoteKnobs {
     /// Quote left indent (points).
     pub indent: f32,
+    /// Italicize quote body runs (decorative marks stay emphasized either way).
+    pub italic: bool,
 }
 
 /// `[code]` in `prose.toml`.
@@ -475,5 +477,7 @@ mod tests {
         assert!(dump.contains("math.metrics.axis_factor = 0.25"));
         assert!(dump.contains("page.footer.font_size = 9"));
         assert!(dump.contains("prose.heading.leading_factor = 1.35"));
+        assert!(k.prose.quote.italic);
+        assert!(dump.contains("prose.quote.italic = true"));
     }
 }

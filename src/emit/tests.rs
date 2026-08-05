@@ -7,6 +7,7 @@ use crate::ir::{
     BreakHint, FigurePlacement, InlineStyle, PrintBlock, PrintDocument, PrintImage, PrintMeta,
     PrintProfileId, SlideRegionContent, TableRow, TextRun,
 };
+use crate::knobs::LayoutKnobs;
 use crate::options::EmitOptions;
 use crate::profile::{self, PageSize};
 use image::{ImageBuffer, ImageFormat, Rgb};
@@ -408,6 +409,58 @@ fn manuscript_emphasis_uses_serif_italic() {
     let s = String::from_utf8_lossy(&bytes);
     assert!(s.contains("LiberationSerif-Italic"));
     assert!(s.contains("LiberationSerif-Bold"));
+}
+
+#[test]
+fn quote_body_italic_knob() {
+    let doc = quote_only_doc("Quoted body for italic knob.");
+    let italic_pdf = emit_pdf(&doc).expect("default italic");
+    let roman_pdf = emit_quote_with_italic(&doc, false);
+
+    let italic_s = String::from_utf8_lossy(&italic_pdf);
+    assert!(
+        italic_s.contains("LiberationSans-Italic"),
+        "default [quote].italic should embed italic face for quote body"
+    );
+    assert_ne!(
+        italic_pdf, roman_pdf,
+        "default italic quote PDF should differ from italic = false"
+    );
+
+    let roman_s = String::from_utf8_lossy(&roman_pdf);
+    // Decorative quote marks still use italic; body uses roman (`LiberationSans`).
+    assert!(roman_s.contains("LiberationSans-Italic"));
+    assert!(
+        embeds_roman_liberation_sans(&roman_s),
+        "italic = false should keep quote body on roman LiberationSans"
+    );
+}
+
+fn quote_only_doc(body: &str) -> PrintDocument {
+    PrintDocument {
+        meta: PrintMeta {
+            title: "Quote".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::Quote {
+            runs: vec![TextRun::plain(body)],
+        }],
+    }
+}
+
+fn emit_quote_with_italic(doc: &PrintDocument, italic: bool) -> Vec<u8> {
+    let mut layout = LayoutKnobs::bundled();
+    layout.prose.quote.italic = italic;
+    emit_pdf_with(doc, &EmitOptions::bundled_only().with_layout(layout)).expect("emit")
+}
+
+fn embeds_roman_liberation_sans(pdf: &str) -> bool {
+    // PostScript name is `LiberationSans` (not `…-Regular`); avoid matching `-Italic`/`-Bold`.
+    pdf.match_indices("+LiberationSans")
+        .any(|(i, needle)| !pdf[i + needle.len()..].starts_with('-'))
 }
 
 #[test]
