@@ -464,6 +464,57 @@ fn embeds_roman_liberation_sans(pdf: &str) -> bool {
 }
 
 #[test]
+fn aesthetic_colors_and_cite_underline_affect_emit() {
+    use crate::knobs::HexColor;
+
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "Aesthetic".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![
+            PrintBlock::Paragraph {
+                runs: vec![TextRun::plain("Body text.")],
+            },
+            PrintBlock::Quote {
+                runs: vec![TextRun::plain("Quoted.")],
+            },
+            PrintBlock::Paragraph {
+                runs: vec![TextRun {
+                    text: "[1]".into(),
+                    style: InlineStyle {
+                        cite: true,
+                        ..InlineStyle::default()
+                    },
+                    face: None,
+                }],
+            },
+        ],
+    };
+
+    let baseline = emit_pdf(&doc).expect("baseline");
+
+    let mut layout = LayoutKnobs::bundled();
+    layout.prose.text.color = Some(HexColor::parse("#336699").unwrap());
+    layout.prose.quote.color = Some(HexColor::parse("#226644").unwrap());
+    layout.prose.cite.color = Some(HexColor::parse("#990000").unwrap());
+    layout.prose.cite.underline = true;
+    let colored =
+        emit_pdf_with(&doc, &EmitOptions::bundled_only().with_layout(layout)).expect("colored");
+
+    assert_ne!(baseline, colored);
+    let s = String::from_utf8_lossy(&colored);
+    // pdf-writer emits components as floats; accept either 0-1 fractions or nearby forms.
+    assert!(
+        s.contains("0.2") && s.contains("0.4") && s.contains("0.6"),
+        "expected text color RGB components in content stream: {s}"
+    );
+}
+
+#[test]
 fn figure_png_embeds_xobject() {
     let png = tiny_png_bytes();
     let doc = PrintDocument {

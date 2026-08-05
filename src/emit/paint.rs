@@ -8,7 +8,7 @@ use crate::font::{FaceId, FaceRef, FontBag, encode_gids, shape_text, shaped_widt
 use crate::knobs::{LayoutKnobs, PageChromeKnobs};
 use crate::profile::ProfileMetrics;
 
-use super::types::{LaidColumns, LaidItem, LaidMath, LaidMathEl, LaidTable, SubsetMap};
+use super::types::{LaidColumns, LaidItem, LaidMath, LaidMathEl, LaidSpan, LaidTable, SubsetMap};
 
 struct ArrowGeom {
     x: f32,
@@ -26,6 +26,72 @@ struct ParenGeom {
     width: f32,
     thickness: f32,
     left: bool,
+}
+
+fn paint_span_text(
+    content: &mut Content,
+    fonts: &FontBag,
+    span: &LaidSpan,
+    origin_x: f32,
+    baseline_y: f32,
+) {
+    if let Some([red, green, blue]) = non_black_rgb(span.fill) {
+        content.set_fill_rgb(red, green, blue);
+    }
+    let face_name = fonts.resource_name(span.face);
+    content.set_font(Name(&face_name), span.font_size);
+    content.set_text_matrix([1.0, 0.0, 0.0, 1.0, origin_x, baseline_y]);
+    content.show(Str(&encode_gids(&span.glyphs)));
+}
+
+fn paint_span_underlines(
+    content: &mut Content,
+    spans: &[LaidSpan],
+    mut origin_x: f32,
+    baseline_y: f32,
+) {
+    for span in spans {
+        let width = shaped_width(&span.glyphs);
+        if span.underline && width > 0.0 {
+            let [red, green, blue] = span.fill;
+            let underline_y = baseline_y - span.font_size * 0.12;
+            content.save_state();
+            content.set_stroke_rgb(red, green, blue);
+            content.set_line_width((span.font_size * 0.06).max(0.4));
+            content.move_to(origin_x, underline_y);
+            content.line_to(origin_x + width, underline_y);
+            content.stroke();
+            content.restore_state();
+        }
+        origin_x += width;
+    }
+}
+
+/// Paint a horizontal run of spans (text object + optional underlines).
+fn paint_laid_spans(
+    content: &mut Content,
+    fonts: &FontBag,
+    spans: &[LaidSpan],
+    origin_x: f32,
+    baseline_y: f32,
+) {
+    if spans.is_empty() {
+        return;
+    }
+    content.begin_text();
+    let mut x = origin_x;
+    for span in spans {
+        paint_span_text(content, fonts, span, x, baseline_y);
+        x += shaped_width(&span.glyphs);
+    }
+    content.end_text();
+    paint_span_underlines(content, spans, origin_x, baseline_y);
+}
+
+/// `Some(rgb)` when fill is not engine black (omit ops to keep default PDFs byte-stable).
+fn non_black_rgb(fill: [f32; 3]) -> Option<[f32; 3]> {
+    let [red, green, blue] = fill;
+    (red != 0.0 || green != 0.0 || blue != 0.0).then_some(fill)
 }
 
 /// Resource name bytes for image `XObject` `Im{idx}`.
@@ -61,21 +127,12 @@ pub(super) fn build_page_content(
                 if line.spans.is_empty() {
                     continue;
                 }
-                content.begin_text();
-                let mut x = if line.center {
+                let x = if line.center {
                     metrics.margin + (metrics.content_width() - line.width()) / 2.0
                 } else {
                     metrics.margin + line.indent
                 };
-                for span in &line.spans {
-                    let face_name = fonts.resource_name(span.face);
-                    content.set_font(Name(&face_name), span.font_size);
-                    content.set_text_matrix([1.0, 0.0, 0.0, 1.0, x, y]);
-                    let encoded = encode_gids(&span.glyphs);
-                    content.show(Str(&encoded));
-                    x += shaped_width(&span.glyphs);
-                }
-                content.end_text();
+                paint_laid_spans(&mut content, fonts, &line.spans, x, y);
             }
             LaidItem::Image {
                 img_idx,
@@ -163,19 +220,7 @@ pub(super) fn paint_columns(
         let mut text_y = top_y;
         for line in lines {
             text_y -= line.leading;
-            if line.spans.is_empty() {
-                continue;
-            }
-            content.begin_text();
-            let mut span_x = x;
-            for span in &line.spans {
-                let face_name = fonts.resource_name(span.face);
-                content.set_font(Name(&face_name), span.font_size);
-                content.set_text_matrix([1.0, 0.0, 0.0, 1.0, span_x, text_y]);
-                content.show(Str(&encode_gids(&span.glyphs)));
-                span_x += shaped_width(&span.glyphs);
-            }
-            content.end_text();
+            paint_laid_spans(content, fonts, &line.spans, x, text_y);
         }
         let col_w = cols.col_widths.get(i).copied().unwrap_or(0.0);
         x += col_w + cols.gap;
@@ -231,19 +276,7 @@ pub(super) fn paint_table(
             let mut text_y = row_top - table.pad;
             for line in cell_lines {
                 text_y -= line.leading;
-                if line.spans.is_empty() {
-                    continue;
-                }
-                content.begin_text();
-                let mut span_x = cell_x + table.pad;
-                for span in &line.spans {
-                    let face_name = fonts.resource_name(span.face);
-                    content.set_font(Name(&face_name), span.font_size);
-                    content.set_text_matrix([1.0, 0.0, 0.0, 1.0, span_x, text_y]);
-                    content.show(Str(&encode_gids(&span.glyphs)));
-                    span_x += shaped_width(&span.glyphs);
-                }
-                content.end_text();
+                paint_laid_spans(content, fonts, &line.spans, cell_x + table.pad, text_y);
             }
             cell_x += col_w;
         }

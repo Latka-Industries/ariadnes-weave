@@ -36,7 +36,10 @@ pub use ir::{
     BreakHint, FigurePlacement, InlineStyle, ListItem, PrintBlock, PrintDocument, PrintImage,
     PrintMeta, PrintProfileId, SlideRegionContent, TableRow, TextRun,
 };
-pub use knobs::{DeckKnobs, LayoutKnobs, MathKnobs, PageKnobs, ProseKnobs, TableKnobs};
+pub use knobs::{
+    DeckKnobs, HexColor, LayoutKnobs, MathKnobs, PageKnobs, ProseCiteKnobs, ProseKnobs,
+    ProseTextKnobs, TableKnobs,
+};
 pub use options::{EmitOptions, FontResolveMode};
 pub use profile::{PageSize, ProfileMetrics, resolve_metrics};
 

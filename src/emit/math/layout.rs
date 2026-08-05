@@ -18,7 +18,7 @@ pub(super) struct MathCtx<'a> {
     pub(super) glyph_sets: &'a mut GlyphSets,
 }
 
-impl<'a> MathCtx<'a> {
+impl MathCtx<'_> {
     /// Math axis above the baseline (TeX-ish); fraction bars and big ops share this.
     fn axis(&self, font_size: f32) -> f32 {
         font_size * self.knobs.metrics.axis_factor

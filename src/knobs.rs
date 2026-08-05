@@ -107,7 +107,7 @@ pub struct ProseKnobs {
     pub paragraph: ProseParagraphKnobs,
     /// Heading leading / trailing gap.
     pub heading: ProseHeadingKnobs,
-    /// Quote indent / body italic.
+    /// Quote indent / body italic / optional color.
     pub quote: ProseQuoteKnobs,
     /// Code block leading / gap.
     pub code: ProseCodeKnobs,
@@ -117,6 +117,122 @@ pub struct ProseKnobs {
     pub figure: ProseFigureKnobs,
     /// Wrap helpers.
     pub wrap: ProseWrapKnobs,
+    /// Default body text color (optional; omit for engine black).
+    #[serde(default, skip_serializing_if = "ProseTextKnobs::is_empty")]
+    pub text: ProseTextKnobs,
+    /// Citation marker paint policy.
+    #[serde(default, skip_serializing_if = "ProseCiteKnobs::is_default")]
+    pub cite: ProseCiteKnobs,
+}
+
+/// `#RGB` / `#RRGGBB` color for aesthetic knobs (0..=255 channels).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HexColor {
+    /// Red 0..=255.
+    pub r: u8,
+    /// Green 0..=255.
+    pub g: u8,
+    /// Blue 0..=255.
+    pub b: u8,
+}
+
+impl HexColor {
+    /// Parse `#RGB` or `#RRGGBB` (case-insensitive hex digits).
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the string is not a valid hex color.
+    pub fn parse(raw: &str) -> Result<Self, String> {
+        let s = raw.trim();
+        let hex = s
+            .strip_prefix('#')
+            .ok_or_else(|| format!("expected #RGB or #RRGGBB, got {raw:?}"))?;
+        let full = match hex.len() {
+            3 => {
+                let mut expanded = String::with_capacity(6);
+                for ch in hex.chars() {
+                    expanded.push(ch);
+                    expanded.push(ch);
+                }
+                expanded
+            }
+            6 => hex.to_string(),
+            _ => {
+                return Err(format!(
+                    "expected #RGB or #RRGGBB (3 or 6 hex digits), got {raw:?}"
+                ));
+            }
+        };
+        if !full.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err(format!("non-hex digit in color {raw:?}"));
+        }
+        let n = u32::from_str_radix(&full, 16).map_err(|_| format!("invalid hex color {raw:?}"))?;
+        Ok(Self {
+            r: ((n >> 16) & 0xff) as u8,
+            g: ((n >> 8) & 0xff) as u8,
+            b: (n & 0xff) as u8,
+        })
+    }
+
+    /// Canonical `#RRGGBB` form.
+    #[must_use]
+    pub fn to_hex_string(self) -> String {
+        format!("#{:02X}{:02X}{:02X}", self.r, self.g, self.b)
+    }
+
+    /// PDF `set_fill_rgb` components in 0.0..=1.0.
+    #[must_use]
+    pub fn to_rgb01(self) -> [f32; 3] {
+        [
+            f32::from(self.r) / 255.0,
+            f32::from(self.g) / 255.0,
+            f32::from(self.b) / 255.0,
+        ]
+    }
+}
+
+impl Serialize for HexColor {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.to_hex_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for HexColor {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let raw = String::deserialize(deserializer)?;
+        Self::parse(&raw).map_err(serde::de::Error::custom)
+    }
+}
+
+/// `[text]` in `prose.toml` — optional body fill color.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct ProseTextKnobs {
+    /// Optional `#RGB` / `#RRGGBB` body color; omit for engine black.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<HexColor>,
+}
+
+impl ProseTextKnobs {
+    fn is_empty(&self) -> bool {
+        self.color.is_none()
+    }
+}
+
+/// `[cite]` in `prose.toml` — citation marker color / underline.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct ProseCiteKnobs {
+    /// Optional `#RGB` / `#RRGGBB`; else inherits category / text / black.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<HexColor>,
+    /// Underline cite runs when true (default false).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub underline: bool,
+}
+
+impl ProseCiteKnobs {
+    fn is_default(&self) -> bool {
+        self.color.is_none() && !self.underline
+    }
 }
 
 /// `[paragraph]` in `prose.toml`.
@@ -142,6 +258,9 @@ pub struct ProseQuoteKnobs {
     pub indent: f32,
     /// Italicize quote body runs (decorative marks stay emphasized either way).
     pub italic: bool,
+    /// Optional quote fill; inherits `[text].color` then engine black.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<HexColor>,
 }
 
 /// `[code]` in `prose.toml`.
@@ -178,6 +297,47 @@ pub struct ProseWrapKnobs {
     pub body_leading_factor: f32,
     /// Minimum wrap width (points).
     pub min_width: f32,
+}
+
+impl ProseKnobs {
+    /// Category fill for body/heading/list: `[text].color` else engine black.
+    #[must_use]
+    pub fn text_fill_rgb01(&self) -> [f32; 3] {
+        color_or_black(self.text.color)
+    }
+
+    /// Category fill for quotes: `[quote].color` else `[text].color` else black.
+    #[must_use]
+    pub fn quote_fill_rgb01(&self) -> [f32; 3] {
+        color_or_black(self.quote.color.or(self.text.color))
+    }
+
+    /// Per-run fill: cite color when set, else `category_fill`.
+    #[must_use]
+    pub fn run_fill_rgb01(&self, cite: bool, category_fill: [f32; 3]) -> [f32; 3] {
+        if cite && let Some(c) = self.cite.color {
+            return c.to_rgb01();
+        }
+        category_fill
+    }
+
+    /// Resolve fill + underline for a run under a text/quote category.
+    #[must_use]
+    pub fn run_paint_rgb01(&self, cite: bool, quote_category: bool) -> ([f32; 3], bool) {
+        let category = if quote_category {
+            self.quote_fill_rgb01()
+        } else {
+            self.text_fill_rgb01()
+        };
+        (
+            self.run_fill_rgb01(cite, category),
+            cite && self.cite.underline,
+        )
+    }
+}
+
+fn color_or_black(color: Option<HexColor>) -> [f32; 3] {
+    color.map_or([0.0, 0.0, 0.0], HexColor::to_rgb01)
 }
 
 /// Table layout knobs (`defaults/table.toml`).
@@ -479,5 +639,85 @@ mod tests {
         assert!(dump.contains("prose.heading.leading_factor = 1.35"));
         assert!(k.prose.quote.italic);
         assert!(dump.contains("prose.quote.italic = true"));
+        assert!(k.prose.text.color.is_none());
+        assert!(k.prose.quote.color.is_none());
+        assert!(k.prose.cite.color.is_none());
+        assert!(!k.prose.cite.underline);
+        assert!(
+            !dump.contains("prose.text.") && !dump.contains("prose.cite."),
+            "omitted aesthetic keys should not appear in dump: {dump}"
+        );
+    }
+
+    #[test]
+    fn hex_color_parses_rgb_and_rrggbb() {
+        assert_eq!(
+            HexColor::parse("#abc").unwrap(),
+            HexColor {
+                r: 0xaa,
+                g: 0xbb,
+                b: 0xcc
+            }
+        );
+        assert_eq!(
+            HexColor::parse("#336699").unwrap(),
+            HexColor {
+                r: 0x33,
+                g: 0x66,
+                b: 0x99
+            }
+        );
+        assert!(HexColor::parse("336699").is_err());
+        assert!(HexColor::parse("#gg0000").is_err());
+        assert!(HexColor::parse("#12").is_err());
+    }
+
+    #[test]
+    fn prose_toml_overlay_sets_aesthetic_keys() {
+        let mut k = LayoutKnobs::bundled();
+        let overlay = r##"
+[paragraph]
+gap_after = 10.0
+
+[heading]
+leading_factor = 1.35
+gap_after = 8.0
+
+[quote]
+indent = 18.0
+italic = true
+color = "#445566"
+
+[code]
+leading_factor = 1.25
+gap_after = 10.0
+
+[list]
+indent_per_depth = 18.0
+item_leading_factor = 1.35
+
+[figure]
+gap_after = 6.0
+alt_gap_after = 10.0
+
+[wrap]
+body_leading_factor = 1.35
+min_width = 36.0
+
+[text]
+color = "#112233"
+
+[cite]
+color = "#990000"
+underline = true
+"##;
+        k.prose = toml::from_str(overlay).expect("overlay");
+        assert_eq!(k.prose.text.color.unwrap().to_hex_string(), "#112233");
+        assert_eq!(k.prose.quote.color.unwrap().to_hex_string(), "#445566");
+        assert_eq!(k.prose.cite.color.unwrap().to_hex_string(), "#990000");
+        assert!(k.prose.cite.underline);
+        let dump = k.describe();
+        assert!(dump.contains("prose.text.color = \"#112233\""));
+        assert!(dump.contains("prose.cite.underline = true"));
     }
 }
