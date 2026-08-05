@@ -4,7 +4,7 @@ Emit uses named optical defaults from per-category TOML files under `defaults/`:
 
 | File | Category | Used for |
 |------|----------|----------|
-| `prose.toml` | prose | Paragraph/heading/list/quote/code/figure spacing and wrap width |
+| `prose.toml` | prose | Paragraph/heading/list/quote/code/figure spacing, quote body italic, wrap width |
 | `table.toml` | table | Cell padding, leading, and block gap |
 | `deck.toml` | deck | Slide title/subtitle/body scales and column gaps |
 | `math.toml` | math | Fractions, scripts, matrices, arrows, display gaps |

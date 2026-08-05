@@ -7,6 +7,7 @@ use crate::ir::{
     BreakHint, FigurePlacement, InlineStyle, PrintBlock, PrintDocument, PrintImage, PrintMeta,
     PrintProfileId, SlideRegionContent, TableRow, TextRun,
 };
+use crate::knobs::LayoutKnobs;
 use crate::options::EmitOptions;
 use crate::profile::{self, PageSize};
 use image::{ImageBuffer, ImageFormat, Rgb};
@@ -408,6 +409,70 @@ fn manuscript_emphasis_uses_serif_italic() {
     let s = String::from_utf8_lossy(&bytes);
     assert!(s.contains("LiberationSerif-Italic"));
     assert!(s.contains("LiberationSerif-Bold"));
+}
+
+#[test]
+fn quote_body_italic_by_default() {
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "Quote".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::Quote {
+            runs: vec![TextRun::plain("Quoted body should be italic.")],
+        }],
+    };
+    let bytes = emit_pdf(&doc).expect("emit");
+    let s = String::from_utf8_lossy(&bytes);
+    assert!(
+        s.contains("LiberationSans-Italic"),
+        "default [quote].italic should embed italic face for quote body"
+    );
+
+    let mut layout = LayoutKnobs::bundled();
+    layout.prose.quote.italic = false;
+    let roman =
+        emit_pdf_with(&doc, &EmitOptions::bundled_only().with_layout(layout)).expect("emit roman");
+    assert_ne!(
+        bytes, roman,
+        "default italic quote PDF should differ from italic = false"
+    );
+}
+
+#[test]
+fn quote_body_roman_when_italic_knob_false() {
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "Quote roman".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::Quote {
+            runs: vec![TextRun::plain("Quoted body should be roman.")],
+        }],
+    };
+    let mut layout = LayoutKnobs::bundled();
+    layout.prose.quote.italic = false;
+    let bytes =
+        emit_pdf_with(&doc, &EmitOptions::bundled_only().with_layout(layout)).expect("emit");
+    let s = String::from_utf8_lossy(&bytes);
+    // Decorative quote marks still use italic; body uses roman (`LiberationSans`).
+    assert!(s.contains("LiberationSans-Italic"));
+    assert!(
+        embeds_roman_liberation_sans(&s),
+        "italic = false should keep quote body on roman LiberationSans"
+    );
+}
+
+fn embeds_roman_liberation_sans(pdf: &str) -> bool {
+    // PostScript name is `LiberationSans` (not `…-Regular`); avoid matching `-Italic`/`-Bold`.
+    pdf.match_indices("+LiberationSans")
+        .any(|(i, needle)| !pdf[i + needle.len()..].starts_with('-'))
 }
 
 #[test]

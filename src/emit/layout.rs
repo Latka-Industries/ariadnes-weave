@@ -201,6 +201,7 @@ fn layout_quote(
     segments: &mut [LayoutSegment],
 ) -> Result<(), WeaveError> {
     let seg = segments.last_mut().expect("segment");
+    let body_italic = ctx.knobs.prose.quote.italic;
     let mut quoted = vec![TextRun {
         text: "\"".into(),
         style: InlineStyle {
@@ -209,7 +210,12 @@ fn layout_quote(
         },
         face: None,
     }];
-    quoted.extend(runs.iter().cloned());
+    quoted.extend(runs.iter().cloned().map(|mut run| {
+        if body_italic {
+            run.style.emphasis = true;
+        }
+        run
+    }));
     quoted.push(TextRun {
         text: "\"".into(),
         style: InlineStyle {
