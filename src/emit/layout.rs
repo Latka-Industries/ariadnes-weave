@@ -202,34 +202,31 @@ fn layout_quote(
 ) -> Result<(), WeaveError> {
     let seg = segments.last_mut().expect("segment");
     let body_italic = ctx.knobs.prose.quote.italic;
-    let mut quoted = vec![TextRun {
-        text: "\"".into(),
-        style: InlineStyle {
-            emphasis: true,
-            ..InlineStyle::default()
-        },
-        face: None,
-    }];
-    quoted.extend(runs.iter().cloned().map(|mut run| {
-        if body_italic {
-            run.style.emphasis = true;
-        }
+    let body = runs.iter().cloned().map(|mut run| {
+        run.style.emphasis |= body_italic;
         run
-    }));
-    quoted.push(TextRun {
-        text: "\"".into(),
-        style: InlineStyle {
-            emphasis: true,
-            ..InlineStyle::default()
-        },
-        face: None,
     });
+    let quoted: Vec<_> = std::iter::once(emphasized_quote_mark())
+        .chain(body)
+        .chain(std::iter::once(emphasized_quote_mark()))
+        .collect();
     push_styled_runs(
         &mut seg.1,
         &quoted,
         ctx,
         body_layout(ctx.metrics, ctx.knobs, ctx.knobs.prose.quote.indent),
     )
+}
+
+fn emphasized_quote_mark() -> TextRun {
+    TextRun {
+        text: "\"".into(),
+        style: InlineStyle {
+            emphasis: true,
+            ..InlineStyle::default()
+        },
+        face: None,
+    }
 }
 
 fn layout_code(
