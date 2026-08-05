@@ -41,12 +41,16 @@ pub(super) fn record_shaped_chunk(
 pub(super) fn spans_from_shaped_runs(
     font_size: f32,
     runs: Vec<(FaceRef, Vec<ShapedGlyph>)>,
+    fill: [f32; 3],
+    underline: bool,
 ) -> Vec<LaidSpan> {
     runs.into_iter()
         .map(|(face, glyphs)| LaidSpan {
             face,
             font_size,
             glyphs,
+            fill,
+            underline,
         })
         .collect()
 }
@@ -58,11 +62,16 @@ pub(super) fn shape_and_record_spans(
     text: &str,
     font_size: f32,
     glyph_sets: &mut GlyphSets,
+    fill: [f32; 3],
+    underline: bool,
 ) -> Result<(Vec<LaidSpan>, f32), WeaveError> {
     let runs = shape_text_with_fallback(fonts, face, text, font_size)?;
     let width = shaped_runs_width(&runs);
     record_shaped_chunk(fonts, face, text, &runs, glyph_sets);
-    Ok((spans_from_shaped_runs(font_size, runs), width))
+    Ok((
+        spans_from_shaped_runs(font_size, runs, fill, underline),
+        width,
+    ))
 }
 
 /// One forced-break boundary plus the items that follow until the next segment.
@@ -76,6 +85,10 @@ pub(super) struct LaidSpan {
     pub face: FaceRef,
     pub font_size: f32,
     pub glyphs: Vec<ShapedGlyph>,
+    /// Fill RGB in 0.0..=1.0 (engine black when knobs omit color).
+    pub fill: [f32; 3],
+    /// Stroke an underline under this span (cite policy).
+    pub underline: bool,
 }
 
 /// One horizontal line of text (or an empty gap).
@@ -112,8 +125,10 @@ impl LaidLine {
         font_size: f32,
         leading: f32,
         glyph_sets: &mut GlyphSets,
+        fill: [f32; 3],
     ) -> Result<Self, WeaveError> {
-        let (spans, _) = shape_and_record_spans(fonts, face, text, font_size, glyph_sets)?;
+        let (spans, _) =
+            shape_and_record_spans(fonts, face, text, font_size, glyph_sets, fill, false)?;
         Ok(Self {
             spans,
             leading,
@@ -283,6 +298,21 @@ pub(super) enum FaceMode {
     Heading,
 }
 
+/// Which aesthetic color category applies to a run sequence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum PaintCategory {
+    /// Body / heading / list / caption — `[text].color`.
+    Text,
+    /// Quote block — `[quote].color` else `[text].color`.
+    Quote,
+}
+
+impl PaintCategory {
+    pub(super) fn is_quote(self) -> bool {
+        matches!(self, Self::Quote)
+    }
+}
+
 /// Parameters for wrapping a sequence of [`crate::ir::TextRun`]s into lines.
 #[derive(Clone, Copy)]
 pub(super) struct RunLayout {
@@ -295,4 +325,5 @@ pub(super) struct RunLayout {
     pub indent: f32,
     /// Override wrap width; `None` uses content width minus indent.
     pub max_width: Option<f32>,
+    pub paint: PaintCategory,
 }

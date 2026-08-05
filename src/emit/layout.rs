@@ -13,7 +13,7 @@ use crate::profile::{self, ProfileMetrics};
 use super::math::layout_math;
 use super::types::{
     FaceMode, ForcedBreak, GlyphSets, LaidColumns, LaidItem, LaidLine, LaidSpan, LaidTable,
-    LaidTableRow, LayoutDoc, LayoutSegment, RunLayout, shape_and_record_spans,
+    LaidTableRow, LayoutDoc, LayoutSegment, PaintCategory, RunLayout, shape_and_record_spans,
 };
 
 pub(super) struct LayoutCtx<'a> {
@@ -89,7 +89,12 @@ pub(super) fn layout_block(
         PrintBlock::Paragraph { runs } => {
             let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
             let seg = segments.last_mut().expect("segment");
-            push_styled_runs(&mut seg.1, runs, &mut ctx, body_layout(metrics, knobs, 0.0))?;
+            push_styled_runs(
+                &mut seg.1,
+                runs,
+                &mut ctx,
+                body_layout(metrics, knobs, 0.0, PaintCategory::Text),
+            )?;
         }
         PrintBlock::Quote { runs } => {
             let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
@@ -152,7 +157,12 @@ fn segment_has_content(segments: &[LayoutSegment]) -> bool {
     segments.last().is_some_and(|(_, items)| !items.is_empty())
 }
 
-fn body_layout(metrics: &ProfileMetrics, knobs: &LayoutKnobs, indent: f32) -> RunLayout {
+fn body_layout(
+    metrics: &ProfileMetrics,
+    knobs: &LayoutKnobs,
+    indent: f32,
+    paint: PaintCategory,
+) -> RunLayout {
     RunLayout {
         font_size: metrics.body_size,
         leading: metrics.body_leading,
@@ -161,6 +171,7 @@ fn body_layout(metrics: &ProfileMetrics, knobs: &LayoutKnobs, indent: f32) -> Ru
         mode: FaceMode::Body,
         indent,
         max_width: None,
+        paint,
     }
 }
 
@@ -191,6 +202,7 @@ fn layout_heading(
             mode: FaceMode::Heading,
             indent: 0.0,
             max_width: None,
+            paint: PaintCategory::Text,
         },
     )
 }
@@ -214,7 +226,12 @@ fn layout_quote(
         &mut seg.1,
         &quoted,
         ctx,
-        body_layout(ctx.metrics, ctx.knobs, ctx.knobs.prose.quote.indent),
+        body_layout(
+            ctx.metrics,
+            ctx.knobs,
+            ctx.knobs.prose.quote.indent,
+            PaintCategory::Quote,
+        ),
     )
 }
 
@@ -245,6 +262,7 @@ fn layout_code(
             font_size,
             leading,
             ctx.glyph_sets,
+            ctx.knobs.prose.text_fill_rgb01(),
         )?));
     }
     seg.1.push(LaidItem::Text(LaidLine::gap(
@@ -355,6 +373,7 @@ impl PushFigureArgs<'_> {
                 metrics.body_size,
                 metrics.body_leading,
                 glyph_sets,
+                knobs.prose.text_fill_rgb01(),
             )?;
             line.glue_after = !caption.is_empty() || float_near;
             seg.1.push(LaidItem::Text(line));
@@ -367,7 +386,7 @@ impl PushFigureArgs<'_> {
                     &mut seg.1,
                     caption,
                     &mut layout_ctx(metrics, fonts, knobs, glyph_sets),
-                    body_layout(metrics, knobs, 0.0),
+                    body_layout(metrics, knobs, 0.0, PaintCategory::Text),
                 )?;
             }
             return Ok(());
@@ -391,7 +410,7 @@ impl PushFigureArgs<'_> {
                 &mut seg.1,
                 caption,
                 &mut layout_ctx(metrics, fonts, knobs, glyph_sets),
-                body_layout(metrics, knobs, 0.0),
+                body_layout(metrics, knobs, 0.0, PaintCategory::Text),
             )?;
         }
         Ok(())
@@ -411,6 +430,7 @@ fn push_table(
             ctx.metrics.body_size,
             ctx.metrics.body_leading,
             ctx.glyph_sets,
+            ctx.knobs.prose.text_fill_rgb01(),
         )?));
         out.push(LaidItem::Text(LaidLine::gap(
             ctx.knobs.prose.paragraph.gap_after,
@@ -493,7 +513,16 @@ fn wrap_plain_text(
         if current.is_empty() && skip_wrap_chunk_at_line_start(chunk) {
             continue;
         }
-        let (spans, w) = shape_and_record_spans(ctx.fonts, face, chunk, font_size, ctx.glyph_sets)?;
+        let fill = ctx.knobs.prose.text_fill_rgb01();
+        let (spans, w) = shape_and_record_spans(
+            ctx.fonts,
+            face,
+            chunk,
+            font_size,
+            ctx.glyph_sets,
+            fill,
+            false,
+        )?;
         if current_width + w > max_width && !current.is_empty() {
             lines.push(LaidLine {
                 spans: std::mem::take(&mut current),
@@ -509,8 +538,15 @@ fn wrap_plain_text(
         }
         if w > max_width && current.is_empty() {
             for piece in hard_break_text(ctx.fonts, face, chunk, font_size, max_width)? {
-                let (spans, _) =
-                    shape_and_record_spans(ctx.fonts, face, &piece, font_size, ctx.glyph_sets)?;
+                let (spans, _) = shape_and_record_spans(
+                    ctx.fonts,
+                    face,
+                    &piece,
+                    font_size,
+                    ctx.glyph_sets,
+                    fill,
+                    false,
+                )?;
                 lines.push(LaidLine {
                     spans,
                     leading,
@@ -560,6 +596,7 @@ fn layout_slide(
             ctx.metrics.body_size,
             ctx.metrics.body_leading,
             ctx.glyph_sets,
+            ctx.knobs.prose.text_fill_rgb01(),
         )?));
         segments.push((ForcedBreak::Always, Vec::new()));
         return Ok(());
@@ -806,6 +843,7 @@ fn push_slide_body_regions(
                     mode: FaceMode::Body,
                     indent: 0.0,
                     max_width: None,
+                    paint: PaintCategory::Text,
                 },
             )?;
         }
@@ -856,6 +894,7 @@ fn run_layout_body(size: f32, gap: f32, max_width: Option<f32>, knobs: &LayoutKn
         mode: FaceMode::Body,
         indent: 0.0,
         max_width,
+        paint: PaintCategory::Text,
     }
 }
 
@@ -868,6 +907,7 @@ fn run_layout_heading_size(size: f32, gap: f32) -> RunLayout {
         mode: FaceMode::Heading,
         indent: 0.0,
         max_width: None,
+        paint: PaintCategory::Text,
     }
 }
 
@@ -907,6 +947,10 @@ pub(super) fn push_styled_runs(
 
     for run in runs {
         let face = resolve_run_face(run, ctx.metrics, layout.mode, ctx.fonts)?;
+        let (fill, underline) = ctx
+            .knobs
+            .prose
+            .run_paint_rgb01(run.style.cite, layout.paint.is_quote());
         let mut remaining = run.text.as_str();
         while !remaining.is_empty() {
             let (chunk, rest) = next_wrap_chunk(remaining);
@@ -916,8 +960,15 @@ pub(super) fn push_styled_runs(
             if current_spans.is_empty() && skip_wrap_chunk_at_line_start(chunk) {
                 continue;
             }
-            let (spans, w) =
-                shape_and_record_spans(ctx.fonts, face, chunk, layout.font_size, ctx.glyph_sets)?;
+            let (spans, w) = shape_and_record_spans(
+                ctx.fonts,
+                face,
+                chunk,
+                layout.font_size,
+                ctx.glyph_sets,
+                fill,
+                underline,
+            )?;
             if current_width + w > max_width && !current_spans.is_empty() {
                 flush_line(&mut current_spans, out, false);
                 current_width = 0.0;
@@ -934,6 +985,8 @@ pub(super) fn push_styled_runs(
                         &piece,
                         layout.font_size,
                         ctx.glyph_sets,
+                        fill,
+                        underline,
                     )?;
                     current_spans.extend(spans);
                     flush_line(&mut current_spans, out, false);
@@ -1056,6 +1109,7 @@ fn push_list_lines(
                 mode: FaceMode::Body,
                 indent: ctx.knobs.prose.list.indent_per_depth * depth as f32,
                 max_width: None,
+                paint: PaintCategory::Text,
             },
         )?;
         for child in &item.children {
