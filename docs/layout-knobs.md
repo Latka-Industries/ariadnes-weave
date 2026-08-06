@@ -4,7 +4,7 @@ Emit uses named optical defaults from per-category TOML files under `defaults/`:
 
 | File | Category | Used for |
 |------|----------|----------|
-| `prose.toml` | prose | Paragraph/heading/list/quote/code/figure spacing, quote italic, optional text/quote/cite colors, cite underline, wrap width |
+| `prose.toml` | prose | Paragraph/heading/list/quote/code/figure spacing, quote italic, optional text/quote/cite colors, cite underline, optional category font pins, wrap width |
 | `table.toml` | table | Cell padding, leading, and block gap |
 | `deck.toml` | deck | Slide title/subtitle/body scales and column gaps |
 | `math.toml` | math | Fractions, scripts, matrices, arrows, display gaps |
@@ -24,6 +24,21 @@ Omit these keys for engine black / no underline (bundled `defaults/prose.toml` o
 | `[cite].underline` | Underline cite runs (`false` by default) |
 
 Inherit order for a run: cite color (if cite + set) → category (`quote` or `text`) → black.
+
+## Category fonts (optional)
+
+Omit these keys to keep Liberation style mapping (bundled `defaults/prose.toml` omits them). Values are pin ids into `EmitOptions.pinned_faces` (same namespace as explicit `TextRun.face` / pack `fonts.toml`):
+
+| Key | Meaning |
+|-----|---------|
+| `[text].font` | Default pin for body / list / caption runs |
+| `[heading].font` | Default pin for all heading levels |
+| `[quote].font` | Default pin for quote body runs |
+| `[cite].font` | Default pin for cite-styled runs |
+
+**Precedence:** explicit `TextRun.face` wins. When `face` is unset, pick cite → heading → quote → text (first matching category with a pin). Unknown ids use the same `unknown pinned face` error as an explicit pin. Category pins do not inherit across sections (unlike colors).
+
+First cut defers table / code / math / deck and per-level `heading.1` / `heading.2`.
 
 ## Defaults and overrides
 

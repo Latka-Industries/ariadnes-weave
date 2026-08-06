@@ -290,8 +290,16 @@ fn resolve_run_face(
     metrics: &ProfileMetrics,
     mode: FaceMode,
     fonts: &FontBag,
+    knobs: &LayoutKnobs,
+    paint: PaintCategory,
 ) -> Result<FaceRef, WeaveError> {
-    if let Some(id) = &run.face {
+    let category_pin = knobs.prose.category_font_pin(
+        run.style.cite,
+        matches!(mode, FaceMode::Heading),
+        paint.is_quote(),
+    );
+    let effective = run.face.as_deref().or(category_pin);
+    if let Some(id) = effective {
         #[cfg(feature = "os-fonts")]
         let os_key = crate::os_fonts::os_pin_key(id, run.style);
         #[cfg(feature = "os-fonts")]
@@ -946,7 +954,14 @@ pub(super) fn push_styled_runs(
     };
 
     for run in runs {
-        let face = resolve_run_face(run, ctx.metrics, layout.mode, ctx.fonts)?;
+        let face = resolve_run_face(
+            run,
+            ctx.metrics,
+            layout.mode,
+            ctx.fonts,
+            ctx.knobs,
+            layout.paint,
+        )?;
         let (fill, underline) = ctx
             .knobs
             .prose

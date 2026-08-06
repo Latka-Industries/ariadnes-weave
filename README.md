@@ -37,7 +37,8 @@ crates.io. Local suite work can still path-dep when cutting paired releases.
 - Layout knobs: named optical defaults in `defaults/*.toml` (prose / table /
   deck / math / page), overridable via `EmitOptions.layout`; quote body italic
   by default (`[quote].italic`); optional `#RGB`/`#RRGGBB` fills for
-  `[text]` / `[quote]` / `[cite]` plus `[cite].underline`; dump with
+  `[text]` / `[quote]` / `[cite]` plus `[cite].underline`; optional category
+  `font` pin ids (same namespace as `TextRun.face`); dump with
   `cargo run --example dump_knobs` — see [`docs/layout-knobs.md`](docs/layout-knobs.md)
 - Forced page breaks + keep-with-next + basic widow/orphan glue; page-number
   footers
