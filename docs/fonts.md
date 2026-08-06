@@ -3,6 +3,9 @@
 ariadnes-weave embeds TrueType faces under `fonts/` and subsets used glyphs per
 PDF. Host-pinned TTFs and optional OS lookup (`--features os-fonts`) sit on top;
 sealed packs are the deterministic ladder when a codepoint is missing.
+Category defaults via layout knobs (`[text|heading|quote|cite].font`) are pin
+ids into the same `EmitOptions.pinned_faces` map — not sealed `FaceId` names;
+see [`layout-knobs.md`](layout-knobs.md).
 
 ## Always on (default)
 

@@ -140,6 +140,148 @@ fn unknown_pinned_face_errors() {
 }
 
 #[test]
+fn category_heading_font_pin_without_run_face() {
+    let mono = include_bytes!("../../fonts/LiberationMono-Regular.ttf").to_vec();
+    let mut layout = LayoutKnobs::bundled();
+    layout.prose.heading.font = Some("display".into());
+    let opts = EmitOptions::bundled_only()
+        .with_layout(layout)
+        .with_pinned_face("display", mono);
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "Category heading".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::Heading {
+            level: 1,
+            runs: vec![TextRun::plain("Display heading")],
+            break_before: BreakHint::None,
+        }],
+    };
+    let bytes = emit_pdf_with(&doc, &opts).expect("emit category heading font");
+    assert!(bytes.starts_with(b"%PDF-"));
+    assert!(
+        bytes.windows(2).any(|w| w == b"/P"),
+        "category heading font should embed pinned resource"
+    );
+}
+
+#[test]
+fn explicit_run_face_wins_over_category_font() {
+    let display = include_bytes!("../../fonts/LiberationMono-Regular.ttf").to_vec();
+    let other = include_bytes!("../../fonts/LiberationSerif-Regular.ttf").to_vec();
+    let mut layout = LayoutKnobs::bundled();
+    layout.prose.heading.font = Some("display".into());
+    let opts = EmitOptions::bundled_only()
+        .with_layout(layout)
+        .with_pinned_face("display", display)
+        .with_pinned_face("other", other);
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "Override".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::Heading {
+            level: 1,
+            runs: vec![TextRun::pinned("Explicit other", "other")],
+            break_before: BreakHint::None,
+        }],
+    };
+    let category_only = {
+        let mut layout = LayoutKnobs::bundled();
+        layout.prose.heading.font = Some("display".into());
+        let opts = EmitOptions::bundled_only()
+            .with_layout(layout)
+            .with_pinned_face(
+                "display",
+                include_bytes!("../../fonts/LiberationMono-Regular.ttf").to_vec(),
+            );
+        let doc = PrintDocument {
+            meta: PrintMeta {
+                title: "Override".into(),
+                doc_kind: "note".into(),
+                language: None,
+                source_doc_id: None,
+            },
+            profile: PrintProfileId::print_v0(),
+            blocks: vec![PrintBlock::Heading {
+                level: 1,
+                runs: vec![TextRun::plain("Explicit other")],
+                break_before: BreakHint::None,
+            }],
+        };
+        emit_pdf_with(&doc, &opts).expect("category only")
+    };
+    let overridden = emit_pdf_with(&doc, &opts).expect("explicit wins");
+    assert_ne!(
+        category_only, overridden,
+        "explicit TextRun.face should change PDF vs category default"
+    );
+    assert!(overridden.windows(2).any(|w| w == b"/P"));
+}
+
+#[test]
+fn category_cite_font_pin() {
+    let mono = include_bytes!("../../fonts/LiberationMono-Regular.ttf").to_vec();
+    let mut layout = LayoutKnobs::bundled();
+    layout.prose.cite.font = Some("cite-face".into());
+    let opts = EmitOptions::bundled_only()
+        .with_layout(layout)
+        .with_pinned_face("cite-face", mono);
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "Cite font".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::Paragraph {
+            runs: vec![TextRun {
+                text: "[1]".into(),
+                style: InlineStyle {
+                    cite: true,
+                    ..InlineStyle::default()
+                },
+                face: None,
+            }],
+        }],
+    };
+    let bytes = emit_pdf_with(&doc, &opts).expect("cite category font");
+    assert!(bytes.windows(2).any(|w| w == b"/P"));
+}
+
+#[test]
+fn unknown_category_font_errors() {
+    let mut layout = LayoutKnobs::bundled();
+    layout.prose.text.font = Some("no-such-face".into());
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "Bad category".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::Paragraph {
+            runs: vec![TextRun::plain("x")],
+        }],
+    };
+    let err = emit_pdf_with(&doc, &EmitOptions::bundled_only().with_layout(layout))
+        .expect_err("unknown category pin");
+    assert!(
+        matches!(err, WeaveError::Font(ref msg) if msg.contains("unknown pinned face")),
+        "{err:?}"
+    );
+}
+
+#[test]
 fn os_with_fallback_requires_feature() {
     let doc = PrintDocument {
         meta: PrintMeta {

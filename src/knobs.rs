@@ -204,21 +204,24 @@ impl<'de> Deserialize<'de> for HexColor {
     }
 }
 
-/// `[text]` in `prose.toml` — optional body fill color.
+/// `[text]` in `prose.toml` — optional body fill color / default font pin.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct ProseTextKnobs {
     /// Optional `#RGB` / `#RRGGBB` body color; omit for engine black.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<HexColor>,
+    /// Optional pin id into `EmitOptions.pinned_faces`; omit for Liberation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font: Option<String>,
 }
 
 impl ProseTextKnobs {
     fn is_empty(&self) -> bool {
-        self.color.is_none()
+        self.color.is_none() && self.font.is_none()
     }
 }
 
-/// `[cite]` in `prose.toml` — citation marker color / underline.
+/// `[cite]` in `prose.toml` — citation marker color / underline / font pin.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct ProseCiteKnobs {
     /// Optional `#RGB` / `#RRGGBB`; else inherits category / text / black.
@@ -227,11 +230,14 @@ pub struct ProseCiteKnobs {
     /// Underline cite runs when true (default false).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub underline: bool,
+    /// Optional pin id into `EmitOptions.pinned_faces`; omit for Liberation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font: Option<String>,
 }
 
 impl ProseCiteKnobs {
     fn is_default(&self) -> bool {
-        self.color.is_none() && !self.underline
+        self.color.is_none() && !self.underline && self.font.is_none()
     }
 }
 
@@ -249,6 +255,9 @@ pub struct ProseHeadingKnobs {
     pub leading_factor: f32,
     /// Gap after a heading block (points).
     pub gap_after: f32,
+    /// Optional pin id into `EmitOptions.pinned_faces`; omit for Liberation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font: Option<String>,
 }
 
 /// `[quote]` in `prose.toml`.
@@ -261,6 +270,9 @@ pub struct ProseQuoteKnobs {
     /// Optional quote fill; inherits `[text].color` then engine black.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<HexColor>,
+    /// Optional pin id into `EmitOptions.pinned_faces`; omit for Liberation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font: Option<String>,
 }
 
 /// `[code]` in `prose.toml`.
@@ -333,6 +345,24 @@ impl ProseKnobs {
             self.run_fill_rgb01(cite, category),
             cite && self.cite.underline,
         )
+    }
+
+    /// Optional category default pin id when `TextRun.face` is unset.
+    ///
+    /// Precedence: cite → heading → quote → text. No pin-id inherit between
+    /// categories; omit means Liberation via style mapping.
+    #[must_use]
+    pub fn category_font_pin(&self, cite: bool, heading: bool, quote: bool) -> Option<&str> {
+        if cite {
+            return self.cite.font.as_deref();
+        }
+        if heading {
+            return self.heading.font.as_deref();
+        }
+        if quote {
+            return self.quote.font.as_deref();
+        }
+        self.text.font.as_deref()
     }
 }
 
@@ -682,11 +712,13 @@ gap_after = 10.0
 [heading]
 leading_factor = 1.35
 gap_after = 8.0
+font = "display"
 
 [quote]
 indent = 18.0
 italic = true
 color = "#445566"
+font = "armenian"
 
 [code]
 leading_factor = 1.25
@@ -706,18 +738,36 @@ min_width = 36.0
 
 [text]
 color = "#112233"
+font = "body"
 
 [cite]
 color = "#990000"
 underline = true
+font = "body"
 "##;
         k.prose = toml::from_str(overlay).expect("overlay");
         assert_eq!(k.prose.text.color.unwrap().to_hex_string(), "#112233");
         assert_eq!(k.prose.quote.color.unwrap().to_hex_string(), "#445566");
         assert_eq!(k.prose.cite.color.unwrap().to_hex_string(), "#990000");
         assert!(k.prose.cite.underline);
+        assert_eq!(k.prose.text.font.as_deref(), Some("body"));
+        assert_eq!(k.prose.heading.font.as_deref(), Some("display"));
+        assert_eq!(k.prose.quote.font.as_deref(), Some("armenian"));
+        assert_eq!(k.prose.cite.font.as_deref(), Some("body"));
         let dump = k.describe();
         assert!(dump.contains("prose.text.color = \"#112233\""));
         assert!(dump.contains("prose.cite.underline = true"));
+        assert!(dump.contains("prose.heading.font = \"display\""));
+        assert!(dump.contains("prose.text.font = \"body\""));
+        assert!(dump.contains("prose.quote.font = \"armenian\""));
+        assert!(dump.contains("prose.cite.font = \"body\""));
+        let bundled = LayoutKnobs::bundled().describe();
+        assert!(
+            !bundled.contains("prose.text.font"),
+            "bundled dump should omit unset category fonts"
+        );
+        assert!(!bundled.contains("prose.heading.font"));
+        assert!(!bundled.contains("prose.quote.font"));
+        assert!(!bundled.contains("prose.cite.font"));
     }
 }
