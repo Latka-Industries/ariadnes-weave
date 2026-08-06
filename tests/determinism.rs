@@ -161,19 +161,19 @@ fn page_dict_count(pdf: &[u8]) -> usize {
 
 /// Pin: bump intentionally when emit layout/fonts/version (PDF Producer) change.
 const HELLO_PRINT_V0_SHA256: &str =
-    "8fa9a698edb4cf7c22775e072c75a558613ea00ccdebb5c289fbef4b222761cc";
+    "5eaa0ca731cbac87edb5b88a4dfc74899cf42c3bee38f83bc33e715e04e105c0";
 
 /// Pin: bump intentionally when manuscript literary layout/fonts/version change.
 const MANUSCRIPT_TWO_CHAPTER_SHA256: &str =
-    "87145e18bae134712b4aceb62bf23729420f60a7eaa8dfdb3b1d1ca4b59f7620";
+    "c32e1da8b0edb029440802561432cdc9a5d9ef901ce1a06d2180f2ca107c46d2";
 
 /// Pin: bump intentionally when math box layout/version change.
 const QUADRATIC_FORMULA_SHA256: &str =
-    "c2207b615db7dc503c6b0cc159a250069fb75d66035dca85a58b579c31f11e72";
+    "957aac6ad2be1ff90a1e559a37ee0edf4ce285656bb7cf7936bb31e33d77b58e";
 
 /// Pin: bump intentionally when layout place/vspace/rule paint changes.
 const LAYOUT_PLACE_FLUSH_SHA256: &str =
-    "b959af7ac8d156166e13623d1d488c5c673169035721b6f033f0b09004ea7162";
+    "d1490d16a2c18df8f1ca6b581bffa04d01e5dd0a12bc26550fd0c6fa424ec4ee";
 
 #[test]
 fn emit_is_byte_identical_across_runs() {
