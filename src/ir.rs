@@ -1,7 +1,8 @@
 //! Print IR types (prose MVP surface).
 //!
-//! Normative sketch: Tessera `docs/print_ir.md` / D21. Serde names should stay
-//! stable once published; rename modules freely.
+//! Normative sketch: Tessera `docs/print_ir.md` / D21. Layout chunks: D24
+//! (`place` / `vspace` / `rule`). Serde names should stay stable once published;
+//! rename modules freely.
 
 use serde::{Deserialize, Serialize};
 
@@ -151,8 +152,182 @@ pub enum PrintBlock {
         /// Region payloads (`title`, `body`, `left`, `right`, …).
         regions: Vec<SlideRegionContent>,
     },
+    /// Sealed layout chunk (D24): closed `place` / `vspace` / `rule` ops.
+    Layout {
+        /// Ordered layout ops in reading order.
+        ops: Vec<LayoutOp>,
+    },
     /// Explicit author/export break (e.g. chapter boundary).
     Break(BreakHint),
+}
+
+/// One closed layout op inside [`PrintBlock::Layout`] (D24).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LayoutOp {
+    /// Horizontal skip, then inline content runs.
+    Place {
+        /// Skip before content (`frac` of measure or `em`).
+        skip: PlaceSkip,
+        /// Inline runs drawn after the skip.
+        #[serde(default)]
+        runs: Vec<TextRun>,
+    },
+    /// Extra vertical air (no measure-`frac`).
+    Vspace {
+        /// Named step or em distance.
+        amount: VspaceAmount,
+    },
+    /// Horizontal rule across part of the measure.
+    Rule {
+        /// Rule width (`frac` and/or `em`, summed).
+        width: RuleWidth,
+    },
+}
+
+/// Horizontal skip for [`LayoutOp::Place`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PlaceSkip {
+    /// Fraction of line measure in reading direction.
+    ///
+    /// At full measure ([`MeasureFrac::FULL`]), content is flushed to the end
+    /// edge using leftover width after measuring the runs (LaTeX-style).
+    Frac {
+        /// Measure fraction (`0..=10_000` bps).
+        frac: MeasureFrac,
+    },
+    /// Skip in body ems.
+    Em {
+        /// Em distance.
+        em: EmAmount,
+    },
+}
+
+/// Vertical gap for [`LayoutOp::Vspace`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum VspaceAmount {
+    /// Small step (~0.5 em).
+    Small,
+    /// Medium step (~1 em).
+    Med,
+    /// Large step (~2 em).
+    Big,
+    /// Explicit em distance.
+    Em {
+        /// Em distance.
+        em: EmAmount,
+    },
+}
+
+/// Rule width for [`LayoutOp::Rule`] — `frac` and/or `em` (widths add).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuleWidth {
+    /// Fraction of line measure.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frac: Option<MeasureFrac>,
+    /// Additional width in body ems.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub em: Option<EmAmount>,
+}
+
+impl RuleWidth {
+    /// Width from measure fraction only.
+    #[must_use]
+    pub fn frac(frac: MeasureFrac) -> Self {
+        Self {
+            frac: Some(frac),
+            em: None,
+        }
+    }
+
+    /// Width from em amount only.
+    #[must_use]
+    pub fn em(em: EmAmount) -> Self {
+        Self {
+            frac: None,
+            em: Some(em),
+        }
+    }
+}
+
+/// Fraction of line measure stored as basis points (`10_000` = 1.0).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MeasureFrac {
+    /// Ten-thousandths of full measure (`10_000` = flush / full width).
+    pub bps: u16,
+}
+
+impl MeasureFrac {
+    /// Full measure (`frac = 1`); place flush uses leftover after content width.
+    pub const FULL: Self = Self { bps: 10_000 };
+
+    /// Half measure (`frac = 0.5`).
+    pub const HALF: Self = Self { bps: 5_000 };
+
+    /// Construct from basis points; caller / layout validates `≤ 10_000`.
+    #[must_use]
+    pub const fn from_bps(bps: u16) -> Self {
+        Self { bps }
+    }
+
+    /// Convert `0.0..=1.0` to nearest bps.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::WeaveError::InvalidLayoutFrac`] when outside range.
+    pub fn try_from_f32(frac: f32) -> Result<Self, crate::WeaveError> {
+        if !(0.0..=1.0).contains(&frac) || !frac.is_finite() {
+            let bps = if frac.is_finite() && frac > 1.0 {
+                ((frac * 10_000.0).round() as i64).clamp(0, u16::MAX as i64) as u16
+            } else {
+                u16::MAX
+            };
+            return Err(crate::WeaveError::InvalidLayoutFrac(bps));
+        }
+        Ok(Self {
+            bps: (frac * 10_000.0).round() as u16,
+        })
+    }
+
+    /// `bps` as a `0.0..=1.0` factor (no validation).
+    #[must_use]
+    pub fn as_f32(self) -> f32 {
+        f32::from(self.bps) / 10_000.0
+    }
+}
+
+/// Distance in thousandths of an em (`1000` = 1em).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EmAmount {
+    /// Thousandths of an em.
+    pub milli: i32,
+}
+
+impl EmAmount {
+    /// One em.
+    pub const ONE: Self = Self { milli: 1000 };
+
+    /// Construct from thousandths of an em.
+    #[must_use]
+    pub const fn from_milli(milli: i32) -> Self {
+        Self { milli }
+    }
+
+    /// Construct from an em multiple (rounded to milli-ems).
+    #[must_use]
+    pub fn from_em(em: f32) -> Self {
+        Self {
+            milli: (em * 1000.0).round() as i32,
+        }
+    }
+
+    /// Convert to points given the body em size.
+    #[must_use]
+    pub fn to_points(self, em_size: f32) -> f32 {
+        em_size * (self.milli as f32) / 1000.0
+    }
 }
 
 /// One table row.

@@ -252,6 +252,17 @@ pub(super) enum LaidItem {
     Table(LaidTable),
     Columns(LaidColumns),
     Math(LaidMath),
+    /// Horizontal rule from a layout `rule` op.
+    Rule {
+        /// Stroke width (points).
+        width: f32,
+        /// Stroke thickness (points).
+        thickness: f32,
+        /// Vertical band reserved for the rule (stroke centered).
+        leading: f32,
+        /// Trailing gap after the rule band.
+        gap_after: f32,
+    },
 }
 
 impl LaidItem {
@@ -263,6 +274,9 @@ impl LaidItem {
             Self::Table(table) => table.height(),
             Self::Columns(cols) => cols.height(),
             Self::Math(math) => math.height + math.gap_after,
+            Self::Rule {
+                leading, gap_after, ..
+            } => *leading + *gap_after,
         }
     }
 
@@ -271,7 +285,7 @@ impl LaidItem {
         match self {
             Self::Text(line) => line.glue_after,
             Self::Image { glue_after, .. } => *glue_after,
-            Self::Table(_) | Self::Columns(_) | Self::Math(_) => false,
+            Self::Table(_) | Self::Columns(_) | Self::Math(_) | Self::Rule { .. } => false,
         }
     }
 
@@ -279,7 +293,7 @@ impl LaidItem {
         match self {
             Self::Text(line) => line.glue_after = glue,
             Self::Image { glue_after, .. } => *glue_after = glue,
-            Self::Table(_) | Self::Columns(_) | Self::Math(_) => {}
+            Self::Table(_) | Self::Columns(_) | Self::Math(_) | Self::Rule { .. } => {}
         }
     }
 }
