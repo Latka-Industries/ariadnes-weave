@@ -1,5 +1,7 @@
 //! Emit the THI-362 layout flush fixture to `tmp/layout_place_flush.pdf`.
 //!
+//! Used for visual spot-checks of `place` flush + `rule`.
+//!
 //! ```bash
 //! cargo run --example layout_flush
 //! ```
