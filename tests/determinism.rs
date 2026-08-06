@@ -1,7 +1,8 @@
 //! Deterministic emit fixtures (THI-292) + literary unfolding (THI-295).
 
 use ariadnes_weave::{
-    BreakHint, PrintBlock, PrintDocument, PrintMeta, PrintProfileId, TextRun, emit_pdf,
+    BreakHint, LayoutOp, MeasureFrac, PlaceSkip, PrintBlock, PrintDocument, PrintMeta,
+    PrintProfileId, RuleWidth, TextRun, VspaceAmount, emit_pdf,
 };
 use sha2::{Digest, Sha256};
 
@@ -47,6 +48,43 @@ fn quadratic_formula_doc() -> PrintDocument {
             PrintBlock::Math {
                 display: true,
                 latex: r"x = \frac{-b \pm \sqrt{b^{2} - 4ac}}{2a}".into(),
+            },
+        ],
+    }
+}
+
+/// THI-362: `place frac=1` flush + vspace + full-width rule.
+fn layout_place_flush_doc() -> PrintDocument {
+    PrintDocument {
+        meta: PrintMeta {
+            title: "Layout place flush".into(),
+            doc_kind: "note".into(),
+            language: Some("en".into()),
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![
+            PrintBlock::Paragraph {
+                runs: vec![TextRun::plain("Before layout chunk.")],
+            },
+            PrintBlock::Layout {
+                ops: vec![
+                    LayoutOp::Place {
+                        skip: PlaceSkip::Frac {
+                            frac: MeasureFrac::FULL,
+                        },
+                        runs: vec![TextRun::plain("▸")],
+                    },
+                    LayoutOp::Vspace {
+                        amount: VspaceAmount::Med,
+                    },
+                    LayoutOp::Rule {
+                        width: RuleWidth::frac(MeasureFrac::FULL),
+                    },
+                ],
+            },
+            PrintBlock::Paragraph {
+                runs: vec![TextRun::plain("After layout chunk.")],
             },
         ],
     }
@@ -133,6 +171,10 @@ const MANUSCRIPT_TWO_CHAPTER_SHA256: &str =
 const QUADRATIC_FORMULA_SHA256: &str =
     "c2207b615db7dc503c6b0cc159a250069fb75d66035dca85a58b579c31f11e72";
 
+/// Pin: bump intentionally when layout place/vspace/rule paint changes.
+const LAYOUT_PLACE_FLUSH_SHA256: &str =
+    "b959af7ac8d156166e13623d1d488c5c673169035721b6f033f0b09004ea7162";
+
 #[test]
 fn emit_is_byte_identical_across_runs() {
     assert_emit_deterministic(&hello_doc());
@@ -184,4 +226,11 @@ fn print_profile_does_not_force_h1_chapter_break() {
 fn quadratic_formula_sha256_fixture() {
     let a = assert_emit_deterministic(&quadratic_formula_doc());
     assert_eq!(sha256_hex(&a), QUADRATIC_FORMULA_SHA256);
+}
+
+/// THI-362: `place frac=1` flush paints deterministically with vspace/rule.
+#[test]
+fn layout_place_flush_sha256_fixture() {
+    let a = assert_emit_deterministic(&layout_place_flush_doc());
+    assert_eq!(sha256_hex(&a), LAYOUT_PLACE_FLUSH_SHA256);
 }

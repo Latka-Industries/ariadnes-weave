@@ -4,8 +4,9 @@ use super::math::prettify_latex_math;
 use super::{emit_pdf, emit_pdf_with};
 use crate::error::WeaveError;
 use crate::ir::{
-    BreakHint, FigurePlacement, InlineStyle, PrintBlock, PrintDocument, PrintImage, PrintMeta,
-    PrintProfileId, SlideRegionContent, TableRow, TextRun,
+    BreakHint, EmAmount, FigurePlacement, InlineStyle, LayoutOp, MeasureFrac, PlaceSkip,
+    PrintBlock, PrintDocument, PrintImage, PrintMeta, PrintProfileId, RuleWidth,
+    SlideRegionContent, TableRow, TextRun, VspaceAmount,
 };
 use crate::knobs::LayoutKnobs;
 use crate::options::EmitOptions;
@@ -940,4 +941,140 @@ fn sealed_emoji_fallback_embeds_in_pdf() {
     );
     std::fs::create_dir_all("tmp").ok();
     std::fs::write("tmp/emoji_sample.pdf", &bytes).ok();
+}
+
+#[test]
+fn layout_place_frac_flush_emits() {
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "Layout flush".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::Layout {
+            ops: vec![
+                LayoutOp::Place {
+                    skip: PlaceSkip::Frac {
+                        frac: MeasureFrac::FULL,
+                    },
+                    runs: vec![TextRun::plain("▸")],
+                },
+                LayoutOp::Vspace {
+                    amount: VspaceAmount::Med,
+                },
+                LayoutOp::Rule {
+                    width: RuleWidth::frac(MeasureFrac::FULL),
+                },
+            ],
+        }],
+    };
+    let bytes = emit_pdf(&doc).expect("emit layout");
+    assert!(bytes.starts_with(b"%PDF-"));
+    let s = String::from_utf8_lossy(&bytes);
+    assert!(s.contains(" m"), "expected path move for rule");
+    assert!(s.contains(" l"), "expected path line for rule");
+}
+
+#[test]
+fn layout_place_mid_frac_and_em_emits() {
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "Layout place".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::Layout {
+            ops: vec![
+                LayoutOp::Place {
+                    skip: PlaceSkip::Frac {
+                        frac: MeasureFrac::HALF,
+                    },
+                    runs: vec![TextRun::plain("mid")],
+                },
+                LayoutOp::Place {
+                    skip: PlaceSkip::Em { em: EmAmount::ONE },
+                    runs: vec![TextRun::plain("after em")],
+                },
+                LayoutOp::Vspace {
+                    amount: VspaceAmount::Small,
+                },
+                LayoutOp::Vspace {
+                    amount: VspaceAmount::Big,
+                },
+                LayoutOp::Vspace {
+                    amount: VspaceAmount::Em {
+                        em: EmAmount::from_em(1.5),
+                    },
+                },
+                LayoutOp::Rule {
+                    width: RuleWidth {
+                        frac: Some(MeasureFrac::HALF),
+                        em: Some(EmAmount::from_milli(500)),
+                    },
+                },
+            ],
+        }],
+    };
+    let bytes = emit_pdf(&doc).expect("emit layout place");
+    assert!(bytes.starts_with(b"%PDF-"));
+}
+
+#[test]
+fn layout_invalid_frac_errors() {
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "Bad frac".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::Layout {
+            ops: vec![LayoutOp::Place {
+                skip: PlaceSkip::Frac {
+                    frac: MeasureFrac::from_bps(10_001),
+                },
+                runs: vec![TextRun::plain("x")],
+            }],
+        }],
+    };
+    let err = emit_pdf(&doc).expect_err("bad frac");
+    assert!(matches!(err, WeaveError::InvalidLayoutFrac(10_001)));
+}
+
+#[test]
+fn layout_empty_rule_width_errors() {
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "Empty rule".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::Layout {
+            ops: vec![LayoutOp::Rule {
+                width: RuleWidth {
+                    frac: None,
+                    em: None,
+                },
+            }],
+        }],
+    };
+    let err = emit_pdf(&doc).expect_err("empty rule");
+    assert!(matches!(err, WeaveError::EmptyRuleWidth));
+}
+
+#[test]
+fn measure_frac_try_from_f32() {
+    assert_eq!(MeasureFrac::try_from_f32(1.0).unwrap(), MeasureFrac::FULL);
+    assert_eq!(MeasureFrac::try_from_f32(0.5).unwrap(), MeasureFrac::HALF);
+    assert!(matches!(
+        MeasureFrac::try_from_f32(1.5),
+        Err(WeaveError::InvalidLayoutFrac(_))
+    ));
 }

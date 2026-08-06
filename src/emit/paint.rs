@@ -118,73 +118,156 @@ pub(super) fn build_page_content(
     let bottom_limit = metrics.margin + knobs.page.content.bottom_clearance;
 
     for item in items {
-        match item {
-            LaidItem::Text(line) => {
-                y -= line.leading;
-                if y < bottom_limit {
-                    break;
-                }
-                if line.spans.is_empty() {
-                    continue;
-                }
+        if !paint_page_item(
+            &mut content,
+            item,
+            &mut y,
+            bottom_limit,
+            metrics,
+            fonts,
+            knobs,
+        ) {
+            break;
+        }
+    }
+
+    paint_page_footer(
+        &mut content,
+        metrics,
+        page_no,
+        page_count,
+        fonts,
+        subsets,
+        knobs,
+    )?;
+    Ok(content.finish().into_vec())
+}
+
+/// Paint one laid item; returns `false` when the cursor is below `bottom_limit`.
+fn paint_page_item(
+    content: &mut Content,
+    item: &LaidItem,
+    y: &mut f32,
+    bottom_limit: f32,
+    metrics: &ProfileMetrics,
+    fonts: &FontBag,
+    knobs: &LayoutKnobs,
+) -> bool {
+    match item {
+        LaidItem::Text(line) => {
+            *y -= line.leading;
+            if *y < bottom_limit {
+                return false;
+            }
+            if !line.spans.is_empty() {
                 let x = if line.center {
                     metrics.margin + (metrics.content_width() - line.width()) / 2.0
                 } else {
                     metrics.margin + line.indent
                 };
-                paint_laid_spans(&mut content, fonts, &line.spans, x, y);
-            }
-            LaidItem::Image {
-                img_idx,
-                width,
-                height,
-                glue_after: _,
-            } => {
-                y -= *height;
-                if y < bottom_limit {
-                    break;
-                }
-                let name = image_resource_name(*img_idx);
-                content.save_state();
-                content.transform([*width, 0.0, 0.0, *height, metrics.margin, y]);
-                content.x_object(Name(&name));
-                content.restore_state();
-                y -= 8.0;
-            }
-            LaidItem::Table(table) => {
-                let table_h = table.rows.iter().map(|r| r.height).sum::<f32>();
-                if y - table_h < bottom_limit {
-                    break;
-                }
-                paint_table(&mut content, table, metrics.margin, y, fonts);
-                y -= table_h + table.gap_after;
-            }
-            LaidItem::Columns(cols) => {
-                let h = cols.height() - cols.gap_after;
-                if y - h < bottom_limit {
-                    break;
-                }
-                paint_columns(&mut content, cols, metrics.margin, y, fonts);
-                y -= cols.height();
-            }
-            LaidItem::Math(math) => {
-                if y - math.height < bottom_limit {
-                    break;
-                }
-                paint_math(
-                    &mut content,
-                    math,
-                    metrics.margin,
-                    y,
-                    metrics.content_width(),
-                    fonts,
-                    &knobs.page.chrome,
-                );
-                y -= math.height + math.gap_after;
+                paint_laid_spans(content, fonts, &line.spans, x, *y);
             }
         }
+        LaidItem::Image {
+            img_idx,
+            width,
+            height,
+            glue_after: _,
+        } => {
+            *y -= *height;
+            if *y < bottom_limit {
+                return false;
+            }
+            let name = image_resource_name(*img_idx);
+            content.save_state();
+            content.transform([*width, 0.0, 0.0, *height, metrics.margin, *y]);
+            content.x_object(Name(&name));
+            content.restore_state();
+            *y -= 8.0;
+        }
+        LaidItem::Table(table) => {
+            let table_h = table.rows.iter().map(|r| r.height).sum::<f32>();
+            if *y - table_h < bottom_limit {
+                return false;
+            }
+            paint_table(content, table, metrics.margin, *y, fonts);
+            *y -= table_h + table.gap_after;
+        }
+        LaidItem::Columns(cols) => {
+            let h = cols.height() - cols.gap_after;
+            if *y - h < bottom_limit {
+                return false;
+            }
+            paint_columns(content, cols, metrics.margin, *y, fonts);
+            *y -= cols.height();
+        }
+        LaidItem::Math(math) => {
+            if *y - math.height < bottom_limit {
+                return false;
+            }
+            paint_math(
+                content,
+                math,
+                metrics.margin,
+                *y,
+                metrics.content_width(),
+                fonts,
+                &knobs.page.chrome,
+            );
+            *y -= math.height + math.gap_after;
+        }
+        LaidItem::Rule {
+            width,
+            thickness,
+            leading,
+            gap_after,
+        } => {
+            if *y - *leading < bottom_limit {
+                return false;
+            }
+            paint_layout_rule(
+                content,
+                metrics.margin,
+                *y,
+                *width,
+                *thickness,
+                *leading,
+                knobs.page.chrome.stroke_gray,
+            );
+            *y -= *leading + *gap_after;
+        }
     }
+    true
+}
 
+fn paint_layout_rule(
+    content: &mut Content,
+    origin_x: f32,
+    top_y: f32,
+    width: f32,
+    thickness: f32,
+    leading: f32,
+    stroke_gray: f32,
+) {
+    let mid_y = top_y - leading / 2.0;
+    content.save_state();
+    content.set_stroke_gray(stroke_gray);
+    content.set_line_width(thickness);
+    content.move_to(origin_x, mid_y);
+    content.line_to(origin_x + width, mid_y);
+    content.stroke();
+    content.restore_state();
+}
+
+fn paint_page_footer(
+    content: &mut Content,
+    metrics: &ProfileMetrics,
+    page_no: usize,
+    page_count: usize,
+    fonts: &FontBag,
+    subsets: &SubsetMap,
+    knobs: &LayoutKnobs,
+) -> Result<(), WeaveError> {
     let footer = format!("{page_no} / {page_count}");
     let footer_face = FaceRef::Bundled(FaceId::SansRegular);
     let footer_size = knobs.page.footer.font_size;
@@ -203,8 +286,7 @@ pub(super) fn build_page_content(
     content.set_text_matrix([1.0, 0.0, 0.0, 1.0, footer_x, footer_y]);
     content.show(Str(&encode_gids(&footer_glyphs)));
     content.end_text();
-
-    Ok(content.finish().into_vec())
+    Ok(())
 }
 
 /// Paint side-by-side columns; `top_y` is the top edge in PDF space.

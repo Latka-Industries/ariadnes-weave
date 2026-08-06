@@ -18,6 +18,14 @@ pub enum WeaveError {
     #[error("unsupported print block: {0}")]
     UnsupportedBlock(&'static str),
 
+    /// Layout `frac` outside `0..=10_000` basis points (`0.0..=1.0`).
+    #[error("invalid layout frac: {0} bps (must be 0..=10000)")]
+    InvalidLayoutFrac(u16),
+
+    /// [`crate::ir::RuleWidth`] with neither `frac` nor `em`.
+    #[error("layout rule width requires frac and/or em")]
+    EmptyRuleWidth,
+
     /// Bundled font parse / shape / embed failure.
     #[error("font error: {0}")]
     Font(String),

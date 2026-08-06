@@ -20,7 +20,7 @@ crates.io. Local suite work can still path-dep when cutting paired releases.
 **Prose + structure emit** via `emit_pdf` / `emit_pdf_with`:
 
 - Blocks: `Heading` / `Paragraph` / `List` / `Code` / `Quote` / `Break` /
-  `Table` / `Figure` / `Slide` / `Math`
+  `Table` / `Figure` / `Slide` / `Math` / `Layout` (`place` / `vspace` / `rule`)
 - Faces: Liberation Sans (R/B/I/BI), Serif (R/B/I/BI) for `manuscript@0`, Mono
   for `code`; optional Font Awesome Free behind `--features icons`; optional
   sealed CJK / emoji subsets behind `--features cjk` / `emoji` (script fallback)

@@ -208,7 +208,8 @@ impl WritePageDictArgs<'_> {
                 LaidItem::Text(_)
                 | LaidItem::Table(_)
                 | LaidItem::Columns(_)
-                | LaidItem::Math(_) => None,
+                | LaidItem::Math(_)
+                | LaidItem::Rule { .. } => None,
             })
             .collect();
 
@@ -263,7 +264,7 @@ pub(super) fn remap_pages(pages: &mut [Vec<LaidItem>], subsets: &SubsetMap) {
                         }
                     }
                 }
-                LaidItem::Image { .. } => {}
+                LaidItem::Image { .. } | LaidItem::Rule { .. } => {}
             }
         }
     }
