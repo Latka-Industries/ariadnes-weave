@@ -100,10 +100,12 @@ pub(super) struct LaidLine {
     pub leading: f32,
     /// Prefer to keep this item with the next when paginating.
     pub glue_after: bool,
-    /// Left indent inside the content box (points).
+    /// Left edge of the alignment box inside the content box (points).
     pub indent: f32,
-    /// Center within the content box (ignores `indent`).
-    pub center: bool,
+    /// Width of the alignment box; text is placed within `[indent, indent+measure]`.
+    pub measure: f32,
+    /// In-band text alignment within [`Self::measure`].
+    pub text_align: crate::knobs::FigureAlign,
 }
 
 impl LaidLine {
@@ -119,7 +121,8 @@ impl LaidLine {
             leading,
             glue_after: false,
             indent: 0.0,
-            center: false,
+            measure: 0.0,
+            text_align: crate::knobs::FigureAlign::Left,
         }
     }
 
@@ -140,7 +143,8 @@ impl LaidLine {
             leading,
             glue_after: false,
             indent: 0.0,
-            center: false,
+            measure: 0.0,
+            text_align: crate::knobs::FigureAlign::Left,
         })
     }
 
@@ -353,4 +357,8 @@ pub(super) struct RunLayout {
     /// Override wrap width; `None` uses content width minus indent.
     pub max_width: Option<f32>,
     pub paint: PaintCategory,
+    /// Split tokens wider than the wrap measure (false = soft wrap only).
+    pub hard_break_overflow: bool,
+    /// In-band text alignment within the wrap measure.
+    pub text_align: crate::knobs::FigureAlign,
 }

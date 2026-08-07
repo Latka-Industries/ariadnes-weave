@@ -122,7 +122,8 @@ fn wrap_plain_text(
                 leading,
                 glue_after: false,
                 indent: 0.0,
-                center: false,
+                measure: max_width,
+                text_align: crate::knobs::FigureAlign::Left,
             });
             current_width = 0.0;
             if skip_wrap_chunk_at_line_start(chunk) {
@@ -145,7 +146,8 @@ fn wrap_plain_text(
                     leading,
                     glue_after: false,
                     indent: 0.0,
-                    center: false,
+                    measure: max_width,
+                    text_align: crate::knobs::FigureAlign::Left,
                 });
             }
             continue;
@@ -159,7 +161,8 @@ fn wrap_plain_text(
             leading,
             glue_after: false,
             indent: 0.0,
-            center: false,
+            measure: max_width,
+            text_align: crate::knobs::FigureAlign::Left,
         });
     }
     Ok(lines)

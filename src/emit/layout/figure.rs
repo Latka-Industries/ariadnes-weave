@@ -1,14 +1,16 @@
-//! Figure image + caption layout.
+//! Figure image + optional title + caption layout.
 
 use crate::error::WeaveError;
 use crate::font::{FaceId, FaceRef, FontBag};
 use crate::image_prep::{PreparedImage, prepare_image};
 use crate::ir::{FigurePlacement, PrintImage, TextRun};
-use crate::knobs::LayoutKnobs;
+use crate::knobs::{FigureAlign, LayoutKnobs};
 use crate::profile::ProfileMetrics;
 
 use super::super::types::{GlyphSets, LaidItem, LaidLine, LayoutSegment};
-use super::runs::{caption_layout, layout_ctx, push_styled_runs, with_knob_italic};
+use super::runs::{
+    caption_layout, figure_title_layout, layout_ctx, push_styled_runs, with_knob_italic,
+};
 
 /// Inputs for laying out a [`crate::ir::PrintBlock::Figure`].
 pub(super) struct PushFigureArgs<'a> {
@@ -16,6 +18,7 @@ pub(super) struct PushFigureArgs<'a> {
     pub images: &'a mut Vec<PreparedImage>,
     pub image: &'a PrintImage,
     pub alt: &'a str,
+    pub title: &'a [TextRun],
     pub caption: &'a [TextRun],
     pub placement: FigurePlacement,
     pub metrics: &'a ProfileMetrics,
@@ -24,17 +27,41 @@ pub(super) struct PushFigureArgs<'a> {
     pub glyph_sets: &'a mut GlyphSets,
 }
 
+enum FigureVisual {
+    Image {
+        img_idx: usize,
+        width: f32,
+        height: f32,
+        glue_after: bool,
+        align: FigureAlign,
+    },
+    Alt {
+        line: LaidLine,
+        band_w: f32,
+    },
+}
+
+impl FigureVisual {
+    fn band_w(&self) -> f32 {
+        match self {
+            Self::Image { width, .. } => *width,
+            Self::Alt { band_w, .. } => *band_w,
+        }
+    }
+}
+
 impl PushFigureArgs<'_> {
-    /// Decode/fit the image (or alt placeholder), then append caption lines.
+    /// Decode/fit the image (or alt placeholder), then append title + caption.
     ///
     /// [`FigurePlacement::FloatNear`] glues the figure to the preceding content
-    /// and to its caption so pagination prefers to keep them together.
+    /// and keeps title / image / caption together when possible.
     pub(super) fn run(self) -> Result<(), WeaveError> {
         let Self {
             segments,
             images,
             image,
             alt,
+            title,
             caption,
             placement,
             metrics,
@@ -53,12 +80,23 @@ impl PushFigureArgs<'_> {
 
         apply_figure_gap_before(&mut seg.1, knobs.prose.figure.gap_before);
 
-        let glue_after = !caption.is_empty() || float_near;
         let content_w = metrics.content_width();
         let align = knobs.prose.figure.align;
         let max_w = knobs.prose.figure.max_display_width(content_w);
+        let glue_image_after = !caption.is_empty() || float_near;
 
-        let Ok(prepared) = prepare_image(image) else {
+        let visual = if let Ok(prepared) = prepare_image(image) {
+            let (width, height) = prepared.fit_width(max_w);
+            let img_idx = images.len();
+            images.push(prepared);
+            FigureVisual::Image {
+                img_idx,
+                width,
+                height,
+                glue_after: glue_image_after,
+                align,
+            }
+        } else {
             let label = if alt.is_empty() {
                 "[figure]".into()
             } else {
@@ -75,39 +113,52 @@ impl PushFigureArgs<'_> {
             )?;
             let band_w = line.width().min(max_w);
             line.indent = align.offset_x(content_w, band_w);
-            line.glue_after = glue_after;
-            seg.1.push(LaidItem::Text(line));
-            let empty_gap = knobs.prose.figure.alt_gap_after;
-            return FigureLayoutCtx {
-                metrics,
-                fonts,
-                knobs,
-                glyph_sets,
-            }
-            .finish_caption(&mut seg.1, caption, empty_gap, band_w);
+            line.measure = band_w;
+            line.text_align = align;
+            line.glue_after = glue_image_after;
+            FigureVisual::Alt { line, band_w }
         };
 
-        let (w, h) = prepared.fit_width(max_w);
-        let img_idx = images.len();
-        images.push(prepared);
-        let empty_gap = knobs.prose.figure.gap_after;
+        let band_w = visual.band_w();
+        let empty_gap = match &visual {
+            FigureVisual::Image { .. } => knobs.prose.figure.gap_after,
+            FigureVisual::Alt { .. } => knobs.prose.figure.alt_gap_after,
+        };
         let gap_after_image = knobs.prose.figure.gap_after_image;
 
-        seg.1.push(LaidItem::Image {
-            img_idx,
-            width: w,
-            height: h,
-            glue_after,
-            gap_after: gap_after_image,
-            align,
-        });
-        FigureLayoutCtx {
+        let mut ctx = FigureLayoutCtx {
             metrics,
             fonts,
             knobs,
             glyph_sets,
+        };
+        ctx.push_title(&mut seg.1, title, band_w)?;
+        push_visual(&mut seg.1, visual, gap_after_image);
+        ctx.finish_caption(&mut seg.1, caption, empty_gap, band_w)
+    }
+}
+
+fn push_visual(out: &mut Vec<LaidItem>, visual: FigureVisual, gap_after_image: f32) {
+    match visual {
+        FigureVisual::Image {
+            img_idx,
+            width,
+            height,
+            glue_after,
+            align,
+        } => {
+            out.push(LaidItem::Image {
+                img_idx,
+                width,
+                height,
+                glue_after,
+                gap_after: gap_after_image,
+                align,
+            });
         }
-        .finish_caption(&mut seg.1, caption, empty_gap, w)
+        FigureVisual::Alt { line, .. } => {
+            out.push(LaidItem::Text(line));
+        }
     }
 }
 
@@ -131,6 +182,23 @@ struct FigureLayoutCtx<'a> {
 }
 
 impl FigureLayoutCtx<'_> {
+    fn push_title(
+        &mut self,
+        out: &mut Vec<LaidItem>,
+        title: &[TextRun],
+        band_w: f32,
+    ) -> Result<(), WeaveError> {
+        if title.is_empty() {
+            return Ok(());
+        }
+        push_styled_runs(
+            out,
+            title,
+            &mut layout_ctx(self.metrics, self.fonts, self.knobs, self.glyph_sets),
+            figure_title_layout(self.metrics, self.knobs, band_w),
+        )
+    }
+
     fn finish_caption(
         &mut self,
         out: &mut Vec<LaidItem>,

@@ -120,6 +120,8 @@ fn push_place(
             indent,
             max_width: Some(max_width),
             paint: PaintCategory::Text,
+            hard_break_overflow: true,
+            text_align: crate::knobs::FigureAlign::Left,
         },
     )?;
     Ok(())

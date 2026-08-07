@@ -111,6 +111,7 @@ fn layout_block(
         PrintBlock::Figure {
             image,
             alt,
+            title,
             caption,
             placement,
         } => {
@@ -119,6 +120,7 @@ fn layout_block(
                 images,
                 image,
                 alt,
+                title,
                 caption,
                 placement: *placement,
                 metrics,

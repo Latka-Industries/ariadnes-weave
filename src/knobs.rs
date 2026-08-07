@@ -301,11 +301,11 @@ pub struct ProseListKnobs {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FigureAlign {
-    /// Flush to the content-box start (default).
+    /// Center within the content box (default).
     #[default]
-    Left,
-    /// Center within the content box.
     Center,
+    /// Flush to the content-box start.
+    Left,
     /// Flush to the content-box end.
     Right,
 }
@@ -323,6 +323,87 @@ impl FigureAlign {
     }
 }
 
+/// Title band alignment relative to the figure (`[figure].title_align`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FigureTitleAlign {
+    /// Same as [`ProseFigureKnobs::align`] (default).
+    #[default]
+    Follow,
+    /// Flush left in the content box.
+    Left,
+    /// Center in the content box.
+    Center,
+    /// Flush right in the content box.
+    Right,
+}
+
+impl FigureTitleAlign {
+    /// Resolve to a concrete [`FigureAlign`] given the figure's image align.
+    #[must_use]
+    pub fn resolve(self, figure_align: FigureAlign) -> FigureAlign {
+        match self {
+            Self::Follow => figure_align,
+            Self::Left => FigureAlign::Left,
+            Self::Center => FigureAlign::Center,
+            Self::Right => FigureAlign::Right,
+        }
+    }
+}
+
+/// In-band text alignment for figure title / caption (`follow` = figure `align`).
+///
+/// Placement of the band is separate ([`FigureTitleAlign`] / [`CaptionBand`]);
+/// this controls left / center / right *within* that band (or full measure).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FigureTextAlign {
+    /// Same as [`ProseFigureKnobs::align`] (default).
+    #[default]
+    Follow,
+    /// Flush to the band start.
+    Left,
+    /// Center within the band.
+    Center,
+    /// Flush to the band end.
+    Right,
+}
+
+impl FigureTextAlign {
+    /// Resolve to a concrete [`FigureAlign`] for in-band text placement.
+    #[must_use]
+    pub fn resolve(self, figure_align: FigureAlign) -> FigureAlign {
+        match self {
+            Self::Follow => figure_align,
+            Self::Left => FigureAlign::Left,
+            Self::Center => FigureAlign::Center,
+            Self::Right => FigureAlign::Right,
+        }
+    }
+}
+
+/// Whether caption text shares the image horizontal band (`[caption].band`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CaptionBand {
+    /// Indent + wrap width match the laid image (default).
+    #[default]
+    MatchFigure,
+    /// Caption at content-box left with full content wrap width.
+    FullMeasure,
+}
+
+/// Overlong-token policy for caption wrap (`[caption].overflow`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CaptionOverflow {
+    /// Split tokens wider than the wrap measure (default).
+    #[default]
+    HardBreak,
+    /// Wrap on whitespace only; overlong tokens may stick out of the band.
+    SoftOnly,
+}
+
 /// `[figure]` in `prose.toml`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProseFigureKnobs {
@@ -334,11 +415,23 @@ pub struct ProseFigureKnobs {
     pub gap_after_image: f32,
     /// Gap before the image: replaces the prior block's trailing gap when present.
     pub gap_before: f32,
+    /// Gap between figure title bottom and the image (points); unused when title is empty.
+    pub gap_after_title: f32,
     /// Horizontal alignment of the image + caption band.
     #[serde(default)]
     pub align: FigureAlign,
     /// Cap figure display width as a factor of content width (`(0, 1]`; bundled `1.0`).
     pub max_width_factor: f32,
+    /// Title band alignment (`follow` = same as [`Self::align`]).
+    #[serde(default)]
+    pub title_align: FigureTitleAlign,
+    /// Title text alignment within the title band (bundled `center`).
+    #[serde(default = "default_title_text_align")]
+    pub title_text_align: FigureTextAlign,
+}
+
+fn default_title_text_align() -> FigureTextAlign {
+    FigureTextAlign::Center
 }
 
 impl ProseFigureKnobs {
@@ -364,12 +457,26 @@ pub struct ProseCaptionKnobs {
     pub leading_factor: f32,
     /// Gap after a figure caption (points).
     pub gap_after: f32,
+    /// Whether caption shares the image horizontal band.
+    #[serde(default)]
+    pub band: CaptionBand,
+    /// Caption text alignment within the caption measure (bundled `left`;
+    /// band still follows the figure via [`Self::band`]).
+    #[serde(default = "default_caption_text_align")]
+    pub text_align: FigureTextAlign,
+    /// Overlong-token policy inside the caption wrap measure.
+    #[serde(default)]
+    pub overflow: CaptionOverflow,
     /// Optional caption fill; inherits `[text].color` then engine black.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<HexColor>,
     /// Optional pin id into `EmitOptions.pinned_faces`; omit for Liberation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub font: Option<String>,
+}
+
+fn default_caption_text_align() -> FigureTextAlign {
+    FigureTextAlign::Left
 }
 
 /// `[wrap]` in `prose.toml`.
@@ -801,18 +908,45 @@ mod tests {
         assert!((k.prose.caption.leading_factor - 1.15).abs() < f32::EPSILON);
         assert!((k.prose.figure.gap_after_image - 2.0).abs() < f32::EPSILON);
         assert!((k.prose.figure.gap_before - 6.0).abs() < f32::EPSILON);
-        assert_eq!(k.prose.figure.align, FigureAlign::Left);
+        assert!((k.prose.figure.gap_after_title - 18.0).abs() < f32::EPSILON);
+        assert_eq!(k.prose.figure.align, FigureAlign::Center);
         assert!((k.prose.figure.max_width_factor - 1.0).abs() < f32::EPSILON);
+        assert_eq!(k.prose.figure.title_align, FigureTitleAlign::Follow);
+        assert_eq!(k.prose.figure.title_text_align, FigureTextAlign::Center);
+        assert_eq!(k.prose.caption.band, CaptionBand::MatchFigure);
+        assert_eq!(k.prose.caption.text_align, FigureTextAlign::Left);
+        assert_eq!(k.prose.caption.overflow, CaptionOverflow::HardBreak);
         assert!(dump.contains("prose.caption.italic = true"));
         assert!(dump.contains("prose.caption.size_factor = 0.9"));
         assert!(dump.contains("prose.caption.leading_factor = 1.15"));
         assert!(dump.contains("prose.figure.gap_after_image = 2"));
         assert!(dump.contains("prose.figure.gap_before = 6"));
+        assert!(dump.contains("prose.figure.gap_after_title = 18"));
         assert!(
-            dump.contains("prose.figure.align = \"left\"")
-                || dump.contains("prose.figure.align = left")
+            dump.contains("prose.figure.align = \"center\"")
+                || dump.contains("prose.figure.align = center")
         );
         assert!(dump.contains("prose.figure.max_width_factor = 1"));
+        assert!(
+            dump.contains("prose.figure.title_align = \"follow\"")
+                || dump.contains("prose.figure.title_align = follow")
+        );
+        assert!(
+            dump.contains("prose.figure.title_text_align = \"center\"")
+                || dump.contains("prose.figure.title_text_align = center")
+        );
+        assert!(
+            dump.contains("prose.caption.band = \"match_figure\"")
+                || dump.contains("prose.caption.band = match_figure")
+        );
+        assert!(
+            dump.contains("prose.caption.text_align = \"left\"")
+                || dump.contains("prose.caption.text_align = left")
+        );
+        assert!(
+            dump.contains("prose.caption.overflow = \"hard_break\"")
+                || dump.contains("prose.caption.overflow = hard_break")
+        );
         assert!(k.prose.text.color.is_none());
         assert!(k.prose.quote.color.is_none());
         assert!(k.prose.caption.color.is_none());
@@ -878,14 +1012,20 @@ gap_after = 6.0
 alt_gap_after = 10.0
 gap_after_image = 2.0
 gap_before = 6.0
+gap_after_title = 8.0
 align = "center"
 max_width_factor = 0.75
+title_align = "left"
+title_text_align = "center"
 
 [caption]
 italic = true
 size_factor = 0.9
 leading_factor = 1.15
 gap_after = 6.0
+band = "full_measure"
+text_align = "right"
+overflow = "soft_only"
 color = "#556677"
 font = "body"
 
@@ -910,6 +1050,12 @@ font = "body"
         assert!(k.prose.cite.underline);
         assert_eq!(k.prose.figure.align, FigureAlign::Center);
         assert!((k.prose.figure.max_width_factor - 0.75).abs() < f32::EPSILON);
+        assert_eq!(k.prose.figure.title_align, FigureTitleAlign::Left);
+        assert_eq!(k.prose.figure.title_text_align, FigureTextAlign::Center);
+        assert!((k.prose.figure.gap_after_title - 8.0).abs() < f32::EPSILON);
+        assert_eq!(k.prose.caption.band, CaptionBand::FullMeasure);
+        assert_eq!(k.prose.caption.text_align, FigureTextAlign::Right);
+        assert_eq!(k.prose.caption.overflow, CaptionOverflow::SoftOnly);
         assert_eq!(k.prose.text.font.as_deref(), Some("body"));
         assert_eq!(k.prose.heading.font.as_deref(), Some("display"));
         assert_eq!(k.prose.quote.font.as_deref(), Some("armenian"));

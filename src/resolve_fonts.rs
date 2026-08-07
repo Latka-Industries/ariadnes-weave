@@ -71,7 +71,10 @@ mod hydrate {
                     collect_list_item_faces(item, out);
                 }
             }
-            PrintBlock::Figure { caption, .. } => collect_run_faces(caption, out),
+            PrintBlock::Figure { title, caption, .. } => {
+                collect_run_faces(title, out);
+                collect_run_faces(caption, out);
+            }
             PrintBlock::Layout { ops } => {
                 for op in ops {
                     if let crate::ir::LayoutOp::Place { runs, .. } = op {

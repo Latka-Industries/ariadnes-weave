@@ -5,7 +5,7 @@ use pdf_writer::{Content, Name, Str};
 
 use crate::error::WeaveError;
 use crate::font::{FaceId, FaceRef, FontBag, encode_gids, shape_text, shaped_width};
-use crate::knobs::{FigureAlign, LayoutKnobs, PageChromeKnobs};
+use crate::knobs::{LayoutKnobs, PageChromeKnobs};
 use crate::profile::ProfileMetrics;
 
 use super::types::{LaidColumns, LaidItem, LaidMath, LaidMathEl, LaidSpan, LaidTable, SubsetMap};
@@ -160,12 +160,11 @@ fn paint_page_item(
                 return false;
             }
             if !line.is_gap() {
-                let x = if line.center {
-                    metrics.margin
-                        + FigureAlign::Center.offset_x(metrics.content_width(), line.width())
-                } else {
-                    metrics.margin + line.indent
-                };
+                let x = metrics.margin
+                    + line.indent
+                    + line
+                        .text_align
+                        .offset_x(line.measure.max(line.width()), line.width());
                 paint_laid_spans(content, fonts, &line.spans, x, *y);
             }
         }

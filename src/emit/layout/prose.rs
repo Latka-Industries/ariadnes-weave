@@ -41,6 +41,8 @@ pub(super) fn layout_heading(
             indent: 0.0,
             max_width: None,
             paint: PaintCategory::Text,
+            hard_break_overflow: true,
+            text_align: crate::knobs::FigureAlign::Left,
         },
     )
 }
@@ -133,6 +135,8 @@ pub(super) fn push_list_lines(
                 indent: ctx.knobs.prose.list.indent_per_depth * depth as f32,
                 max_width: None,
                 paint: PaintCategory::Text,
+                hard_break_overflow: true,
+                text_align: crate::knobs::FigureAlign::Left,
             },
         )?;
         for child in &item.children {
