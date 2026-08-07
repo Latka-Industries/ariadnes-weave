@@ -5,7 +5,7 @@ use pdf_writer::{Content, Name, Str};
 
 use crate::error::WeaveError;
 use crate::font::{FaceId, FaceRef, FontBag, encode_gids, shape_text, shaped_width};
-use crate::knobs::{LayoutKnobs, PageChromeKnobs};
+use crate::knobs::{FigureAlign, LayoutKnobs, PageChromeKnobs};
 use crate::profile::ProfileMetrics;
 
 use super::types::{LaidColumns, LaidItem, LaidMath, LaidMathEl, LaidSpan, LaidTable, SubsetMap};
@@ -161,7 +161,8 @@ fn paint_page_item(
             }
             if !line.is_gap() {
                 let x = if line.center {
-                    metrics.margin + (metrics.content_width() - line.width()) / 2.0
+                    metrics.margin
+                        + FigureAlign::Center.offset_x(metrics.content_width(), line.width())
                 } else {
                     metrics.margin + line.indent
                 };
@@ -174,14 +175,16 @@ fn paint_page_item(
             height,
             glue_after: _,
             gap_after,
+            align,
         } => {
             *y -= *height;
             if *y < bottom_limit {
                 return false;
             }
             let name = image_resource_name(*img_idx);
+            let x = metrics.margin + align.offset_x(metrics.content_width(), *width);
             content.save_state();
-            content.transform([*width, 0.0, 0.0, *height, metrics.margin, *y]);
+            content.transform([*width, 0.0, 0.0, *height, x, *y]);
             content.x_object(Name(&name));
             content.restore_state();
             *y -= *gap_after;

@@ -6,8 +6,8 @@
 //! cargo run --example caption_spotcheck
 //! ```
 use ariadnes_weave::{
-    EmitOptions, FigurePlacement, HexColor, InlineStyle, LayoutKnobs, PrintBlock, PrintDocument,
-    PrintImage, PrintMeta, PrintProfileId, TextRun, emit_pdf, emit_pdf_with,
+    EmitOptions, FigureAlign, FigurePlacement, HexColor, InlineStyle, LayoutKnobs, PrintBlock,
+    PrintDocument, PrintImage, PrintMeta, PrintProfileId, TextRun, emit_pdf, emit_pdf_with,
 };
 use image::{ImageBuffer, ImageFormat, Rgb};
 
@@ -94,5 +94,9 @@ fn main() {
     write_layout("caption_spotcheck_color.pdf", &d, |layout| {
         layout.prose.caption.color = Some(HexColor::parse("#336699").unwrap());
         layout.prose.caption.size_factor = 1.15;
+    });
+    write_layout("caption_spotcheck_center_narrow.pdf", &d, |layout| {
+        layout.prose.figure.align = FigureAlign::Center;
+        layout.prose.figure.max_width_factor = 0.45;
     });
 }

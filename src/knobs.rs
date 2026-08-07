@@ -295,6 +295,34 @@ pub struct ProseListKnobs {
     pub item_leading_factor: f32,
 }
 
+/// Horizontal alignment for figure image + caption band (`[figure].align`).
+///
+/// Sealed enum — no freeform x. Vertical float / wrap stay out of scope.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FigureAlign {
+    /// Flush to the content-box start (default).
+    #[default]
+    Left,
+    /// Center within the content box.
+    Center,
+    /// Flush to the content-box end.
+    Right,
+}
+
+impl FigureAlign {
+    /// Horizontal offset from the content-box left for an item of `item_w`.
+    #[must_use]
+    pub fn offset_x(self, content_w: f32, item_w: f32) -> f32 {
+        let slack = (content_w - item_w).max(0.0);
+        match self {
+            Self::Left => 0.0,
+            Self::Center => slack / 2.0,
+            Self::Right => slack,
+        }
+    }
+}
+
 /// `[figure]` in `prose.toml`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProseFigureKnobs {
@@ -306,6 +334,20 @@ pub struct ProseFigureKnobs {
     pub gap_after_image: f32,
     /// Gap before the image: replaces the prior block's trailing gap when present.
     pub gap_before: f32,
+    /// Horizontal alignment of the image + caption band.
+    #[serde(default)]
+    pub align: FigureAlign,
+    /// Cap figure display width as a factor of content width (`(0, 1]`; bundled `1.0`).
+    pub max_width_factor: f32,
+}
+
+impl ProseFigureKnobs {
+    /// Content-relative max width for `fit_width`, clamped to `(0, 1]`.
+    #[must_use]
+    pub fn max_display_width(&self, content_w: f32) -> f32 {
+        let factor = self.max_width_factor.clamp(1e-3, 1.0);
+        content_w * factor
+    }
 }
 
 /// `[caption]` in `prose.toml` — figure caption size / italic / optional color.
@@ -759,11 +801,18 @@ mod tests {
         assert!((k.prose.caption.leading_factor - 1.15).abs() < f32::EPSILON);
         assert!((k.prose.figure.gap_after_image - 2.0).abs() < f32::EPSILON);
         assert!((k.prose.figure.gap_before - 6.0).abs() < f32::EPSILON);
+        assert_eq!(k.prose.figure.align, FigureAlign::Left);
+        assert!((k.prose.figure.max_width_factor - 1.0).abs() < f32::EPSILON);
         assert!(dump.contains("prose.caption.italic = true"));
         assert!(dump.contains("prose.caption.size_factor = 0.9"));
         assert!(dump.contains("prose.caption.leading_factor = 1.15"));
         assert!(dump.contains("prose.figure.gap_after_image = 2"));
         assert!(dump.contains("prose.figure.gap_before = 6"));
+        assert!(
+            dump.contains("prose.figure.align = \"left\"")
+                || dump.contains("prose.figure.align = left")
+        );
+        assert!(dump.contains("prose.figure.max_width_factor = 1"));
         assert!(k.prose.text.color.is_none());
         assert!(k.prose.quote.color.is_none());
         assert!(k.prose.caption.color.is_none());
@@ -829,6 +878,8 @@ gap_after = 6.0
 alt_gap_after = 10.0
 gap_after_image = 2.0
 gap_before = 6.0
+align = "center"
+max_width_factor = 0.75
 
 [caption]
 italic = true
@@ -857,6 +908,8 @@ font = "body"
         assert_eq!(k.prose.cite.color.unwrap().to_hex_string(), "#990000");
         assert_eq!(k.prose.caption.color.unwrap().to_hex_string(), "#556677");
         assert!(k.prose.cite.underline);
+        assert_eq!(k.prose.figure.align, FigureAlign::Center);
+        assert!((k.prose.figure.max_width_factor - 0.75).abs() < f32::EPSILON);
         assert_eq!(k.prose.text.font.as_deref(), Some("body"));
         assert_eq!(k.prose.heading.font.as_deref(), Some("display"));
         assert_eq!(k.prose.quote.font.as_deref(), Some("armenian"));

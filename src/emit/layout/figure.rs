@@ -54,6 +54,10 @@ impl PushFigureArgs<'_> {
         apply_figure_gap_before(&mut seg.1, knobs.prose.figure.gap_before);
 
         let glue_after = !caption.is_empty() || float_near;
+        let content_w = metrics.content_width();
+        let align = knobs.prose.figure.align;
+        let max_w = knobs.prose.figure.max_display_width(content_w);
+
         let Ok(prepared) = prepare_image(image) else {
             let label = if alt.is_empty() {
                 "[figure]".into()
@@ -69,39 +73,41 @@ impl PushFigureArgs<'_> {
                 glyph_sets,
                 knobs.prose.text_fill_rgb01(),
             )?;
+            let band_w = line.width().min(max_w);
+            line.indent = align.offset_x(content_w, band_w);
             line.glue_after = glue_after;
             seg.1.push(LaidItem::Text(line));
-            return finish_caption_or_gap(
-                &mut seg.1,
-                caption,
-                knobs.prose.figure.alt_gap_after,
+            let empty_gap = knobs.prose.figure.alt_gap_after;
+            return FigureLayoutCtx {
                 metrics,
                 fonts,
                 knobs,
                 glyph_sets,
-            );
+            }
+            .finish_caption(&mut seg.1, caption, empty_gap, band_w);
         };
 
-        let (w, h) = prepared.fit_width(metrics.content_width());
+        let (w, h) = prepared.fit_width(max_w);
         let img_idx = images.len();
         images.push(prepared);
+        let empty_gap = knobs.prose.figure.gap_after;
+        let gap_after_image = knobs.prose.figure.gap_after_image;
 
         seg.1.push(LaidItem::Image {
             img_idx,
             width: w,
             height: h,
             glue_after,
-            gap_after: knobs.prose.figure.gap_after_image,
+            gap_after: gap_after_image,
+            align,
         });
-        finish_caption_or_gap(
-            &mut seg.1,
-            caption,
-            knobs.prose.figure.gap_after,
+        FigureLayoutCtx {
             metrics,
             fonts,
             knobs,
             glyph_sets,
-        )
+        }
+        .finish_caption(&mut seg.1, caption, empty_gap, w)
     }
 }
 
@@ -117,24 +123,31 @@ fn apply_figure_gap_before(items: &mut Vec<LaidItem>, gap_before: f32) {
     }
 }
 
-fn finish_caption_or_gap(
-    out: &mut Vec<LaidItem>,
-    caption: &[TextRun],
-    empty_gap: f32,
-    metrics: &ProfileMetrics,
-    fonts: &FontBag,
-    knobs: &LayoutKnobs,
-    glyph_sets: &mut GlyphSets,
-) -> Result<(), WeaveError> {
-    if caption.is_empty() {
-        out.push(LaidItem::Text(LaidLine::gap(empty_gap)));
-        return Ok(());
+struct FigureLayoutCtx<'a> {
+    metrics: &'a ProfileMetrics,
+    fonts: &'a FontBag,
+    knobs: &'a LayoutKnobs,
+    glyph_sets: &'a mut GlyphSets,
+}
+
+impl FigureLayoutCtx<'_> {
+    fn finish_caption(
+        &mut self,
+        out: &mut Vec<LaidItem>,
+        caption: &[TextRun],
+        empty_gap: f32,
+        band_w: f32,
+    ) -> Result<(), WeaveError> {
+        if caption.is_empty() {
+            out.push(LaidItem::Text(LaidLine::gap(empty_gap)));
+            return Ok(());
+        }
+        let runs = with_knob_italic(caption, self.knobs.prose.caption.italic);
+        push_styled_runs(
+            out,
+            &runs,
+            &mut layout_ctx(self.metrics, self.fonts, self.knobs, self.glyph_sets),
+            caption_layout(self.metrics, self.knobs, band_w),
+        )
     }
-    let runs = with_knob_italic(caption, knobs.prose.caption.italic);
-    push_styled_runs(
-        out,
-        &runs,
-        &mut layout_ctx(metrics, fonts, knobs, glyph_sets),
-        caption_layout(metrics, knobs),
-    )
 }

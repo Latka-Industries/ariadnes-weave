@@ -41,31 +41,65 @@ fn hello_doc() -> PrintDocument {
     }
 }
 
-fn tiny_png_bytes() -> Vec<u8> {
-    let img: ImageBuffer<Rgb<u8>, Vec<u8>> =
-        ImageBuffer::from_fn(32, 24, |x, y| Rgb([x as u8 * 7, y as u8 * 9, 180]));
+fn rgb_png(w: u32, h: u32, pixel: impl Fn(u32, u32) -> Rgb<u8>) -> Vec<u8> {
+    let img: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::from_fn(w, h, pixel);
     let mut buf = std::io::Cursor::new(Vec::new());
     img.write_to(&mut buf, ImageFormat::Png)
         .expect("encode png");
     buf.into_inner()
 }
 
-fn tiny_png_image() -> PrintImage {
+fn png_image(w: u32, h: u32, bytes: Vec<u8>) -> PrintImage {
     PrintImage {
-        bytes: tiny_png_bytes(),
+        bytes,
         media_type: "image/png".into(),
-        width_px: Some(32),
-        height_px: Some(24),
+        width_px: Some(w),
+        height_px: Some(h),
     }
 }
 
-fn figure_with_caption(caption: impl Into<String>, placement: FigurePlacement) -> PrintBlock {
+fn tiny_png_bytes() -> Vec<u8> {
+    rgb_png(32, 24, |x, y| Rgb([x as u8 * 7, y as u8 * 9, 180]))
+}
+
+fn tiny_png_image() -> PrintImage {
+    png_image(32, 24, tiny_png_bytes())
+}
+
+fn note_doc(title: &str, blocks: Vec<PrintBlock>) -> PrintDocument {
+    PrintDocument {
+        meta: PrintMeta {
+            title: title.into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks,
+    }
+}
+
+fn figure_block(
+    image: PrintImage,
+    caption: impl Into<String>,
+    placement: FigurePlacement,
+) -> PrintBlock {
     PrintBlock::Figure {
-        image: tiny_png_image(),
+        image,
         alt: "swatch".into(),
         caption: vec![TextRun::plain(caption)],
         placement,
     }
+}
+
+fn figure_with_caption(caption: impl Into<String>, placement: FigurePlacement) -> PrintBlock {
+    figure_block(tiny_png_image(), caption, placement)
+}
+
+fn emit_with_layout_tweak(doc: &PrintDocument, tweak: impl FnOnce(&mut LayoutKnobs)) -> Vec<u8> {
+    let mut layout = LayoutKnobs::bundled();
+    tweak(&mut layout);
+    emit_pdf_with(doc, &EmitOptions::bundled_only().with_layout(layout)).expect("emit")
 }
 
 #[test]
@@ -613,9 +647,9 @@ fn quote_only_doc(body: &str) -> PrintDocument {
 }
 
 fn emit_quote_with_italic(doc: &PrintDocument, italic: bool) -> Vec<u8> {
-    let mut layout = LayoutKnobs::bundled();
-    layout.prose.quote.italic = italic;
-    emit_pdf_with(doc, &EmitOptions::bundled_only().with_layout(layout)).expect("emit")
+    emit_with_layout_tweak(doc, |layout| {
+        layout.prose.quote.italic = italic;
+    })
 }
 
 fn embeds_roman_liberation_sans(pdf: &str) -> bool {
@@ -717,6 +751,52 @@ fn caption_knobs_affect_figure_caption_paint() {
         embeds_roman_liberation_sans(&s),
         "caption.italic = false should keep caption body on roman LiberationSans"
     );
+}
+
+#[test]
+fn figure_align_and_max_width_factor_affect_emit() {
+    use crate::knobs::FigureAlign;
+
+    // Mid-width: narrower than full content (~403pt) so align shifts x, but wide
+    // enough that max_width_factor 0.4 forces fit_width to scale.
+    let image = png_image(
+        280,
+        80,
+        rgb_png(280, 80, |x, y| Rgb([(x % 256) as u8, (y % 256) as u8, 90])),
+    );
+    let doc = note_doc(
+        "Figure align",
+        vec![figure_block(
+            image,
+            "Aligned caption.",
+            FigurePlacement::Flow,
+        )],
+    );
+
+    let baseline = emit_pdf(&doc).expect("baseline");
+
+    let center_pdf = emit_with_layout_tweak(&doc, |layout| {
+        layout.prose.figure.align = FigureAlign::Center;
+    });
+    assert_ne!(
+        baseline, center_pdf,
+        "figure.align = center should change emit vs left"
+    );
+
+    let narrow_pdf = emit_with_layout_tweak(&doc, |layout| {
+        layout.prose.figure.max_width_factor = 0.4;
+    });
+    assert_ne!(
+        baseline, narrow_pdf,
+        "figure.max_width_factor < 1 should change emit"
+    );
+
+    let right_pdf = emit_with_layout_tweak(&doc, |layout| {
+        layout.prose.figure.align = FigureAlign::Right;
+        layout.prose.figure.max_width_factor = 0.5;
+    });
+    assert_ne!(center_pdf, right_pdf);
+    assert_ne!(narrow_pdf, right_pdf);
 }
 
 #[test]

@@ -8,6 +8,7 @@ use crate::font::{
     shape_text_with_fallback, shaped_runs_width, shaped_width,
 };
 use crate::image_prep::PreparedImage;
+use crate::knobs::FigureAlign;
 
 /// Original TrueType GID → Unicode text for `ToUnicode`.
 pub(super) type GlyphSet = BTreeMap<u16, String>;
@@ -255,6 +256,8 @@ pub(super) enum LaidItem {
         glue_after: bool,
         /// Trailing gap after the image (from `[figure].gap_after_image`).
         gap_after: f32,
+        /// Horizontal alignment within the content box.
+        align: FigureAlign,
     },
     Table(LaidTable),
     Columns(LaidColumns),

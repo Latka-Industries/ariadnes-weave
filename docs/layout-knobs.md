@@ -4,7 +4,7 @@ Emit uses named optical defaults from per-category TOML files under `defaults/`:
 
 | File | Category | Used for |
 |------|----------|----------|
-| `prose.toml` | prose | Paragraph/heading/list/quote/code/figure/caption spacing, quote/caption italic, optional text/quote/cite/caption colors, cite underline, optional category font pins, wrap width |
+| `prose.toml` | prose | Paragraph/heading/list/quote/code/figure/caption spacing and figure align/width, quote/caption italic, optional text/quote/cite/caption colors, cite underline, optional category font pins, wrap width |
 | `table.toml` | table | Cell padding, leading, and block gap |
 | `deck.toml` | deck | Slide title/subtitle/body scales and column gaps |
 | `math.toml` | math | Fractions, scripts, matrices, arrows, display gaps |
@@ -52,8 +52,21 @@ Figure vertical stack (Tessera title chunk = prior `Paragraph` + strong):
 | `[caption].font` | Optional category font pin (see below) |
 | `[figure].gap_before` | Gap before the image; replaces prior trailing gap (bundled `6`) |
 | `[figure].gap_after_image` | Gap between image bottom and next item / caption (bundled `2`) |
+| `[figure].align` | Horizontal band: `left` / `center` / `right` (bundled `left`) |
+| `[figure].max_width_factor` | Cap image width as a factor of content width (`(0, 1]`; bundled `1.0`) |
+
+`align` and `max_width_factor` apply to the image and its caption together: fit width is `factor × content_width`, then the band is placed left/center/right. Caption wrap uses the same band width and indent.
 
 Size is **`size_factor` vs body**, not absolute points — profiles keep owning body size.
+
+### Figure placement (today)
+
+Horizontal geometry is knob-driven (`align`, `max_width_factor`). Vertical policy stays sealed reading-order:
+
+- `FigurePlacement::Flow` — normal order
+- `FigurePlacement::FloatNear` — same order + keep-with-previous glue (not true float / wrap)
+
+Deferred: top/bottom page float, text wrap beside figures, freeform x/y. D24 `\layout{place/vspace/rule}` stays separate from `\figure{}`.
 
 ## Category fonts (optional)
 
