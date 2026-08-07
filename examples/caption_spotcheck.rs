@@ -1,7 +1,7 @@
 //! Spot-check: body + figure title/caption → `tmp/caption_spotcheck*.pdf`
 //!
-//! Includes caption in-band text align variants (left / center / right) on a
-//! wrapping caption, plus figure band knobs.
+//! Includes caption in-band text align variants (left / center / right / justify)
+//! on a wrapping caption, plus figure band knobs.
 //!
 //! ```bash
 //! cargo run --example caption_spotcheck
@@ -26,8 +26,9 @@ fn figure_png() -> Vec<u8> {
 fn wrapping_caption() -> TextRun {
     TextRun::plain(
         "Wrapping caption for text_align: left sits on the band start, center balances \
-         each line in the band, right packs to the band end. Same figure asset and \
-         narrow max_width so wrap is obvious across several lines.",
+         each line in the band, right packs to the band end, justify stretches gaps \
+         across the measure. Same figure asset and narrow max_width so wrap is obvious \
+         across several lines.",
     )
 }
 
@@ -54,7 +55,10 @@ fn doc() -> PrintDocument {
                     height_px: Some(100),
                 },
                 alt: "swatch".into(),
-                title: vec![TextRun::strong("Figure title (Figure.title + title_align)")],
+                title: vec![TextRun::strong(
+                    "Figure title with enough words that a narrow band wraps and \
+                     title_text_align justify can stretch intermediate lines",
+                )],
                 caption: vec![wrapping_caption()],
                 placement: FigurePlacement::Flow,
             },
@@ -140,6 +144,7 @@ fn main() {
         ("caption_text_left", FigureTextAlign::Left),
         ("caption_text_center", FigureTextAlign::Center),
         ("caption_text_right", FigureTextAlign::Right),
+        ("caption_text_justify", FigureTextAlign::Justify),
     ] {
         write_layout(
             &format!("caption_spotcheck_{name}.pdf"),
@@ -147,4 +152,10 @@ fn main() {
             caption_text_align(align),
         );
     }
+
+    write_layout("caption_spotcheck_title_text_justify.pdf", &d, |layout| {
+        layout.prose.figure.max_width_factor = 0.42;
+        layout.prose.figure.title_text_align = FigureTextAlign::Justify;
+        // Multi-word title so justify has gaps to stretch.
+    });
 }

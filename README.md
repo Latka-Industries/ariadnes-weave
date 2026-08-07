@@ -39,7 +39,9 @@ crates.io. Local suite work can still path-dep when cutting paired releases.
   by default (`[quote].italic`); figure captions via `[caption]` (`italic`,
   `size_factor` vs body, `gap_after`); figure horizontal band via
   `[figure].align` / `[figure].max_width_factor` / `[figure].title_align` /
-  `title_text_align` and `[caption].band` / `text_align` / `overflow`; optional
+  `title_text_align` and `[caption].band` / `text_align` (`left` / `center` /
+  `right` / `justify` / `follow`) / `overflow`; body
+  `[paragraph].text_align`; optional
   `#RGB`/`#RRGGBB`
   fills for `[text]` / `[quote]` / `[caption]` / `[cite]` plus
   `[cite].underline` and per-run `InlineStyle.underline`; optional category

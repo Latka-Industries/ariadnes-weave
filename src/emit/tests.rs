@@ -11,7 +11,7 @@ use crate::ir::{
 };
 use crate::knobs::{
     CaptionBand, CaptionOverflow, FigureAlign, FigureTextAlign, FigureTitleAlign, HexColor,
-    LayoutKnobs,
+    LayoutKnobs, TextAlign,
 };
 use crate::options::EmitOptions;
 use crate::profile::{self, PageSize};
@@ -892,6 +892,76 @@ fn figure_title_align_and_caption_band_affect_emit() {
         defaults, title_left,
         "bundled title_text_align = center should differ from left"
     );
+}
+
+#[test]
+fn caption_and_title_justify_affect_emit() {
+    let image = png_image(
+        280,
+        80,
+        rgb_png(280, 80, |x, y| Rgb([(x % 256) as u8, (y % 256) as u8, 90])),
+    );
+    let doc = note_doc(
+        "Justify text_align",
+        vec![PrintBlock::Figure {
+            image,
+            alt: "mid".into(),
+            title: vec![TextRun::strong(
+                "Figure title with several words for justify gaps",
+            )],
+            caption: vec![TextRun::plain(
+                "Wrapping caption so soft breaks create intermediate lines that should \
+                 stretch inter-word gaps under justify while the last line stays left.",
+            )],
+            placement: FigurePlacement::Flow,
+        }],
+    );
+
+    let left = emit_with_layout_tweak(&doc, |layout| {
+        layout.prose.figure.max_width_factor = 0.42;
+        layout.prose.caption.text_align = FigureTextAlign::Left;
+        layout.prose.figure.title_text_align = FigureTextAlign::Left;
+    });
+    let justify = emit_with_layout_tweak(&doc, |layout| {
+        layout.prose.figure.max_width_factor = 0.42;
+        layout.prose.caption.text_align = FigureTextAlign::Justify;
+        layout.prose.figure.title_text_align = FigureTextAlign::Justify;
+    });
+    assert_ne!(
+        left, justify,
+        "justify text_align should change emit vs left on wrapping caption/title"
+    );
+}
+
+#[test]
+fn paragraph_text_align_affects_emit() {
+    let lorem = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod \
+         tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, \
+         quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo \
+         consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse \
+         cillum dolore eu fugiat nulla pariatur.";
+    let doc = note_doc(
+        "Paragraph align",
+        vec![PrintBlock::Paragraph {
+            runs: vec![TextRun::plain(lorem)],
+        }],
+    );
+
+    let left = emit_with_layout_tweak(&doc, |layout| {
+        layout.prose.paragraph.text_align = TextAlign::Left;
+    });
+    let center = emit_with_layout_tweak(&doc, |layout| {
+        layout.prose.paragraph.text_align = TextAlign::Center;
+    });
+    let right = emit_with_layout_tweak(&doc, |layout| {
+        layout.prose.paragraph.text_align = TextAlign::Right;
+    });
+    let justify = emit_with_layout_tweak(&doc, |layout| {
+        layout.prose.paragraph.text_align = TextAlign::Justify;
+    });
+    assert_ne!(left, center, "paragraph center should differ from left");
+    assert_ne!(left, right, "paragraph right should differ from left");
+    assert_ne!(left, justify, "paragraph justify should differ from left");
 }
 
 #[test]

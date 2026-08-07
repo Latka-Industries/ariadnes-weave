@@ -8,7 +8,7 @@ use crate::font::{
     shape_text_with_fallback, shaped_runs_width, shaped_width,
 };
 use crate::image_prep::PreparedImage;
-use crate::knobs::FigureAlign;
+use crate::knobs::{FigureAlign, TextAlign};
 
 /// Original TrueType GID → Unicode text for `ToUnicode`.
 pub(super) type GlyphSet = BTreeMap<u16, String>;
@@ -105,7 +105,7 @@ pub(super) struct LaidLine {
     /// Width of the alignment box; text is placed within `[indent, indent+measure]`.
     pub measure: f32,
     /// In-band text alignment within [`Self::measure`].
-    pub text_align: FigureAlign,
+    pub text_align: TextAlign,
 }
 
 impl LaidLine {
@@ -122,7 +122,7 @@ impl LaidLine {
             glue_after: false,
             indent: 0.0,
             measure: 0.0,
-            text_align: FigureAlign::Left,
+            text_align: TextAlign::Left,
         }
     }
 
@@ -134,7 +134,7 @@ impl LaidLine {
             glue_after: false,
             indent: 0.0,
             measure,
-            text_align: FigureAlign::Left,
+            text_align: TextAlign::Left,
         }
     }
 
@@ -142,7 +142,7 @@ impl LaidLine {
     pub(super) fn apply_figure_band(&mut self, align: FigureAlign, content_w: f32, band_w: f32) {
         self.indent = align.offset_x(content_w, band_w);
         self.measure = band_w;
-        self.text_align = align;
+        self.text_align = TextAlign::from(align);
     }
 
     /// Shape `text` (with sealed script fallback) and record glyphs into `glyph_sets`.
@@ -163,7 +163,7 @@ impl LaidLine {
             glue_after: false,
             indent: 0.0,
             measure: 0.0,
-            text_align: FigureAlign::Left,
+            text_align: TextAlign::Left,
         })
     }
 
@@ -379,5 +379,5 @@ pub(super) struct RunLayout {
     /// Split tokens wider than the wrap measure (false = soft wrap only).
     pub hard_break_overflow: bool,
     /// In-band text alignment within the wrap measure.
-    pub text_align: FigureAlign,
+    pub text_align: TextAlign,
 }

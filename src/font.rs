@@ -333,6 +333,10 @@ pub struct ShapedGlyph {
     pub gid: u16,
     /// Horizontal advance in points.
     pub advance: f32,
+    /// True when this glyph maps a whitespace cluster (word-gap for justify).
+    pub is_whitespace: bool,
+    /// Ink right extent from glyph origin in points (`0` if unknown).
+    pub ink_x_max: f32,
 }
 
 /// Shape `text` with a face from `fonts` at `font_size` points.
@@ -354,6 +358,7 @@ pub fn shape_text(
         ))
     })?;
     let units = rb.units_per_em() as f32;
+    let ttf = TtfFace::parse(data, 0);
     let mut buffer = UnicodeBuffer::new();
     buffer.push_str(text);
     let glyphs = rustybuzz::shape(&rb, &[], buffer);
@@ -362,9 +367,22 @@ pub fn shape_text(
     let mut out = Vec::with_capacity(infos.len());
     for (info, pos) in infos.iter().zip(positions.iter()) {
         let advance = (pos.x_advance as f32) / units * font_size;
+        let gid = info.glyph_id as u16;
+        let is_whitespace = text
+            .get(info.cluster as usize..)
+            .and_then(|s| s.chars().next())
+            .is_some_and(char::is_whitespace);
+        let ink_x_max = ttf
+            .as_ref()
+            .ok()
+            .and_then(|face| face.glyph_bounding_box(GlyphId(gid)))
+            .map(|bbox| f32::from(bbox.x_max) / units * font_size)
+            .unwrap_or(0.0);
         out.push(ShapedGlyph {
-            gid: info.glyph_id as u16,
+            gid,
             advance,
+            is_whitespace,
+            ink_x_max,
         });
     }
     Ok(out)
@@ -588,7 +606,7 @@ impl PreparedSubset {
     pub fn remap_glyph(&self, glyph: ShapedGlyph) -> ShapedGlyph {
         ShapedGlyph {
             gid: self.remapper.get(glyph.gid).unwrap_or(0),
-            advance: glyph.advance,
+            ..glyph
         }
     }
 }

@@ -248,6 +248,13 @@ impl ProseCiteKnobs {
 pub struct ProseParagraphKnobs {
     /// Gap after a body paragraph (points).
     pub gap_after: f32,
+    /// Body paragraph in-band text alignment (bundled `left`).
+    #[serde(default = "default_paragraph_text_align")]
+    pub text_align: TextAlign,
+}
+
+fn default_paragraph_text_align() -> TextAlign {
+    TextAlign::Left
 }
 
 /// `[heading]` in `prose.toml`.
@@ -323,6 +330,44 @@ impl FigureAlign {
     }
 }
 
+/// Resolved in-band text alignment (no `follow`) used by layout / paint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TextAlign {
+    /// Flush to the band / content start.
+    #[default]
+    Left,
+    /// Center within the measure.
+    Center,
+    /// Flush to the band / content end.
+    Right,
+    /// Distribute extra space across whitespace glyphs; start flush left.
+    Justify,
+}
+
+impl TextAlign {
+    /// Horizontal offset of natural-width text within `measure` (justify → `0`).
+    #[must_use]
+    pub fn offset_x(self, measure: f32, item_w: f32) -> f32 {
+        match self {
+            Self::Justify => 0.0,
+            Self::Left => FigureAlign::Left.offset_x(measure, item_w),
+            Self::Center => FigureAlign::Center.offset_x(measure, item_w),
+            Self::Right => FigureAlign::Right.offset_x(measure, item_w),
+        }
+    }
+}
+
+impl From<FigureAlign> for TextAlign {
+    fn from(value: FigureAlign) -> Self {
+        match value {
+            FigureAlign::Left => Self::Left,
+            FigureAlign::Center => Self::Center,
+            FigureAlign::Right => Self::Right,
+        }
+    }
+}
+
 /// Title band alignment relative to the figure (`[figure].title_align`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -349,11 +394,11 @@ impl FigureTitleAlign {
 /// In-band text alignment for figure title / caption (`follow` = figure `align`).
 ///
 /// Placement of the band is separate ([`FigureTitleAlign`] / [`CaptionBand`]);
-/// this controls left / center / right *within* that band (or full measure).
+/// this controls left / center / right / justify *within* that band (or full measure).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FigureTextAlign {
-    /// Same as [`ProseFigureKnobs::align`] (default).
+    /// Same as [`ProseFigureKnobs::align`] (default). Never resolves to [`TextAlign::Justify`].
     #[default]
     Follow,
     /// Flush to the band start.
@@ -362,17 +407,25 @@ pub enum FigureTextAlign {
     Center,
     /// Flush to the band end.
     Right,
+    /// Word-justify within the band (last soft-wrapped line stays left).
+    Justify,
 }
 
 impl FigureTextAlign {
-    /// Resolve to a concrete [`FigureAlign`] for in-band text placement.
+    /// Resolve to a concrete [`TextAlign`] for in-band text placement.
     #[must_use]
-    pub fn resolve(self, figure_align: FigureAlign) -> FigureAlign {
-        resolve_follow_align(self.into(), figure_align)
+    pub fn resolve(self, figure_align: FigureAlign) -> TextAlign {
+        match self {
+            Self::Follow => TextAlign::from(figure_align),
+            Self::Left => TextAlign::Left,
+            Self::Center => TextAlign::Center,
+            Self::Right => TextAlign::Right,
+            Self::Justify => TextAlign::Justify,
+        }
     }
 }
 
-/// Shared Follow / Left / Center / Right choice used by title band + `text_align`.
+/// Shared Follow / Left / Center / Right choice for band placement (`title_align`).
 #[derive(Clone, Copy)]
 enum FollowOrAlign {
     Follow,
@@ -397,17 +450,6 @@ impl From<FigureTitleAlign> for FollowOrAlign {
             FigureTitleAlign::Left => Self::Left,
             FigureTitleAlign::Center => Self::Center,
             FigureTitleAlign::Right => Self::Right,
-        }
-    }
-}
-
-impl From<FigureTextAlign> for FollowOrAlign {
-    fn from(value: FigureTextAlign) -> Self {
-        match value {
-            FigureTextAlign::Follow => Self::Follow,
-            FigureTextAlign::Left => Self::Left,
-            FigureTextAlign::Center => Self::Center,
-            FigureTextAlign::Right => Self::Right,
         }
     }
 }
@@ -923,10 +965,15 @@ mod tests {
     fn bundled_loads_and_describes() {
         let k = LayoutKnobs::bundled();
         assert!((k.prose.paragraph.gap_after - 10.0).abs() < f32::EPSILON);
+        assert_eq!(k.prose.paragraph.text_align, TextAlign::Left);
         assert!((k.math.metrics.mu_per_em - 18.0).abs() < f32::EPSILON);
         assert!((k.math.frac.gap_num_factor - 0.1).abs() < f32::EPSILON);
         let dump = k.describe();
         assert!(dump.contains("prose.paragraph.gap_after = 10"));
+        assert!(
+            dump.contains("prose.paragraph.text_align = \"left\"")
+                || dump.contains("prose.paragraph.text_align = left")
+        );
         assert!(dump.contains("math.metrics.axis_factor = 0.25"));
         assert!(dump.contains("page.footer.font_size = 9"));
         assert!(dump.contains("prose.heading.leading_factor = 1.35"));

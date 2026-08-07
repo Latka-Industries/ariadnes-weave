@@ -32,6 +32,14 @@ Per-run underline also paints when `InlineStyle.underline` is set (independent o
 
 `[caption]` applies to `PrintBlock::Figure` caption runs only (v1). Non-figure Tessera caption paragraphs (`Paragraph` + emphasis stand-in) do not pick these up until a `Caption` IR or Tessera bridge lands.
 
+### Body paragraph align
+
+| Key | Meaning |
+|-----|---------|
+| `[paragraph].text_align` | Body `Paragraph` runs: `left` / `center` / `right` / `justify` (bundled `left`) |
+
+Same paint rules as figure in-band justify (last soft-wrapped line stays flush-left). Lists / quotes stay left unless they gain their own knobs.
+
 Figure vertical stack:
 
 | Gap | Knob |
@@ -57,12 +65,12 @@ Figure vertical stack:
 | `[figure].align` | Horizontal band: `center` / `left` / `right` (bundled `center`) |
 | `[figure].max_width_factor` | Cap image width as a factor of content width (`(0, 1]`; bundled `1.0`) |
 | `[figure].title_align` | Title **band** placement: `follow` / `left` / `center` / `right` (bundled `follow`) |
-| `[figure].title_text_align` | Title **text** within the band: `center` / `left` / `right` / `follow` (bundled `center`) |
+| `[figure].title_text_align` | Title **text** within the band: `center` / `left` / `right` / `justify` / `follow` (bundled `center`) |
 | `[caption].band` | `match_figure` (image indent + wrap width) or `full_measure` (bundled `match_figure`) |
-| `[caption].text_align` | Caption **text** within its measure: `left` / `center` / `right` / `follow` (bundled `left`) |
+| `[caption].text_align` | Caption **text** within its measure: `left` / `center` / `right` / `justify` / `follow` (bundled `left`) |
 | `[caption].overflow` | Overlong token: `hard_break` or `soft_only` (bundled `hard_break`) |
 
-`align` and `max_width_factor` size/place the image band. Title band placement defaults to `follow`. Title **text** defaults to **center** in that band; caption **text** defaults to **left** (flush to the figure edge) while the caption band still matches the figure. `follow` on text_align means “same as figure `align`”. Soft wrap at spaces always runs; `overflow` only controls mid-word splitting. True word-justify is not implemented yet.
+`align` and `max_width_factor` size/place the image band. Title band placement defaults to `follow`. Title **text** defaults to **center** in that band; caption **text** defaults to **left** (flush to the figure edge) while the caption band still matches the figure. `follow` on text_align means “same as figure `align`” (left/center/right only — never justify). Soft wrap at spaces always runs; `overflow` only controls mid-word splitting. `justify` distributes extra space across inter-word gaps within the band; the last soft-wrapped line of a block stays flush-left.
 
 Figure title lives on `PrintBlock::Figure.title` (empty = none). Prefer that over a prior `Paragraph`+strong stand-in so title can share the figure band.
 

@@ -3,7 +3,9 @@
 use crate::error::WeaveError;
 use crate::font::{FaceId, FaceRef, FontBag, shape_text_with_fallback, shaped_runs_width};
 use crate::ir::{InlineStyle, TextRun};
-use crate::knobs::{CaptionBand, CaptionOverflow, FigureAlign, LayoutKnobs, ProseFontCategory};
+use crate::knobs::{
+    CaptionBand, CaptionOverflow, FigureAlign, LayoutKnobs, ProseFontCategory, TextAlign,
+};
 use crate::profile::ProfileMetrics;
 
 use super::super::types::{
@@ -31,6 +33,10 @@ pub(super) fn body_layout(
     indent: f32,
     paint: PaintCategory,
 ) -> RunLayout {
+    let text_align = match paint {
+        PaintCategory::Text => knobs.prose.paragraph.text_align,
+        _ => TextAlign::Left,
+    };
     RunLayout {
         font_size: metrics.body_size,
         leading: metrics.body_leading,
@@ -41,7 +47,7 @@ pub(super) fn body_layout(
         max_width: None,
         paint,
         hard_break_overflow: true,
-        text_align: FigureAlign::Left,
+        text_align,
     }
 }
 
@@ -219,17 +225,22 @@ pub(super) fn push_styled_runs(
     let mut current_spans: Vec<LaidSpan> = Vec::new();
     let mut current_width = 0.0_f32;
 
-    let flush_line = |spans: &mut Vec<LaidSpan>, dest: &mut Vec<LaidItem>, glue: bool| {
+    let flush_line = |spans: &mut Vec<LaidSpan>, dest: &mut Vec<LaidItem>, last: bool| {
         if spans.is_empty() {
             return;
         }
+        // Last soft-wrapped line of a justified block stays flush-left.
+        let text_align = match layout.text_align {
+            TextAlign::Justify if last => TextAlign::Left,
+            other => other,
+        };
         dest.push(LaidItem::Text(LaidLine {
             spans: std::mem::take(spans),
             leading: layout.leading,
-            glue_after: glue,
+            glue_after: last && layout.glue_last_content,
             indent: layout.indent,
             measure: max_width,
-            text_align: layout.text_align,
+            text_align,
         }));
     };
 
@@ -295,7 +306,7 @@ pub(super) fn push_styled_runs(
         }
     }
 
-    flush_line(&mut current_spans, out, layout.glue_last_content);
+    flush_line(&mut current_spans, out, true);
     let content_end = out.len();
     apply_widow_orphan(&mut out[start..content_end]);
     if layout.gap_after > 0.0 {
