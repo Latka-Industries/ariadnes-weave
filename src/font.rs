@@ -376,8 +376,7 @@ pub fn shape_text(
             .as_ref()
             .ok()
             .and_then(|face| face.glyph_bounding_box(GlyphId(gid)))
-            .map(|bbox| f32::from(bbox.x_max) / units * font_size)
-            .unwrap_or(0.0);
+            .map_or(0.0, |bbox| f32::from(bbox.x_max) / units * font_size);
         out.push(ShapedGlyph {
             gid,
             advance,

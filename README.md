@@ -93,6 +93,12 @@ Ubuntu · macOS · Windows (+ `--features icons`, `cjk`, `emoji`), plus an MSRV
 `cargo check` on 1.95. Path filters skip docs-only pushes. SHA-256 fixtures live in
 `tests/determinism.rs`.
 
+**Pinned transitive:** `zune-core = "=0.5.1"` (via `image` → `zune-jpeg`).
+`zune-core` 0.5.2 emptied the stub `warn!` macro; `zune-jpeg` ≤0.5.15 still
+calls it as an expression (missing `;`), so a plain `cargo update` can break
+the build until upstream ships a fixed `zune-jpeg`. Do not bump past 0.5.1
+without checking that JPEG decode still compiles.
+
 ## API
 
 ```rust
