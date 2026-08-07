@@ -159,7 +159,7 @@ fn paint_page_item(
             if *y < bottom_limit {
                 return false;
             }
-            if !line.spans.is_empty() {
+            if !line.is_gap() {
                 let x = if line.center {
                     metrics.margin + (metrics.content_width() - line.width()) / 2.0
                 } else {
@@ -173,6 +173,7 @@ fn paint_page_item(
             width,
             height,
             glue_after: _,
+            gap_after,
         } => {
             *y -= *height;
             if *y < bottom_limit {
@@ -183,7 +184,7 @@ fn paint_page_item(
             content.transform([*width, 0.0, 0.0, *height, metrics.margin, *y]);
             content.x_object(Name(&name));
             content.restore_state();
-            *y -= 8.0;
+            *y -= *gap_after;
         }
         LaidItem::Table(table) => {
             let table_h = table.rows.iter().map(|r| r.height).sum::<f32>();

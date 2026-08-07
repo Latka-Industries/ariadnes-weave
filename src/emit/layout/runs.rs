@@ -48,7 +48,7 @@ pub(super) fn caption_layout(metrics: &ProfileMetrics, knobs: &LayoutKnobs) -> R
     let font_size = metrics.body_size * knobs.prose.caption.size_factor;
     RunLayout {
         font_size,
-        leading: font_size * knobs.prose.wrap.body_leading_factor,
+        leading: font_size * knobs.prose.caption.leading_factor,
         gap_after: knobs.prose.caption.gap_after,
         glue_last_content: false,
         mode: FaceMode::Body,
@@ -239,7 +239,7 @@ fn apply_widow_orphan(items: &mut [LaidItem]) {
         .iter()
         .enumerate()
         .filter_map(|(i, item)| match item {
-            LaidItem::Text(line) if !line.spans.is_empty() => Some(i),
+            LaidItem::Text(line) if !line.is_gap() => Some(i),
             _ => None,
         })
         .collect();

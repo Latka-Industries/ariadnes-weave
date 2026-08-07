@@ -46,15 +46,12 @@ impl PushFigureArgs<'_> {
         let seg = segments.last_mut().expect("segment");
         if float_near {
             // Keep the figure with the preceding block when possible.
-            if let Some(prev) = seg
-                .1
-                .iter_mut()
-                .rev()
-                .find(|item| !matches!(item, LaidItem::Text(line) if line.spans.is_empty()))
-            {
+            if let Some(prev) = seg.1.iter_mut().rev().find(|item| !item.is_gap()) {
                 prev.set_glue_after(true);
             }
         }
+
+        apply_figure_gap_before(&mut seg.1, knobs.prose.figure.gap_before);
 
         let glue_after = !caption.is_empty() || float_near;
         let Ok(prepared) = prepare_image(image) else {
@@ -94,6 +91,7 @@ impl PushFigureArgs<'_> {
             width: w,
             height: h,
             glue_after,
+            gap_after: knobs.prose.figure.gap_after_image,
         });
         finish_caption_or_gap(
             &mut seg.1,
@@ -104,6 +102,18 @@ impl PushFigureArgs<'_> {
             knobs,
             glyph_sets,
         )
+    }
+}
+
+/// Replace the prior block's trailing gap with `[figure].gap_before`.
+///
+/// When the segment already has content but no trailing gap line, insert one.
+/// First content on a segment keeps page-margin spacing (no inserted gap).
+fn apply_figure_gap_before(items: &mut Vec<LaidItem>, gap_before: f32) {
+    if let Some(line) = items.last_mut().and_then(LaidItem::as_gap_mut) {
+        line.leading = gap_before;
+    } else if !items.is_empty() {
+        items.push(LaidItem::Text(LaidLine::gap(gap_before)));
     }
 }
 

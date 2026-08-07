@@ -298,10 +298,14 @@ pub struct ProseListKnobs {
 /// `[figure]` in `prose.toml`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProseFigureKnobs {
-    /// Gap after a figure (points).
+    /// Gap after a figure with no caption (points).
     pub gap_after: f32,
     /// Gap after a figure alt-text placeholder (points).
     pub alt_gap_after: f32,
+    /// Gap between the image bottom and the next laid item (usually the caption).
+    pub gap_after_image: f32,
+    /// Gap before the image: replaces the prior block's trailing gap when present.
+    pub gap_before: f32,
 }
 
 /// `[caption]` in `prose.toml` — figure caption size / italic / optional color.
@@ -314,6 +318,8 @@ pub struct ProseCaptionKnobs {
     pub italic: bool,
     /// Caption size as a factor of profile body size (not absolute points).
     pub size_factor: f32,
+    /// Caption line leading as a factor of caption font size.
+    pub leading_factor: f32,
     /// Gap after a figure caption (points).
     pub gap_after: f32,
     /// Optional caption fill; inherits `[text].color` then engine black.
@@ -750,8 +756,14 @@ mod tests {
         assert!(k.prose.caption.italic);
         assert!((k.prose.caption.size_factor - 0.9).abs() < f32::EPSILON);
         assert!((k.prose.caption.gap_after - 6.0).abs() < f32::EPSILON);
+        assert!((k.prose.caption.leading_factor - 1.15).abs() < f32::EPSILON);
+        assert!((k.prose.figure.gap_after_image - 2.0).abs() < f32::EPSILON);
+        assert!((k.prose.figure.gap_before - 6.0).abs() < f32::EPSILON);
         assert!(dump.contains("prose.caption.italic = true"));
         assert!(dump.contains("prose.caption.size_factor = 0.9"));
+        assert!(dump.contains("prose.caption.leading_factor = 1.15"));
+        assert!(dump.contains("prose.figure.gap_after_image = 2"));
+        assert!(dump.contains("prose.figure.gap_before = 6"));
         assert!(k.prose.text.color.is_none());
         assert!(k.prose.quote.color.is_none());
         assert!(k.prose.caption.color.is_none());
@@ -815,10 +827,13 @@ item_leading_factor = 1.35
 [figure]
 gap_after = 6.0
 alt_gap_after = 10.0
+gap_after_image = 2.0
+gap_before = 6.0
 
 [caption]
 italic = true
 size_factor = 0.9
+leading_factor = 1.15
 gap_after = 6.0
 color = "#556677"
 font = "body"

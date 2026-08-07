@@ -106,6 +106,11 @@ pub(super) struct LaidLine {
 }
 
 impl LaidLine {
+    /// True when this line is vertical whitespace with no glyphs.
+    pub(super) fn is_gap(&self) -> bool {
+        self.spans.is_empty()
+    }
+
     /// Vertical whitespace with no glyphs.
     pub(super) fn gap(leading: f32) -> Self {
         Self {
@@ -248,6 +253,8 @@ pub(super) enum LaidItem {
         width: f32,
         height: f32,
         glue_after: bool,
+        /// Trailing gap after the image (from `[figure].gap_after_image`).
+        gap_after: f32,
     },
     Table(LaidTable),
     Columns(LaidColumns),
@@ -266,11 +273,26 @@ pub(super) enum LaidItem {
 }
 
 impl LaidItem {
+    /// True when this is a gap-only text line (no glyphs).
+    pub(super) fn is_gap(&self) -> bool {
+        matches!(self, Self::Text(line) if line.is_gap())
+    }
+
+    /// Mutable access when this item is a gap-only text line.
+    pub(super) fn as_gap_mut(&mut self) -> Option<&mut LaidLine> {
+        match self {
+            Self::Text(line) if line.is_gap() => Some(line),
+            _ => None,
+        }
+    }
+
     /// Vertical space this item occupies (including image trailing gap).
     pub(super) fn height(&self) -> f32 {
         match self {
             Self::Text(line) => line.leading,
-            Self::Image { height, .. } => *height + 8.0,
+            Self::Image {
+                height, gap_after, ..
+            } => *height + *gap_after,
             Self::Table(table) => table.height(),
             Self::Columns(cols) => cols.height(),
             Self::Math(math) => math.height + math.gap_after,

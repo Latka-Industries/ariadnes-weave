@@ -32,13 +32,26 @@ Per-run underline also paints when `InlineStyle.underline` is set (independent o
 
 `[caption]` applies to `PrintBlock::Figure` caption runs only (v1). Non-figure Tessera caption paragraphs (`Paragraph` + emphasis stand-in) do not pick these up until a `Caption` IR or Tessera bridge lands.
 
+Figure vertical stack (Tessera title chunk = prior `Paragraph` + strong):
+
+| Gap | Knob |
+|-----|------|
+| Prior content / title → image | `[figure].gap_before` (replaces the prior block's trailing gap) |
+| Image → caption | `[figure].gap_after_image` |
+| Caption line box | `[caption].leading_factor` × caption size |
+| Caption → following | `[caption].gap_after` |
+| Figure with no caption | `[figure].gap_after` / `[figure].alt_gap_after` |
+
 | Key | Meaning |
 |-----|---------|
 | `[caption].italic` | OR `emphasis` onto caption runs (`true` by default) |
 | `[caption].size_factor` | Caption size as a factor of profile body size (bundled `0.9`) |
+| `[caption].leading_factor` | Caption line leading as a factor of caption size (bundled `1.15`) |
 | `[caption].gap_after` | Gap after a figure caption (points) |
 | `[caption].color` | Optional fill (see above) |
 | `[caption].font` | Optional category font pin (see below) |
+| `[figure].gap_before` | Gap before the image; replaces prior trailing gap (bundled `6`) |
+| `[figure].gap_after_image` | Gap between image bottom and next item / caption (bundled `2`) |
 
 Size is **`size_factor` vs body**, not absolute points — profiles keep owning body size.
 
