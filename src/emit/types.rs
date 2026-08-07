@@ -8,6 +8,7 @@ use crate::font::{
     shape_text_with_fallback, shaped_runs_width, shaped_width,
 };
 use crate::image_prep::PreparedImage;
+use crate::knobs::FigureAlign;
 
 /// Original TrueType GID → Unicode text for `ToUnicode`.
 pub(super) type GlyphSet = BTreeMap<u16, String>;
@@ -87,7 +88,7 @@ pub(super) struct LaidSpan {
     pub glyphs: Vec<ShapedGlyph>,
     /// Fill RGB in 0.0..=1.0 (engine black when knobs omit color).
     pub fill: [f32; 3],
-    /// Stroke an underline under this span (cite policy).
+    /// Stroke an underline under this span (`InlineStyle.underline` or cite policy).
     pub underline: bool,
 }
 
@@ -106,6 +107,11 @@ pub(super) struct LaidLine {
 }
 
 impl LaidLine {
+    /// True when this line is vertical whitespace with no glyphs.
+    pub(super) fn is_gap(&self) -> bool {
+        self.spans.is_empty()
+    }
+
     /// Vertical whitespace with no glyphs.
     pub(super) fn gap(leading: f32) -> Self {
         Self {
@@ -248,6 +254,10 @@ pub(super) enum LaidItem {
         width: f32,
         height: f32,
         glue_after: bool,
+        /// Trailing gap after the image (from `[figure].gap_after_image`).
+        gap_after: f32,
+        /// Horizontal alignment within the content box.
+        align: FigureAlign,
     },
     Table(LaidTable),
     Columns(LaidColumns),
@@ -266,11 +276,26 @@ pub(super) enum LaidItem {
 }
 
 impl LaidItem {
+    /// True when this is a gap-only text line (no glyphs).
+    pub(super) fn is_gap(&self) -> bool {
+        matches!(self, Self::Text(line) if line.is_gap())
+    }
+
+    /// Mutable access when this item is a gap-only text line.
+    pub(super) fn as_gap_mut(&mut self) -> Option<&mut LaidLine> {
+        match self {
+            Self::Text(line) if line.is_gap() => Some(line),
+            _ => None,
+        }
+    }
+
     /// Vertical space this item occupies (including image trailing gap).
     pub(super) fn height(&self) -> f32 {
         match self {
             Self::Text(line) => line.leading,
-            Self::Image { height, .. } => *height + 8.0,
+            Self::Image {
+                height, gap_after, ..
+            } => *height + *gap_after,
             Self::Table(table) => table.height(),
             Self::Columns(cols) => cols.height(),
             Self::Math(math) => math.height + math.gap_after,
@@ -313,19 +338,7 @@ pub(super) enum FaceMode {
 }
 
 /// Which aesthetic color category applies to a run sequence.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum PaintCategory {
-    /// Body / heading / list / caption — `[text].color`.
-    Text,
-    /// Quote block — `[quote].color` else `[text].color`.
-    Quote,
-}
-
-impl PaintCategory {
-    pub(super) fn is_quote(self) -> bool {
-        matches!(self, Self::Quote)
-    }
-}
+pub(super) use crate::knobs::ProsePaintCategory as PaintCategory;
 
 /// Parameters for wrapping a sequence of [`crate::ir::TextRun`]s into lines.
 #[derive(Clone, Copy)]

@@ -115,6 +115,8 @@ pub struct ProseKnobs {
     pub list: ProseListKnobs,
     /// Figure trailing gaps.
     pub figure: ProseFigureKnobs,
+    /// Figure caption size / italic / optional color.
+    pub caption: ProseCaptionKnobs,
     /// Wrap helpers.
     pub wrap: ProseWrapKnobs,
     /// Default body text color (optional; omit for engine black).
@@ -293,13 +295,81 @@ pub struct ProseListKnobs {
     pub item_leading_factor: f32,
 }
 
+/// Horizontal alignment for figure image + caption band (`[figure].align`).
+///
+/// Sealed enum — no freeform x. Vertical float / wrap stay out of scope.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FigureAlign {
+    /// Flush to the content-box start (default).
+    #[default]
+    Left,
+    /// Center within the content box.
+    Center,
+    /// Flush to the content-box end.
+    Right,
+}
+
+impl FigureAlign {
+    /// Horizontal offset from the content-box left for an item of `item_w`.
+    #[must_use]
+    pub fn offset_x(self, content_w: f32, item_w: f32) -> f32 {
+        let slack = (content_w - item_w).max(0.0);
+        match self {
+            Self::Left => 0.0,
+            Self::Center => slack / 2.0,
+            Self::Right => slack,
+        }
+    }
+}
+
 /// `[figure]` in `prose.toml`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProseFigureKnobs {
-    /// Gap after a figure (points).
+    /// Gap after a figure with no caption (points).
     pub gap_after: f32,
     /// Gap after a figure alt-text placeholder (points).
     pub alt_gap_after: f32,
+    /// Gap between the image bottom and the next laid item (usually the caption).
+    pub gap_after_image: f32,
+    /// Gap before the image: replaces the prior block's trailing gap when present.
+    pub gap_before: f32,
+    /// Horizontal alignment of the image + caption band.
+    #[serde(default)]
+    pub align: FigureAlign,
+    /// Cap figure display width as a factor of content width (`(0, 1]`; bundled `1.0`).
+    pub max_width_factor: f32,
+}
+
+impl ProseFigureKnobs {
+    /// Content-relative max width for `fit_width`, clamped to `(0, 1]`.
+    #[must_use]
+    pub fn max_display_width(&self, content_w: f32) -> f32 {
+        let factor = self.max_width_factor.clamp(1e-3, 1.0);
+        content_w * factor
+    }
+}
+
+/// `[caption]` in `prose.toml` — figure caption size / italic / optional color.
+///
+/// Applied to [`crate::ir::PrintBlock::Figure`] caption runs only (v1). Non-figure
+/// Tessera caption paragraphs stay body/`Paragraph` until a Caption IR lands.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProseCaptionKnobs {
+    /// Italicize caption runs (default true to match Tessera stand-in).
+    pub italic: bool,
+    /// Caption size as a factor of profile body size (not absolute points).
+    pub size_factor: f32,
+    /// Caption line leading as a factor of caption font size.
+    pub leading_factor: f32,
+    /// Gap after a figure caption (points).
+    pub gap_after: f32,
+    /// Optional caption fill; inherits `[text].color` then engine black.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<HexColor>,
+    /// Optional pin id into `EmitOptions.pinned_faces`; omit for Liberation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font: Option<String>,
 }
 
 /// `[wrap]` in `prose.toml`.
@@ -309,6 +379,40 @@ pub struct ProseWrapKnobs {
     pub body_leading_factor: f32,
     /// Minimum wrap width (points).
     pub min_width: f32,
+}
+
+/// Mutually exclusive prose fill categories (`[text]` / `[quote]` / `[caption]`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProsePaintCategory {
+    /// Body / heading / list — `[text].color`.
+    Text,
+    /// Quote block — `[quote].color` else `[text].color`.
+    Quote,
+    /// Figure caption — `[caption].color` else `[text].color`.
+    Caption,
+}
+
+/// Mutually exclusive category font pin slots (cite overlays separately).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProseFontCategory {
+    /// `[text].font` for body / list runs.
+    Text,
+    /// `[heading].font` for heading runs.
+    Heading,
+    /// `[quote].font` for quote body runs.
+    Quote,
+    /// `[caption].font` for figure caption runs.
+    Caption,
+}
+
+impl From<ProsePaintCategory> for ProseFontCategory {
+    fn from(paint: ProsePaintCategory) -> Self {
+        match paint {
+            ProsePaintCategory::Text => Self::Text,
+            ProsePaintCategory::Quote => Self::Quote,
+            ProsePaintCategory::Caption => Self::Caption,
+        }
+    }
 }
 
 impl ProseKnobs {
@@ -321,7 +425,23 @@ impl ProseKnobs {
     /// Category fill for quotes: `[quote].color` else `[text].color` else black.
     #[must_use]
     pub fn quote_fill_rgb01(&self) -> [f32; 3] {
-        color_or_black(self.quote.color.or(self.text.color))
+        self.fill_or_text(self.quote.color)
+    }
+
+    /// Category fill for figure captions: `[caption].color` else `[text].color` else black.
+    #[must_use]
+    pub fn caption_fill_rgb01(&self) -> [f32; 3] {
+        self.fill_or_text(self.caption.color)
+    }
+
+    /// Fill for a mutually exclusive paint category.
+    #[must_use]
+    pub fn category_fill_rgb01(&self, category: ProsePaintCategory) -> [f32; 3] {
+        match category {
+            ProsePaintCategory::Text => self.text_fill_rgb01(),
+            ProsePaintCategory::Quote => self.quote_fill_rgb01(),
+            ProsePaintCategory::Caption => self.caption_fill_rgb01(),
+        }
     }
 
     /// Per-run fill: cite color when set, else `category_fill`.
@@ -333,36 +453,42 @@ impl ProseKnobs {
         category_fill
     }
 
-    /// Resolve fill + underline for a run under a text/quote category.
+    /// Resolve fill + underline for a run under a paint category.
+    ///
+    /// `cite` and `style_underline` are orthogonal run flags (not paint categories).
+    /// Underline when `style_underline` **or** (`cite` and `[cite].underline`).
     #[must_use]
-    pub fn run_paint_rgb01(&self, cite: bool, quote_category: bool) -> ([f32; 3], bool) {
-        let category = if quote_category {
-            self.quote_fill_rgb01()
-        } else {
-            self.text_fill_rgb01()
-        };
+    pub fn run_paint_rgb01(
+        &self,
+        cite: bool,
+        category: ProsePaintCategory,
+        style_underline: bool,
+    ) -> ([f32; 3], bool) {
         (
-            self.run_fill_rgb01(cite, category),
-            cite && self.cite.underline,
+            self.run_fill_rgb01(cite, self.category_fill_rgb01(category)),
+            style_underline || (cite && self.cite.underline),
         )
     }
 
     /// Optional category default pin id when `TextRun.face` is unset.
     ///
-    /// Precedence: cite → heading → quote → text. No pin-id inherit between
-    /// categories; omit means Liberation via style mapping.
+    /// Precedence: cite (orthogonal run flag) → `category` pin. No pin-id inherit
+    /// between categories; omit means Liberation via style mapping.
     #[must_use]
-    pub fn category_font_pin(&self, cite: bool, heading: bool, quote: bool) -> Option<&str> {
+    pub fn category_font_pin(&self, cite: bool, category: ProseFontCategory) -> Option<&str> {
         if cite {
             return self.cite.font.as_deref();
         }
-        if heading {
-            return self.heading.font.as_deref();
+        match category {
+            ProseFontCategory::Heading => self.heading.font.as_deref(),
+            ProseFontCategory::Quote => self.quote.font.as_deref(),
+            ProseFontCategory::Caption => self.caption.font.as_deref(),
+            ProseFontCategory::Text => self.text.font.as_deref(),
         }
-        if quote {
-            return self.quote.font.as_deref();
-        }
-        self.text.font.as_deref()
+    }
+
+    fn fill_or_text(&self, color: Option<HexColor>) -> [f32; 3] {
+        color_or_black(color.or(self.text.color))
     }
 }
 
@@ -669,8 +795,27 @@ mod tests {
         assert!(dump.contains("prose.heading.leading_factor = 1.35"));
         assert!(k.prose.quote.italic);
         assert!(dump.contains("prose.quote.italic = true"));
+        assert!(k.prose.caption.italic);
+        assert!((k.prose.caption.size_factor - 0.9).abs() < f32::EPSILON);
+        assert!((k.prose.caption.gap_after - 6.0).abs() < f32::EPSILON);
+        assert!((k.prose.caption.leading_factor - 1.15).abs() < f32::EPSILON);
+        assert!((k.prose.figure.gap_after_image - 2.0).abs() < f32::EPSILON);
+        assert!((k.prose.figure.gap_before - 6.0).abs() < f32::EPSILON);
+        assert_eq!(k.prose.figure.align, FigureAlign::Left);
+        assert!((k.prose.figure.max_width_factor - 1.0).abs() < f32::EPSILON);
+        assert!(dump.contains("prose.caption.italic = true"));
+        assert!(dump.contains("prose.caption.size_factor = 0.9"));
+        assert!(dump.contains("prose.caption.leading_factor = 1.15"));
+        assert!(dump.contains("prose.figure.gap_after_image = 2"));
+        assert!(dump.contains("prose.figure.gap_before = 6"));
+        assert!(
+            dump.contains("prose.figure.align = \"left\"")
+                || dump.contains("prose.figure.align = left")
+        );
+        assert!(dump.contains("prose.figure.max_width_factor = 1"));
         assert!(k.prose.text.color.is_none());
         assert!(k.prose.quote.color.is_none());
+        assert!(k.prose.caption.color.is_none());
         assert!(k.prose.cite.color.is_none());
         assert!(!k.prose.cite.underline);
         assert!(
@@ -731,6 +876,18 @@ item_leading_factor = 1.35
 [figure]
 gap_after = 6.0
 alt_gap_after = 10.0
+gap_after_image = 2.0
+gap_before = 6.0
+align = "center"
+max_width_factor = 0.75
+
+[caption]
+italic = true
+size_factor = 0.9
+leading_factor = 1.15
+gap_after = 6.0
+color = "#556677"
+font = "body"
 
 [wrap]
 body_leading_factor = 1.35
@@ -749,18 +906,24 @@ font = "body"
         assert_eq!(k.prose.text.color.unwrap().to_hex_string(), "#112233");
         assert_eq!(k.prose.quote.color.unwrap().to_hex_string(), "#445566");
         assert_eq!(k.prose.cite.color.unwrap().to_hex_string(), "#990000");
+        assert_eq!(k.prose.caption.color.unwrap().to_hex_string(), "#556677");
         assert!(k.prose.cite.underline);
+        assert_eq!(k.prose.figure.align, FigureAlign::Center);
+        assert!((k.prose.figure.max_width_factor - 0.75).abs() < f32::EPSILON);
         assert_eq!(k.prose.text.font.as_deref(), Some("body"));
         assert_eq!(k.prose.heading.font.as_deref(), Some("display"));
         assert_eq!(k.prose.quote.font.as_deref(), Some("armenian"));
         assert_eq!(k.prose.cite.font.as_deref(), Some("body"));
+        assert_eq!(k.prose.caption.font.as_deref(), Some("body"));
         let dump = k.describe();
         assert!(dump.contains("prose.text.color = \"#112233\""));
         assert!(dump.contains("prose.cite.underline = true"));
+        assert!(dump.contains("prose.caption.color = \"#556677\""));
         assert!(dump.contains("prose.heading.font = \"display\""));
         assert!(dump.contains("prose.text.font = \"body\""));
         assert!(dump.contains("prose.quote.font = \"armenian\""));
         assert!(dump.contains("prose.cite.font = \"body\""));
+        assert!(dump.contains("prose.caption.font = \"body\""));
         let bundled = LayoutKnobs::bundled().describe();
         assert!(
             !bundled.contains("prose.text.font"),
@@ -769,5 +932,7 @@ font = "body"
         assert!(!bundled.contains("prose.heading.font"));
         assert!(!bundled.contains("prose.quote.font"));
         assert!(!bundled.contains("prose.cite.font"));
+        assert!(!bundled.contains("prose.caption.font"));
+        assert!(!bundled.contains("prose.caption.color"));
     }
 }

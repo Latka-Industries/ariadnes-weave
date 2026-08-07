@@ -36,16 +36,21 @@ crates.io. Local suite work can still path-dep when cutting paired releases.
   [D-print-profile-axes](docs/decisions/D-print-profile-axes.md)
 - Layout knobs: named optical defaults in `defaults/*.toml` (prose / table /
   deck / math / page), overridable via `EmitOptions.layout`; quote body italic
-  by default (`[quote].italic`); optional `#RGB`/`#RRGGBB` fills for
-  `[text]` / `[quote]` / `[cite]` plus `[cite].underline`; optional category
+  by default (`[quote].italic`); figure captions via `[caption]` (`italic`,
+  `size_factor` vs body, `gap_after`); figure horizontal band via
+  `[figure].align` / `[figure].max_width_factor`; optional `#RGB`/`#RRGGBB`
+  fills for `[text]` / `[quote]` / `[caption]` / `[cite]` plus
+  `[cite].underline` and per-run `InlineStyle.underline`; optional category
   `font` pin ids (same namespace as `TextRun.face`); dump with
-  `cargo run --example dump_knobs` — see [`docs/layout-knobs.md`](docs/layout-knobs.md)
+  `cargo run --example dump_knobs` — see
+  [`docs/layout-knobs.md`](docs/layout-knobs.md)
 - Forced page breaks + keep-with-next + basic widow/orphan glue; page-number
   footers
 - Deterministic emit: sorted font object order + SHA-256 fixtures in
   `tests/determinism.rs`
 - `Table` → drawn grid + wrapped cells; `Figure` → PNG/JPEG XObject
-  `FloatNear` glue); `Slide` → one page with `layout_id` templates (`title-body`,
+  (`Flow` / `FloatNear` glue; `[figure].align` / `max_width_factor`);
+  `Slide` → one page with `layout_id` templates (`title-body`,
   `two-column`, …); `Math` → structured layout for
   `\frac`, multi-char scripts, and simple `matrix`/`pmatrix` (not full TeX)
 

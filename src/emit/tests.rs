@@ -41,13 +41,65 @@ fn hello_doc() -> PrintDocument {
     }
 }
 
-fn tiny_png_bytes() -> Vec<u8> {
-    let img: ImageBuffer<Rgb<u8>, Vec<u8>> =
-        ImageBuffer::from_fn(32, 24, |x, y| Rgb([x as u8 * 7, y as u8 * 9, 180]));
+fn rgb_png(w: u32, h: u32, pixel: impl Fn(u32, u32) -> Rgb<u8>) -> Vec<u8> {
+    let img: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::from_fn(w, h, pixel);
     let mut buf = std::io::Cursor::new(Vec::new());
     img.write_to(&mut buf, ImageFormat::Png)
         .expect("encode png");
     buf.into_inner()
+}
+
+fn png_image(w: u32, h: u32, bytes: Vec<u8>) -> PrintImage {
+    PrintImage {
+        bytes,
+        media_type: "image/png".into(),
+        width_px: Some(w),
+        height_px: Some(h),
+    }
+}
+
+fn tiny_png_bytes() -> Vec<u8> {
+    rgb_png(32, 24, |x, y| Rgb([x as u8 * 7, y as u8 * 9, 180]))
+}
+
+fn tiny_png_image() -> PrintImage {
+    png_image(32, 24, tiny_png_bytes())
+}
+
+fn note_doc(title: &str, blocks: Vec<PrintBlock>) -> PrintDocument {
+    PrintDocument {
+        meta: PrintMeta {
+            title: title.into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks,
+    }
+}
+
+fn figure_block(
+    image: PrintImage,
+    caption: impl Into<String>,
+    placement: FigurePlacement,
+) -> PrintBlock {
+    PrintBlock::Figure {
+        image,
+        alt: "swatch".into(),
+        caption: vec![TextRun::plain(caption)],
+        placement,
+    }
+}
+
+fn figure_with_caption(caption: impl Into<String>, placement: FigurePlacement) -> PrintBlock {
+    figure_block(tiny_png_image(), caption, placement)
+}
+
+fn emit_with_layout_tweak(doc: &PrintDocument, tweak: impl FnOnce(&mut LayoutKnobs)) -> Vec<u8> {
+    let mut layout = LayoutKnobs::bundled();
+    tweak(&mut layout);
+    emit_pdf_with(doc, &EmitOptions::bundled_only().with_layout(layout)).expect("emit")
 }
 
 #[test]
@@ -595,9 +647,9 @@ fn quote_only_doc(body: &str) -> PrintDocument {
 }
 
 fn emit_quote_with_italic(doc: &PrintDocument, italic: bool) -> Vec<u8> {
-    let mut layout = LayoutKnobs::bundled();
-    layout.prose.quote.italic = italic;
-    emit_pdf_with(doc, &EmitOptions::bundled_only().with_layout(layout)).expect("emit")
+    emit_with_layout_tweak(doc, |layout| {
+        layout.prose.quote.italic = italic;
+    })
 }
 
 fn embeds_roman_liberation_sans(pdf: &str) -> bool {
@@ -658,8 +710,140 @@ fn aesthetic_colors_and_cite_underline_affect_emit() {
 }
 
 #[test]
+fn caption_knobs_affect_figure_caption_paint() {
+    use crate::knobs::HexColor;
+
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "Caption knobs".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![figure_with_caption(
+            "Figure caption.",
+            FigurePlacement::Flow,
+        )],
+    };
+
+    let baseline = emit_pdf(&doc).expect("baseline");
+    let baseline_s = String::from_utf8_lossy(&baseline);
+    assert!(
+        baseline_s.contains("LiberationSans-Italic"),
+        "default [caption].italic should italicize figure captions"
+    );
+
+    let mut layout = LayoutKnobs::bundled();
+    layout.prose.caption.color = Some(HexColor::parse("#336699").unwrap());
+    layout.prose.caption.italic = false;
+    layout.prose.caption.size_factor = 1.2;
+    let styled =
+        emit_pdf_with(&doc, &EmitOptions::bundled_only().with_layout(layout)).expect("styled");
+
+    assert_ne!(baseline, styled);
+    let s = String::from_utf8_lossy(&styled);
+    assert!(
+        s.contains("0.2") && s.contains("0.4") && s.contains("0.6"),
+        "expected caption color RGB components in content stream: {s}"
+    );
+    assert!(
+        embeds_roman_liberation_sans(&s),
+        "caption.italic = false should keep caption body on roman LiberationSans"
+    );
+}
+
+#[test]
+fn figure_align_and_max_width_factor_affect_emit() {
+    use crate::knobs::FigureAlign;
+
+    // Mid-width: narrower than full content (~403pt) so align shifts x, but wide
+    // enough that max_width_factor 0.4 forces fit_width to scale.
+    let image = png_image(
+        280,
+        80,
+        rgb_png(280, 80, |x, y| Rgb([(x % 256) as u8, (y % 256) as u8, 90])),
+    );
+    let doc = note_doc(
+        "Figure align",
+        vec![figure_block(
+            image,
+            "Aligned caption.",
+            FigurePlacement::Flow,
+        )],
+    );
+
+    let baseline = emit_pdf(&doc).expect("baseline");
+
+    let center_pdf = emit_with_layout_tweak(&doc, |layout| {
+        layout.prose.figure.align = FigureAlign::Center;
+    });
+    assert_ne!(
+        baseline, center_pdf,
+        "figure.align = center should change emit vs left"
+    );
+
+    let narrow_pdf = emit_with_layout_tweak(&doc, |layout| {
+        layout.prose.figure.max_width_factor = 0.4;
+    });
+    assert_ne!(
+        baseline, narrow_pdf,
+        "figure.max_width_factor < 1 should change emit"
+    );
+
+    let right_pdf = emit_with_layout_tweak(&doc, |layout| {
+        layout.prose.figure.align = FigureAlign::Right;
+        layout.prose.figure.max_width_factor = 0.5;
+    });
+    assert_ne!(center_pdf, right_pdf);
+    assert_ne!(narrow_pdf, right_pdf);
+}
+
+#[test]
+fn inline_style_underline_without_cite() {
+    let plain = PrintDocument {
+        meta: PrintMeta {
+            title: "Underline".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::Paragraph {
+            runs: vec![TextRun::plain("No underline.")],
+        }],
+    };
+    let underlined = PrintDocument {
+        meta: plain.meta.clone(),
+        profile: plain.profile.clone(),
+        blocks: vec![PrintBlock::Paragraph {
+            runs: vec![TextRun {
+                text: "Underlined.".into(),
+                style: InlineStyle {
+                    underline: true,
+                    ..InlineStyle::default()
+                },
+                face: None,
+            }],
+        }],
+    };
+
+    let plain_pdf = emit_pdf(&plain).expect("plain");
+    let under_pdf = emit_pdf(&underlined).expect("underlined");
+    assert_ne!(
+        plain_pdf, under_pdf,
+        "InlineStyle.underline should change emit without requiring cite"
+    );
+    // Underline paint strokes a line; plain paragraph body text alone should not.
+    let under_s = String::from_utf8_lossy(&under_pdf);
+    assert!(
+        under_s.contains(" re") || under_s.contains("\nS\n") || under_s.contains(" S\n"),
+        "expected stroke ops from underline paint: {under_s}"
+    );
+}
+
+#[test]
 fn figure_png_embeds_xobject() {
-    let png = tiny_png_bytes();
     let doc = PrintDocument {
         meta: PrintMeta {
             title: "Fig".into(),
@@ -674,17 +858,7 @@ fn figure_png_embeds_xobject() {
                 runs: vec![TextRun::plain("With figure")],
                 break_before: BreakHint::None,
             },
-            PrintBlock::Figure {
-                image: PrintImage {
-                    bytes: png,
-                    media_type: "image/png".into(),
-                    width_px: Some(32),
-                    height_px: Some(24),
-                },
-                alt: "swatch".into(),
-                caption: vec![TextRun::plain("A tiny PNG.")],
-                placement: FigurePlacement::Flow,
-            },
+            figure_with_caption("A tiny PNG.", FigurePlacement::Flow),
         ],
     };
     let bytes = emit_pdf(&doc).expect("emit");
@@ -862,7 +1036,6 @@ fn math_pmatrix_emits() {
 
 #[test]
 fn float_near_figure_emits() {
-    let png = tiny_png_bytes();
     let doc = PrintDocument {
         meta: PrintMeta {
             title: "Float".into(),
@@ -875,17 +1048,7 @@ fn float_near_figure_emits() {
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain("See the figure nearby.")],
             },
-            PrintBlock::Figure {
-                image: PrintImage {
-                    bytes: png,
-                    media_type: "image/png".into(),
-                    width_px: Some(32),
-                    height_px: Some(24),
-                },
-                alt: "swatch".into(),
-                caption: vec![TextRun::plain("Caption.")],
-                placement: FigurePlacement::FloatNear,
-            },
+            figure_with_caption("Caption.", FigurePlacement::FloatNear),
         ],
     };
     assert!(emit_pdf(&doc).expect("emit").starts_with(b"%PDF-"));

@@ -3,7 +3,7 @@
 use crate::error::WeaveError;
 use crate::font::{FaceId, FaceRef, FontBag, shape_text_with_fallback, shaped_runs_width};
 use crate::ir::{InlineStyle, TextRun};
-use crate::knobs::LayoutKnobs;
+use crate::knobs::{LayoutKnobs, ProseFontCategory};
 use crate::profile::ProfileMetrics;
 
 use super::super::types::{
@@ -43,6 +43,44 @@ pub(super) fn body_layout(
     }
 }
 
+/// Caption layout: body size × `[caption].size_factor`, caption gap / paint.
+///
+/// Uses `[figure].align` + `band_width` so the caption shares the image’s
+/// horizontal band (same indent and wrap measure).
+pub(super) fn caption_layout(
+    metrics: &ProfileMetrics,
+    knobs: &LayoutKnobs,
+    band_width: f32,
+) -> RunLayout {
+    let font_size = metrics.body_size * knobs.prose.caption.size_factor;
+    let indent = knobs
+        .prose
+        .figure
+        .align
+        .offset_x(metrics.content_width(), band_width);
+    RunLayout {
+        font_size,
+        leading: font_size * knobs.prose.caption.leading_factor,
+        gap_after: knobs.prose.caption.gap_after,
+        glue_last_content: false,
+        mode: FaceMode::Body,
+        indent,
+        max_width: Some(band_width.max(knobs.prose.wrap.min_width)),
+        paint: PaintCategory::Caption,
+    }
+}
+
+/// Clone runs, OR-ing `emphasis` when `italic` is set (quote / caption knobs).
+pub(super) fn with_knob_italic(runs: &[TextRun], italic: bool) -> Vec<TextRun> {
+    runs.iter()
+        .cloned()
+        .map(|mut run| {
+            run.style.emphasis |= italic;
+            run
+        })
+        .collect()
+}
+
 pub(super) fn resolve_face(
     style: InlineStyle,
     metrics: &ProfileMetrics,
@@ -61,6 +99,13 @@ pub(super) fn resolve_face(
     FaceRef::Bundled(id)
 }
 
+fn font_category(mode: FaceMode, paint: PaintCategory) -> ProseFontCategory {
+    match mode {
+        FaceMode::Heading => ProseFontCategory::Heading,
+        FaceMode::Body => ProseFontCategory::from(paint),
+    }
+}
+
 pub(super) fn resolve_run_face(
     run: &TextRun,
     metrics: &ProfileMetrics,
@@ -69,11 +114,9 @@ pub(super) fn resolve_run_face(
     knobs: &LayoutKnobs,
     paint: PaintCategory,
 ) -> Result<FaceRef, WeaveError> {
-    let category_pin = knobs.prose.category_font_pin(
-        run.style.cite,
-        matches!(mode, FaceMode::Heading),
-        paint.is_quote(),
-    );
+    let category_pin = knobs
+        .prose
+        .category_font_pin(run.style.cite, font_category(mode, paint));
     let effective = run.face.as_deref().or(category_pin);
     if let Some(id) = effective {
         #[cfg(feature = "os-fonts")]
@@ -141,10 +184,10 @@ pub(super) fn push_styled_runs(
             ctx.knobs,
             layout.paint,
         )?;
-        let (fill, underline) = ctx
-            .knobs
-            .prose
-            .run_paint_rgb01(run.style.cite, layout.paint.is_quote());
+        let (fill, underline) =
+            ctx.knobs
+                .prose
+                .run_paint_rgb01(run.style.cite, layout.paint, run.style.underline);
         let mut remaining = run.text.as_str();
         while !remaining.is_empty() {
             let (chunk, rest) = next_wrap_chunk(remaining);
@@ -208,7 +251,7 @@ fn apply_widow_orphan(items: &mut [LaidItem]) {
         .iter()
         .enumerate()
         .filter_map(|(i, item)| match item {
-            LaidItem::Text(line) if !line.spans.is_empty() => Some(i),
+            LaidItem::Text(line) if !line.is_gap() => Some(i),
             _ => None,
         })
         .collect();
