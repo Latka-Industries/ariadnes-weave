@@ -1,11 +1,13 @@
 //! Build PDF content streams from laid items (text, images, tables).
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use pdf_writer::types::LineCapStyle;
 use pdf_writer::{Content, Name, Str};
 
 use crate::error::WeaveError;
 use crate::font::{FaceId, FaceRef, FontBag, encode_gids, shape_text, shaped_width};
-use crate::knobs::{LayoutKnobs, PageChromeKnobs};
+use crate::knobs::{LayoutKnobs, PageChromeKnobs, TextAlign};
 use crate::profile::ProfileMetrics;
 
 use super::types::{LaidColumns, LaidItem, LaidMath, LaidMathEl, LaidSpan, LaidTable, SubsetMap};
@@ -44,6 +46,27 @@ fn paint_span_text(
     content.show(Str(&encode_gids(&span.glyphs)));
 }
 
+fn stroke_span_underline(
+    content: &mut Content,
+    span: &LaidSpan,
+    origin_x: f32,
+    baseline_y: f32,
+    width: f32,
+) {
+    if !span.underline || width <= 0.0 {
+        return;
+    }
+    let [red, green, blue] = span.fill;
+    let underline_y = baseline_y - span.font_size * 0.12;
+    content.save_state();
+    content.set_stroke_rgb(red, green, blue);
+    content.set_line_width((span.font_size * 0.06).max(0.4));
+    content.move_to(origin_x, underline_y);
+    content.line_to(origin_x + width, underline_y);
+    content.stroke();
+    content.restore_state();
+}
+
 fn paint_span_underlines(
     content: &mut Content,
     spans: &[LaidSpan],
@@ -52,17 +75,7 @@ fn paint_span_underlines(
 ) {
     for span in spans {
         let width = shaped_width(&span.glyphs);
-        if span.underline && width > 0.0 {
-            let [red, green, blue] = span.fill;
-            let underline_y = baseline_y - span.font_size * 0.12;
-            content.save_state();
-            content.set_stroke_rgb(red, green, blue);
-            content.set_line_width((span.font_size * 0.06).max(0.4));
-            content.move_to(origin_x, underline_y);
-            content.line_to(origin_x + width, underline_y);
-            content.stroke();
-            content.restore_state();
-        }
+        stroke_span_underline(content, span, origin_x, baseline_y, width);
         origin_x += width;
     }
 }
@@ -86,6 +99,168 @@ fn paint_laid_spans(
     }
     content.end_text();
     paint_span_underlines(content, spans, origin_x, baseline_y);
+}
+
+/// Per-line justify geometry: stretch slots, discarded trailing WS, optical width.
+struct JustifyPlan {
+    space_slots: Vec<(usize, usize)>,
+    trailing: BTreeSet<(usize, usize)>,
+    /// Advance width excluding trailing WS, with last glyph ink flush.
+    natural: f32,
+}
+
+fn plan_justify(spans: &[LaidSpan]) -> JustifyPlan {
+    let mut space_slots: Vec<(usize, usize)> = Vec::new();
+    for (si, span) in spans.iter().enumerate() {
+        for (gi, glyph) in span.glyphs.iter().enumerate() {
+            if glyph.is_whitespace {
+                space_slots.push((si, gi));
+            }
+        }
+    }
+    let mut trailing = BTreeSet::new();
+    while space_slots
+        .last()
+        .is_some_and(|&(si, gi)| is_line_tail_whitespace(spans, si, gi))
+    {
+        if let Some(slot) = space_slots.pop() {
+            trailing.insert(slot);
+        }
+    }
+
+    let mut natural_advance = 0.0_f32;
+    let mut last_non_ws = None;
+    for (si, span) in spans.iter().enumerate() {
+        for (gi, glyph) in span.glyphs.iter().enumerate() {
+            if trailing.contains(&(si, gi)) {
+                continue;
+            }
+            natural_advance += glyph.advance;
+            if !glyph.is_whitespace {
+                last_non_ws = Some(*glyph);
+            }
+        }
+    }
+    let natural = match last_non_ws {
+        Some(glyph) if glyph.ink_x_max > 0.0 && glyph.ink_x_max < glyph.advance => {
+            natural_advance - glyph.advance + glyph.ink_x_max
+        }
+        _ => natural_advance,
+    };
+    JustifyPlan {
+        space_slots,
+        trailing,
+        natural,
+    }
+}
+
+/// Word-justify spans across `measure` by padding inter-word whitespace advances.
+///
+/// Trailing whitespace is discarded for width/slack (and not painted). Slack is
+/// computed so the **ink** of the last glyph (not its advance box) meets the band
+/// end — otherwise side-bearing leaves a visible hairline short of the figure edge.
+fn paint_justified_spans(
+    content: &mut Content,
+    fonts: &FontBag,
+    spans: &[LaidSpan],
+    origin_x: f32,
+    baseline_y: f32,
+    measure: f32,
+) {
+    if spans.is_empty() {
+        return;
+    }
+    let plan = plan_justify(spans);
+    let slack = (measure - plan.natural).max(0.0);
+    let space_pads = distribute_justify_pads(&plan.space_slots, slack);
+
+    content.begin_text();
+    let mut x = origin_x;
+    for (si, span) in spans.iter().enumerate() {
+        if let Some([red, green, blue]) = non_black_rgb(span.fill) {
+            content.set_fill_rgb(red, green, blue);
+        }
+        let face_name = fonts.resource_name(span.face);
+        content.set_font(Name(&face_name), span.font_size);
+        for (gi, glyph) in span.glyphs.iter().enumerate() {
+            if plan.trailing.contains(&(si, gi)) {
+                continue;
+            }
+            content.set_text_matrix([1.0, 0.0, 0.0, 1.0, x, baseline_y]);
+            content.show(Str(&encode_gids(std::slice::from_ref(glyph))));
+            x += glyph.advance;
+            if let Some(&pad) = space_pads.get(&(si, gi)) {
+                x += pad;
+            }
+        }
+    }
+    content.end_text();
+    paint_span_underlines_justified(
+        content,
+        spans,
+        origin_x,
+        baseline_y,
+        &space_pads,
+        &plan.trailing,
+    );
+}
+
+/// Equal gap pads with residual on the last slot so advances sum exactly to slack.
+fn distribute_justify_pads(
+    space_slots: &[(usize, usize)],
+    slack: f32,
+) -> BTreeMap<(usize, usize), f32> {
+    let mut pads = BTreeMap::new();
+    if space_slots.is_empty() || slack <= 0.0 {
+        return pads;
+    }
+    let n = space_slots.len();
+    let each = slack / n as f32;
+    let mut used = 0.0_f32;
+    for (i, &slot) in space_slots.iter().enumerate() {
+        let pad = if i + 1 == n {
+            (slack - used).max(0.0)
+        } else {
+            each
+        };
+        used += pad;
+        pads.insert(slot, pad);
+    }
+    pads
+}
+
+fn is_line_tail_whitespace(spans: &[LaidSpan], span_i: usize, glyph_i: usize) -> bool {
+    // True when every glyph after (span_i, glyph_i) is also whitespace (or absent).
+    for (si, span) in spans.iter().enumerate().skip(span_i) {
+        let start = if si == span_i { glyph_i + 1 } else { 0 };
+        for glyph in span.glyphs.iter().skip(start) {
+            if !glyph.is_whitespace {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+fn paint_span_underlines_justified(
+    content: &mut Content,
+    spans: &[LaidSpan],
+    mut origin_x: f32,
+    baseline_y: f32,
+    space_pads: &BTreeMap<(usize, usize), f32>,
+    trailing: &BTreeSet<(usize, usize)>,
+) {
+    for (si, span) in spans.iter().enumerate() {
+        let width: f32 = span
+            .glyphs
+            .iter()
+            .enumerate()
+            .filter(|(gi, _)| !trailing.contains(&(si, *gi)))
+            .map(|(gi, g)| g.advance + space_pads.get(&(si, gi)).copied().unwrap_or(0.0))
+            .sum();
+        stroke_span_underline(content, span, origin_x, baseline_y, width);
+        origin_x += width;
+    }
 }
 
 /// `Some(rgb)` when fill is not engine black (omit ops to keep default PDFs byte-stable).
@@ -160,12 +335,24 @@ fn paint_page_item(
                 return false;
             }
             if !line.is_gap() {
-                let x = metrics.margin
-                    + line.indent
-                    + line
-                        .text_align
-                        .offset_x(line.measure.max(line.width()), line.width());
-                paint_laid_spans(content, fonts, &line.spans, x, *y);
+                let origin_x = metrics.margin + line.indent;
+                match line.text_align {
+                    TextAlign::Justify => {
+                        paint_justified_spans(
+                            content,
+                            fonts,
+                            &line.spans,
+                            origin_x,
+                            *y,
+                            line.measure.max(line.width()),
+                        );
+                    }
+                    align => {
+                        let x =
+                            origin_x + align.offset_x(line.measure.max(line.width()), line.width());
+                        paint_laid_spans(content, fonts, &line.spans, x, *y);
+                    }
+                }
             }
         }
         LaidItem::Image {

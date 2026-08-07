@@ -2,6 +2,7 @@
 
 [paragraph]
 gap_after = 10.0
+text_align = "left"
 
 [heading]
 leading_factor = 1.35

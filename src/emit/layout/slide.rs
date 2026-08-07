@@ -3,7 +3,7 @@
 use crate::error::WeaveError;
 use crate::font::{FaceId, FaceRef};
 use crate::ir::{InlineStyle, SlideRegionContent, TextRun};
-use crate::knobs::{FigureAlign, LayoutKnobs};
+use crate::knobs::{LayoutKnobs, TextAlign};
 
 use super::super::types::{
     FaceMode, ForcedBreak, LaidColumns, LaidItem, LaidLine, LayoutSegment, PaintCategory, RunLayout,
@@ -285,7 +285,7 @@ fn push_slide_body_regions(
                     max_width: None,
                     paint: PaintCategory::Text,
                     hard_break_overflow: true,
-                    text_align: FigureAlign::Left,
+                    text_align: TextAlign::Left,
                 },
             )?;
         }
@@ -338,7 +338,7 @@ fn run_layout_body(size: f32, gap: f32, max_width: Option<f32>, knobs: &LayoutKn
         max_width,
         paint: PaintCategory::Text,
         hard_break_overflow: true,
-        text_align: FigureAlign::Left,
+        text_align: TextAlign::Left,
     }
 }
 
@@ -353,6 +353,6 @@ fn run_layout_heading_size(size: f32, gap: f32) -> RunLayout {
         max_width: None,
         paint: PaintCategory::Text,
         hard_break_overflow: true,
-        text_align: FigureAlign::Left,
+        text_align: TextAlign::Left,
     }
 }
