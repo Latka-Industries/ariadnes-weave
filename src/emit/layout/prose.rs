@@ -3,6 +3,7 @@
 use crate::error::WeaveError;
 use crate::font::{FaceId, FaceRef};
 use crate::ir::{BreakHint, InlineStyle, PrintBlock, TextRun};
+use crate::knobs::FigureAlign;
 use crate::profile;
 
 use super::super::types::{
@@ -41,6 +42,8 @@ pub(super) fn layout_heading(
             indent: 0.0,
             max_width: None,
             paint: PaintCategory::Text,
+            hard_break_overflow: true,
+            text_align: FigureAlign::Left,
         },
     )
 }
@@ -133,6 +136,8 @@ pub(super) fn push_list_lines(
                 indent: ctx.knobs.prose.list.indent_per_depth * depth as f32,
                 max_width: None,
                 paint: PaintCategory::Text,
+                hard_break_overflow: true,
+                text_align: FigureAlign::Left,
             },
         )?;
         for child in &item.children {

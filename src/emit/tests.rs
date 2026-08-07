@@ -3,12 +3,16 @@
 use super::math::prettify_latex_math;
 use super::{emit_pdf, emit_pdf_with};
 use crate::error::WeaveError;
+use crate::font::{FaceId, FaceRef, FontBag, shape_text, shaped_width};
 use crate::ir::{
     BreakHint, EmAmount, FigurePlacement, InlineStyle, LayoutOp, MeasureFrac, PlaceSkip,
     PrintBlock, PrintDocument, PrintImage, PrintMeta, PrintProfileId, RuleWidth,
     SlideRegionContent, TableRow, TextRun, VspaceAmount,
 };
-use crate::knobs::LayoutKnobs;
+use crate::knobs::{
+    CaptionBand, CaptionOverflow, FigureAlign, FigureTextAlign, FigureTitleAlign, HexColor,
+    LayoutKnobs,
+};
 use crate::options::EmitOptions;
 use crate::profile::{self, PageSize};
 use image::{ImageBuffer, ImageFormat, Rgb};
@@ -87,6 +91,7 @@ fn figure_block(
     PrintBlock::Figure {
         image,
         alt: "swatch".into(),
+        title: Vec::new(),
         caption: vec![TextRun::plain(caption)],
         placement,
     }
@@ -111,8 +116,6 @@ fn emits_pdf_magic() {
 
 #[test]
 fn prose_word_spacing_is_wider_than_glued_words() {
-    use crate::font::{FaceId, FaceRef, FontBag, shape_text, shaped_width};
-
     let fonts = FontBag::from_pinned(&Default::default()).expect("fonts");
     let face = FaceRef::Bundled(FaceId::SansRegular);
     // Layout keeps trailing spaces from wrap chunks; glued words must be narrower.
@@ -660,8 +663,6 @@ fn embeds_roman_liberation_sans(pdf: &str) -> bool {
 
 #[test]
 fn aesthetic_colors_and_cite_underline_affect_emit() {
-    use crate::knobs::HexColor;
-
     let doc = PrintDocument {
         meta: PrintMeta {
             title: "Aesthetic".into(),
@@ -711,8 +712,6 @@ fn aesthetic_colors_and_cite_underline_affect_emit() {
 
 #[test]
 fn caption_knobs_affect_figure_caption_paint() {
-    use crate::knobs::HexColor;
-
     let doc = PrintDocument {
         meta: PrintMeta {
             title: "Caption knobs".into(),
@@ -755,8 +754,6 @@ fn caption_knobs_affect_figure_caption_paint() {
 
 #[test]
 fn figure_align_and_max_width_factor_affect_emit() {
-    use crate::knobs::FigureAlign;
-
     // Mid-width: narrower than full content (~403pt) so align shifts x, but wide
     // enough that max_width_factor 0.4 forces fit_width to scale.
     let image = png_image(
@@ -775,12 +772,12 @@ fn figure_align_and_max_width_factor_affect_emit() {
 
     let baseline = emit_pdf(&doc).expect("baseline");
 
-    let center_pdf = emit_with_layout_tweak(&doc, |layout| {
-        layout.prose.figure.align = FigureAlign::Center;
+    let left_pdf = emit_with_layout_tweak(&doc, |layout| {
+        layout.prose.figure.align = FigureAlign::Left;
     });
     assert_ne!(
-        baseline, center_pdf,
-        "figure.align = center should change emit vs left"
+        baseline, left_pdf,
+        "figure.align = left should change emit vs bundled center"
     );
 
     let narrow_pdf = emit_with_layout_tweak(&doc, |layout| {
@@ -795,8 +792,140 @@ fn figure_align_and_max_width_factor_affect_emit() {
         layout.prose.figure.align = FigureAlign::Right;
         layout.prose.figure.max_width_factor = 0.5;
     });
-    assert_ne!(center_pdf, right_pdf);
+    assert_ne!(left_pdf, right_pdf);
     assert_ne!(narrow_pdf, right_pdf);
+}
+
+#[test]
+fn figure_gap_after_title_affects_emit() {
+    let image = png_image(
+        280,
+        80,
+        rgb_png(280, 80, |x, y| Rgb([(x % 256) as u8, (y % 256) as u8, 3])),
+    );
+    let doc = note_doc(
+        "gap title",
+        vec![PrintBlock::Figure {
+            image,
+            alt: "a".into(),
+            title: vec![TextRun::plain("Title")],
+            caption: vec![TextRun::plain("Cap")],
+            placement: FigurePlacement::Flow,
+        }],
+    );
+    let tight = emit_with_layout_tweak(&doc, |l| l.prose.figure.gap_after_title = 0.0);
+    let loose = emit_with_layout_tweak(&doc, |l| l.prose.figure.gap_after_title = 24.0);
+    assert_ne!(tight, loose, "gap_after_title should change emit");
+}
+
+#[test]
+fn figure_title_align_and_caption_band_affect_emit() {
+    let image = png_image(
+        280,
+        80,
+        rgb_png(280, 80, |x, y| Rgb([(x % 256) as u8, (y % 256) as u8, 90])),
+    );
+    let title = TextRun::strong("Figure title on the figure");
+    let doc = note_doc(
+        "Figure title",
+        vec![PrintBlock::Figure {
+            image,
+            alt: "mid".into(),
+            title: vec![title],
+            caption: vec![TextRun::plain(
+                "Caption under a mid-width image for band checks.",
+            )],
+            placement: FigurePlacement::Flow,
+        }],
+    );
+
+    let follow = emit_with_layout_tweak(&doc, |layout| {
+        layout.prose.figure.align = FigureAlign::Center;
+        layout.prose.figure.title_align = FigureTitleAlign::Follow;
+    });
+    let title_left = emit_with_layout_tweak(&doc, |layout| {
+        layout.prose.figure.align = FigureAlign::Center;
+        layout.prose.figure.title_align = FigureTitleAlign::Left;
+    });
+    assert_ne!(
+        follow, title_left,
+        "title_align = left should differ from follow when figure is centered"
+    );
+
+    let match_band = emit_with_layout_tweak(&doc, |layout| {
+        layout.prose.figure.align = FigureAlign::Center;
+        layout.prose.figure.max_width_factor = 0.4;
+        layout.prose.caption.band = CaptionBand::MatchFigure;
+    });
+    let full_band = emit_with_layout_tweak(&doc, |layout| {
+        layout.prose.figure.align = FigureAlign::Center;
+        layout.prose.figure.max_width_factor = 0.4;
+        layout.prose.caption.band = CaptionBand::FullMeasure;
+    });
+    assert_ne!(
+        match_band, full_band,
+        "caption.band = full_measure should differ from match_figure"
+    );
+
+    let follow_text = emit_with_layout_tweak(&doc, |layout| {
+        layout.prose.figure.align = FigureAlign::Center;
+        layout.prose.figure.max_width_factor = 0.5;
+        layout.prose.figure.title_text_align = FigureTextAlign::Follow;
+        layout.prose.caption.text_align = FigureTextAlign::Follow;
+    });
+    let left_text = emit_with_layout_tweak(&doc, |layout| {
+        layout.prose.figure.align = FigureAlign::Center;
+        layout.prose.figure.max_width_factor = 0.5;
+        layout.prose.figure.title_text_align = FigureTextAlign::Left;
+        layout.prose.caption.text_align = FigureTextAlign::Left;
+    });
+    assert_ne!(
+        follow_text, left_text,
+        "in-band text_align follow (center) should differ from forced left"
+    );
+
+    let defaults = emit_pdf(&doc).expect("defaults");
+    let title_left = emit_with_layout_tweak(&doc, |layout| {
+        layout.prose.figure.title_text_align = FigureTextAlign::Left;
+    });
+    assert_ne!(
+        defaults, title_left,
+        "bundled title_text_align = center should differ from left"
+    );
+}
+
+#[test]
+fn caption_overflow_soft_only_differs_from_hard_break() {
+    // Narrow band + long unbreakable token exercises overflow policy.
+    let image = png_image(
+        280,
+        40,
+        rgb_png(280, 40, |x, y| Rgb([(x % 256) as u8, y as u8, 40])),
+    );
+    let long = "X".repeat(80);
+    let doc = note_doc(
+        "Caption overflow",
+        vec![PrintBlock::Figure {
+            image,
+            alt: "mid".into(),
+            title: Vec::new(),
+            caption: vec![TextRun::plain(long)],
+            placement: FigurePlacement::Flow,
+        }],
+    );
+
+    let hard = emit_with_layout_tweak(&doc, |layout| {
+        layout.prose.figure.max_width_factor = 0.2;
+        layout.prose.caption.overflow = CaptionOverflow::HardBreak;
+    });
+    let soft = emit_with_layout_tweak(&doc, |layout| {
+        layout.prose.figure.max_width_factor = 0.2;
+        layout.prose.caption.overflow = CaptionOverflow::SoftOnly;
+    });
+    assert_ne!(
+        hard, soft,
+        "caption.overflow soft_only should change emit vs hard_break"
+    );
 }
 
 #[test]

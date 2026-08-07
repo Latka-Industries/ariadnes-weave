@@ -32,11 +32,12 @@ Per-run underline also paints when `InlineStyle.underline` is set (independent o
 
 `[caption]` applies to `PrintBlock::Figure` caption runs only (v1). Non-figure Tessera caption paragraphs (`Paragraph` + emphasis stand-in) do not pick these up until a `Caption` IR or Tessera bridge lands.
 
-Figure vertical stack (Tessera title chunk = prior `Paragraph` + strong):
+Figure vertical stack:
 
 | Gap | Knob |
 |-----|------|
-| Prior content / title → image | `[figure].gap_before` (replaces the prior block's trailing gap) |
+| Prior content → title/image | `[figure].gap_before` (replaces the prior block's trailing gap) |
+| Title → image | `[figure].gap_after_title` |
 | Image → caption | `[figure].gap_after_image` |
 | Caption line box | `[caption].leading_factor` × caption size |
 | Caption → following | `[caption].gap_after` |
@@ -50,36 +51,31 @@ Figure vertical stack (Tessera title chunk = prior `Paragraph` + strong):
 | `[caption].gap_after` | Gap after a figure caption (points) |
 | `[caption].color` | Optional fill (see above) |
 | `[caption].font` | Optional category font pin (see below) |
-| `[figure].gap_before` | Gap before the image; replaces prior trailing gap (bundled `6`) |
+| `[figure].gap_before` | Gap before the figure stack; replaces prior trailing gap (bundled `6`) |
+| `[figure].gap_after_title` | Gap between `Figure.title` and the image (bundled `18`) |
 | `[figure].gap_after_image` | Gap between image bottom and next item / caption (bundled `2`) |
-| `[figure].align` | Horizontal band: `left` / `center` / `right` (bundled `left`) |
+| `[figure].align` | Horizontal band: `center` / `left` / `right` (bundled `center`) |
 | `[figure].max_width_factor` | Cap image width as a factor of content width (`(0, 1]`; bundled `1.0`) |
+| `[figure].title_align` | Title **band** placement: `follow` / `left` / `center` / `right` (bundled `follow`) |
+| `[figure].title_text_align` | Title **text** within the band: `center` / `left` / `right` / `follow` (bundled `center`) |
+| `[caption].band` | `match_figure` (image indent + wrap width) or `full_measure` (bundled `match_figure`) |
+| `[caption].text_align` | Caption **text** within its measure: `left` / `center` / `right` / `follow` (bundled `left`) |
+| `[caption].overflow` | Overlong token: `hard_break` or `soft_only` (bundled `hard_break`) |
 
-`align` and `max_width_factor` apply to the image and its caption together: fit width is `factor × content_width`, then the band is placed left/center/right. Caption wrap uses the same band width and indent.
+`align` and `max_width_factor` size/place the image band. Title band placement defaults to `follow`. Title **text** defaults to **center** in that band; caption **text** defaults to **left** (flush to the figure edge) while the caption band still matches the figure. `follow` on text_align means “same as figure `align`”. Soft wrap at spaces always runs; `overflow` only controls mid-word splitting. True word-justify is not implemented yet.
+
+Figure title lives on `PrintBlock::Figure.title` (empty = none). Prefer that over a prior `Paragraph`+strong stand-in so title can share the figure band.
 
 Size is **`size_factor` vs body**, not absolute points — profiles keep owning body size.
 
 ### Figure placement (today)
 
-Horizontal geometry is knob-driven (`align`, `max_width_factor`). Vertical policy stays sealed reading-order:
+Horizontal geometry is knob-driven (`align`, `max_width_factor`, `title_align`, caption `band` / `overflow`). Vertical policy stays sealed reading-order:
 
 - `FigurePlacement::Flow` — normal order
 - `FigurePlacement::FloatNear` — same order + keep-with-previous glue (not true float / wrap)
 
 Deferred: top/bottom page float, text wrap beside figures, freeform x/y. D24 `\layout{place/vspace/rule}` stays separate from `\figure{}`.
-
-### Next PR (locked)
-
-Not in this release — [THI-383](https://linear.app/thicclatka/issue/THI-383) after #15:
-
-| Item | Default | Notes |
-|------|---------|--------|
-| `PrintBlock::Figure.title: Vec<TextRun>` | empty | Title on the figure (replace Tessera prior-`Paragraph`+strong hack) |
-| `[figure].title_align` | `follow` | `follow` = same as `[figure].align`; or force `left` / `center` / `right`. Band width matches the image |
-| `[caption].band` | `match_figure` | `match_figure` = today’s indent + wrap width; `full_measure` = content-left, full wrap |
-| `[caption].overflow` | `hard_break` | Overlong token: `hard_break` (split) vs `soft_only` (whitespace wrap only; may stick out) |
-
-Soft wrap at spaces stays on whenever caption lays multiple lines; `overflow` only controls mid-word splitting.
 
 ## Category fonts (optional)
 

@@ -1,14 +1,15 @@
-//! Spot-check: body + title + figure caption → `tmp/caption_spotcheck*.pdf`
+//! Spot-check: body + figure title/caption → `tmp/caption_spotcheck*.pdf`
 //!
-//! Tessera-shaped IR: body paragraph, title as `Paragraph`+`strong`, figure caption.
-//! Includes horizontal-band variants (`align`, `max_width_factor`).
+//! Includes caption in-band text align variants (left / center / right) on a
+//! wrapping caption, plus figure band knobs.
 //!
 //! ```bash
 //! cargo run --example caption_spotcheck
 //! ```
 use ariadnes_weave::{
-    EmitOptions, FigureAlign, FigurePlacement, HexColor, InlineStyle, LayoutKnobs, PrintBlock,
-    PrintDocument, PrintImage, PrintMeta, PrintProfileId, TextRun, emit_pdf, emit_pdf_with,
+    CaptionBand, CaptionOverflow, EmitOptions, FigureAlign, FigurePlacement, FigureTextAlign,
+    FigureTitleAlign, HexColor, LayoutKnobs, PrintBlock, PrintDocument, PrintImage, PrintMeta,
+    PrintProfileId, TextRun, emit_pdf, emit_pdf_with,
 };
 use image::{ImageBuffer, ImageFormat, Rgb};
 
@@ -22,15 +23,12 @@ fn figure_png() -> Vec<u8> {
     buf.into_inner()
 }
 
-fn title_run(text: &str) -> TextRun {
-    TextRun {
-        text: text.into(),
-        style: InlineStyle {
-            strong: true,
-            ..InlineStyle::default()
-        },
-        face: None,
-    }
+fn wrapping_caption() -> TextRun {
+    TextRun::plain(
+        "Wrapping caption for text_align: left sits on the band start, center balances \
+         each line in the band, right packs to the band end. Same figure asset and \
+         narrow max_width so wrap is obvious across several lines.",
+    )
 }
 
 fn doc() -> PrintDocument {
@@ -48,10 +46,6 @@ fn doc() -> PrintDocument {
                     "Body copy for size contrast — ordinary paragraph before the figure.",
                 )],
             },
-            // Tessera text-chunk `title` stand-in: Paragraph + strong (not Heading).
-            PrintBlock::Paragraph {
-                runs: vec![title_run("Figure title (Tessera title chunk → strong)")],
-            },
             PrintBlock::Figure {
                 image: PrintImage {
                     bytes: figure_png(),
@@ -60,9 +54,8 @@ fn doc() -> PrintDocument {
                     height_px: Some(100),
                 },
                 alt: "swatch".into(),
-                caption: vec![TextRun::plain(
-                    "Figure caption shares the image band — wrap should follow align/width, not full measure.",
-                )],
+                title: vec![TextRun::strong("Figure title (Figure.title + title_align)")],
+                caption: vec![wrapping_caption()],
                 placement: FigurePlacement::Flow,
             },
             PrintBlock::Paragraph {
@@ -90,6 +83,13 @@ fn write_layout(name: &str, doc: &PrintDocument, tweak: impl FnOnce(&mut LayoutK
 
 type SpotVariant = (&'static str, fn(&mut LayoutKnobs));
 
+fn caption_text_align(align: FigureTextAlign) -> impl FnOnce(&mut LayoutKnobs) {
+    move |layout| {
+        layout.prose.figure.max_width_factor = 0.42;
+        layout.prose.caption.text_align = align;
+    }
+}
+
 fn main() {
     let d = doc();
     write_pdf("caption_spotcheck_default.pdf", &emit_pdf(&d).unwrap());
@@ -102,8 +102,8 @@ fn main() {
             layout.prose.caption.color = Some(HexColor::parse("#336699").unwrap());
             layout.prose.caption.size_factor = 1.15;
         }),
-        ("center", |layout| {
-            layout.prose.figure.align = FigureAlign::Center;
+        ("left", |layout| {
+            layout.prose.figure.align = FigureAlign::Left;
         }),
         ("right", |layout| {
             layout.prose.figure.align = FigureAlign::Right;
@@ -112,11 +112,39 @@ fn main() {
             layout.prose.figure.max_width_factor = 0.4;
         }),
         ("center_narrow", |layout| {
-            layout.prose.figure.align = FigureAlign::Center;
             layout.prose.figure.max_width_factor = 0.4;
+        }),
+        ("title_left", |layout| {
+            layout.prose.figure.title_align = FigureTitleAlign::Left;
+        }),
+        ("text_left_on_center", |layout| {
+            layout.prose.figure.max_width_factor = 0.45;
+            layout.prose.figure.title_text_align = FigureTextAlign::Left;
+            layout.prose.caption.text_align = FigureTextAlign::Left;
+        }),
+        ("caption_full", |layout| {
+            layout.prose.figure.max_width_factor = 0.4;
+            layout.prose.caption.band = CaptionBand::FullMeasure;
+        }),
+        ("overflow_soft", |layout| {
+            layout.prose.figure.max_width_factor = 0.25;
+            layout.prose.caption.overflow = CaptionOverflow::SoftOnly;
         }),
     ];
     for &(name, tweak) in variants {
         write_layout(&format!("caption_spotcheck_{name}.pdf"), &d, tweak);
+    }
+
+    // Caption in-band text_align (narrow band so wrap shows the difference).
+    for (name, align) in [
+        ("caption_text_left", FigureTextAlign::Left),
+        ("caption_text_center", FigureTextAlign::Center),
+        ("caption_text_right", FigureTextAlign::Right),
+    ] {
+        write_layout(
+            &format!("caption_spotcheck_{name}.pdf"),
+            &d,
+            caption_text_align(align),
+        );
     }
 }

@@ -2,6 +2,7 @@
 
 use crate::error::WeaveError;
 use crate::ir::{LayoutOp, MeasureFrac, PlaceSkip, RuleWidth, TextRun, VspaceAmount};
+use crate::knobs::FigureAlign;
 
 use super::super::types::{FaceMode, LaidItem, LaidLine, LayoutSegment, PaintCategory, RunLayout};
 use super::LayoutCtx;
@@ -120,6 +121,8 @@ fn push_place(
             indent,
             max_width: Some(max_width),
             paint: PaintCategory::Text,
+            hard_break_overflow: true,
+            text_align: FigureAlign::Left,
         },
     )?;
     Ok(())

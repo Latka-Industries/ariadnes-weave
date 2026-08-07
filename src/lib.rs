@@ -38,8 +38,9 @@ pub use ir::{
     SlideRegionContent, TableRow, TextRun, VspaceAmount,
 };
 pub use knobs::{
-    DeckKnobs, FigureAlign, HexColor, LayoutKnobs, MathKnobs, PageKnobs, ProseCaptionKnobs,
-    ProseCiteKnobs, ProseFontCategory, ProseKnobs, ProsePaintCategory, ProseTextKnobs, TableKnobs,
+    CaptionBand, CaptionOverflow, DeckKnobs, FigureAlign, FigureTextAlign, FigureTitleAlign,
+    HexColor, LayoutKnobs, MathKnobs, PageKnobs, ProseCaptionKnobs, ProseCiteKnobs,
+    ProseFontCategory, ProseKnobs, ProsePaintCategory, ProseTextKnobs, TableKnobs,
 };
 pub use options::{EmitOptions, FontResolveMode};
 pub use profile::{PageSize, ProfileMetrics, resolve_metrics};

@@ -3,7 +3,7 @@
 use crate::error::WeaveError;
 use crate::font::{FaceId, FaceRef, FontBag, shape_text_with_fallback, shaped_runs_width};
 use crate::ir::{InlineStyle, TextRun};
-use crate::knobs::{LayoutKnobs, ProseFontCategory};
+use crate::knobs::{CaptionBand, CaptionOverflow, FigureAlign, LayoutKnobs, ProseFontCategory};
 use crate::profile::ProfileMetrics;
 
 use super::super::types::{
@@ -40,24 +40,50 @@ pub(super) fn body_layout(
         indent,
         max_width: None,
         paint,
+        hard_break_overflow: true,
+        text_align: FigureAlign::Left,
     }
+}
+
+/// Indent + wrap measure for a figure-width text band inside the content box.
+fn figure_band_box(
+    align: FigureAlign,
+    content_w: f32,
+    band_width: f32,
+    min_width: f32,
+) -> (f32, f32) {
+    (
+        align.offset_x(content_w, band_width),
+        band_width.max(min_width),
+    )
 }
 
 /// Caption layout: body size × `[caption].size_factor`, caption gap / paint.
 ///
-/// Uses `[figure].align` + `band_width` so the caption shares the image’s
-/// horizontal band (same indent and wrap measure).
+/// `[caption].band` chooses match-figure vs full-measure; `[caption].overflow`
+/// controls mid-token hard breaks; `[caption].text_align` is in-band (default
+/// `follow` = figure `align`).
 pub(super) fn caption_layout(
     metrics: &ProfileMetrics,
     knobs: &LayoutKnobs,
     band_width: f32,
 ) -> RunLayout {
     let font_size = metrics.body_size * knobs.prose.caption.size_factor;
-    let indent = knobs
-        .prose
-        .figure
-        .align
-        .offset_x(metrics.content_width(), band_width);
+    let content_w = metrics.content_width();
+    let figure_align = knobs.prose.figure.align;
+    let text_align = knobs.prose.caption.text_align.resolve(figure_align);
+    let (indent, max_width) = match knobs.prose.caption.band {
+        CaptionBand::MatchFigure => {
+            let (indent, measure) = figure_band_box(
+                figure_align,
+                content_w,
+                band_width,
+                knobs.prose.wrap.min_width,
+            );
+            (indent, Some(measure))
+        }
+        CaptionBand::FullMeasure => (0.0, None),
+    };
     RunLayout {
         font_size,
         leading: font_size * knobs.prose.caption.leading_factor,
@@ -65,8 +91,39 @@ pub(super) fn caption_layout(
         glue_last_content: false,
         mode: FaceMode::Body,
         indent,
-        max_width: Some(band_width.max(knobs.prose.wrap.min_width)),
+        max_width,
         paint: PaintCategory::Caption,
+        hard_break_overflow: matches!(knobs.prose.caption.overflow, CaptionOverflow::HardBreak),
+        text_align,
+    }
+}
+
+/// Figure title: band from `title_align`; in-band text from `title_text_align`.
+pub(super) fn figure_title_layout(
+    metrics: &ProfileMetrics,
+    knobs: &LayoutKnobs,
+    band_width: f32,
+) -> RunLayout {
+    let figure_align = knobs.prose.figure.align;
+    let band_align = knobs.prose.figure.title_align.resolve(figure_align);
+    let text_align = knobs.prose.figure.title_text_align.resolve(figure_align);
+    let (indent, measure) = figure_band_box(
+        band_align,
+        metrics.content_width(),
+        band_width,
+        knobs.prose.wrap.min_width,
+    );
+    RunLayout {
+        font_size: metrics.body_size,
+        leading: metrics.body_leading,
+        gap_after: knobs.prose.figure.gap_after_title,
+        glue_last_content: true,
+        mode: FaceMode::Body,
+        indent,
+        max_width: Some(measure),
+        paint: PaintCategory::Text,
+        hard_break_overflow: true,
+        text_align,
     }
 }
 
@@ -171,7 +228,8 @@ pub(super) fn push_styled_runs(
             leading: layout.leading,
             glue_after: glue,
             indent: layout.indent,
-            center: false,
+            measure: max_width,
+            text_align: layout.text_align,
         }));
     };
 
@@ -213,7 +271,7 @@ pub(super) fn push_styled_runs(
                     continue;
                 }
             }
-            if w > max_width && current_spans.is_empty() {
+            if w > max_width && current_spans.is_empty() && layout.hard_break_overflow {
                 // Hard-break tokens wider than the content box (URLs, long code).
                 for piece in hard_break_text(ctx.fonts, face, chunk, layout.font_size, max_width)? {
                     let (spans, _) = shape_and_record_spans(
@@ -231,6 +289,7 @@ pub(super) fn push_styled_runs(
                 }
                 continue;
             }
+            // soft_only: place an overlong token and let it stick out.
             current_spans.extend(spans);
             current_width += w;
         }

@@ -124,12 +124,16 @@ pub enum PrintBlock {
         /// Row-major cells.
         rows: Vec<TableRow>,
     },
-    /// Figure with image bytes + caption.
+    /// Figure with image bytes + optional title + caption.
     Figure {
         /// Embedded image.
         image: PrintImage,
         /// Alt text.
         alt: String,
+        /// Title runs above the image (empty = none). Prefer this over a prior
+        /// `Paragraph`+strong stand-in so title can share the figure band.
+        #[serde(default)]
+        title: Vec<TextRun>,
         /// Caption runs.
         caption: Vec<TextRun>,
         /// Placement hint.
@@ -401,6 +405,18 @@ impl TextRun {
         Self {
             text: text.into(),
             style: InlineStyle::default(),
+            face: None,
+        }
+    }
+
+    /// Strong / bold run (figure titles, emphasis without other flags).
+    pub fn strong(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            style: InlineStyle {
+                strong: true,
+                ..InlineStyle::default()
+            },
             face: None,
         }
     }

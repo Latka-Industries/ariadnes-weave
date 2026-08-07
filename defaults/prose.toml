@@ -24,14 +24,20 @@ gap_after = 6.0
 alt_gap_after = 10.0
 gap_after_image = 2.0
 gap_before = 6.0
-align = "left"
+gap_after_title = 18.0
+align = "center"
 max_width_factor = 1.0
+title_align = "follow"
+title_text_align = "center"
 
 [caption]
 italic = true
 size_factor = 0.9
 leading_factor = 1.15
 gap_after = 6.0
+band = "match_figure"
+text_align = "left"
+overflow = "hard_break"
 
 [wrap]
 body_leading_factor = 1.35

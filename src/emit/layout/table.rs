@@ -117,13 +117,11 @@ fn wrap_plain_text(
             false,
         )?;
         if current_width + w > max_width && !current.is_empty() {
-            lines.push(LaidLine {
-                spans: std::mem::take(&mut current),
+            lines.push(LaidLine::wrapped(
+                std::mem::take(&mut current),
                 leading,
-                glue_after: false,
-                indent: 0.0,
-                center: false,
-            });
+                max_width,
+            ));
             current_width = 0.0;
             if skip_wrap_chunk_at_line_start(chunk) {
                 continue;
@@ -140,13 +138,7 @@ fn wrap_plain_text(
                     fill,
                     false,
                 )?;
-                lines.push(LaidLine {
-                    spans,
-                    leading,
-                    glue_after: false,
-                    indent: 0.0,
-                    center: false,
-                });
+                lines.push(LaidLine::wrapped(spans, leading, max_width));
             }
             continue;
         }
@@ -154,13 +146,7 @@ fn wrap_plain_text(
         current_width += w;
     }
     if !current.is_empty() {
-        lines.push(LaidLine {
-            spans: current,
-            leading,
-            glue_after: false,
-            indent: 0.0,
-            center: false,
-        });
+        lines.push(LaidLine::wrapped(current, leading, max_width));
     }
     Ok(lines)
 }

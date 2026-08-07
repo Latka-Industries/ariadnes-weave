@@ -38,7 +38,9 @@ crates.io. Local suite work can still path-dep when cutting paired releases.
   deck / math / page), overridable via `EmitOptions.layout`; quote body italic
   by default (`[quote].italic`); figure captions via `[caption]` (`italic`,
   `size_factor` vs body, `gap_after`); figure horizontal band via
-  `[figure].align` / `[figure].max_width_factor`; optional `#RGB`/`#RRGGBB`
+  `[figure].align` / `[figure].max_width_factor` / `[figure].title_align` /
+  `title_text_align` and `[caption].band` / `text_align` / `overflow`; optional
+  `#RGB`/`#RRGGBB`
   fills for `[text]` / `[quote]` / `[caption]` / `[cite]` plus
   `[cite].underline` and per-run `InlineStyle.underline`; optional category
   `font` pin ids (same namespace as `TextRun.face`); dump with
@@ -49,7 +51,8 @@ crates.io. Local suite work can still path-dep when cutting paired releases.
 - Deterministic emit: sorted font object order + SHA-256 fixtures in
   `tests/determinism.rs`
 - `Table` → drawn grid + wrapped cells; `Figure` → PNG/JPEG XObject
-  (`Flow` / `FloatNear` glue; `[figure].align` / `max_width_factor`);
+  (`Flow` / `FloatNear` glue; title on figure; `[figure].align` /
+  `max_width_factor` / `title_align`; caption `band` / `overflow`);
   `Slide` → one page with `layout_id` templates (`title-body`,
   `two-column`, …); `Math` → structured layout for
   `\frac`, multi-char scripts, and simple `matrix`/`pmatrix` (not full TeX)
