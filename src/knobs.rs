@@ -372,7 +372,7 @@ impl FigureTextAlign {
     }
 }
 
-/// Shared Follow / Left / Center / Right choice used by title band + text_align.
+/// Shared Follow / Left / Center / Right choice used by title band + `text_align`.
 #[derive(Clone, Copy)]
 enum FollowOrAlign {
     Follow,

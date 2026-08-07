@@ -3,6 +3,7 @@
 use crate::error::WeaveError;
 use crate::font::{FaceId, FaceRef};
 use crate::ir::{BreakHint, InlineStyle, PrintBlock, TextRun};
+use crate::knobs::FigureAlign;
 use crate::profile;
 
 use super::super::types::{
@@ -42,7 +43,7 @@ pub(super) fn layout_heading(
             max_width: None,
             paint: PaintCategory::Text,
             hard_break_overflow: true,
-            text_align: crate::knobs::FigureAlign::Left,
+            text_align: FigureAlign::Left,
         },
     )
 }
@@ -136,7 +137,7 @@ pub(super) fn push_list_lines(
                 max_width: None,
                 paint: PaintCategory::Text,
                 hard_break_overflow: true,
-                text_align: crate::knobs::FigureAlign::Left,
+                text_align: FigureAlign::Left,
             },
         )?;
         for child in &item.children {

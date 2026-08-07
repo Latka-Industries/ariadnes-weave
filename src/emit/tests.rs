@@ -3,12 +3,16 @@
 use super::math::prettify_latex_math;
 use super::{emit_pdf, emit_pdf_with};
 use crate::error::WeaveError;
+use crate::font::{FaceId, FaceRef, FontBag, shape_text, shaped_width};
 use crate::ir::{
     BreakHint, EmAmount, FigurePlacement, InlineStyle, LayoutOp, MeasureFrac, PlaceSkip,
     PrintBlock, PrintDocument, PrintImage, PrintMeta, PrintProfileId, RuleWidth,
     SlideRegionContent, TableRow, TextRun, VspaceAmount,
 };
-use crate::knobs::LayoutKnobs;
+use crate::knobs::{
+    CaptionBand, CaptionOverflow, FigureAlign, FigureTextAlign, FigureTitleAlign, HexColor,
+    LayoutKnobs,
+};
 use crate::options::EmitOptions;
 use crate::profile::{self, PageSize};
 use image::{ImageBuffer, ImageFormat, Rgb};
@@ -112,8 +116,6 @@ fn emits_pdf_magic() {
 
 #[test]
 fn prose_word_spacing_is_wider_than_glued_words() {
-    use crate::font::{FaceId, FaceRef, FontBag, shape_text, shaped_width};
-
     let fonts = FontBag::from_pinned(&Default::default()).expect("fonts");
     let face = FaceRef::Bundled(FaceId::SansRegular);
     // Layout keeps trailing spaces from wrap chunks; glued words must be narrower.
@@ -661,8 +663,6 @@ fn embeds_roman_liberation_sans(pdf: &str) -> bool {
 
 #[test]
 fn aesthetic_colors_and_cite_underline_affect_emit() {
-    use crate::knobs::HexColor;
-
     let doc = PrintDocument {
         meta: PrintMeta {
             title: "Aesthetic".into(),
@@ -712,8 +712,6 @@ fn aesthetic_colors_and_cite_underline_affect_emit() {
 
 #[test]
 fn caption_knobs_affect_figure_caption_paint() {
-    use crate::knobs::HexColor;
-
     let doc = PrintDocument {
         meta: PrintMeta {
             title: "Caption knobs".into(),
@@ -756,8 +754,6 @@ fn caption_knobs_affect_figure_caption_paint() {
 
 #[test]
 fn figure_align_and_max_width_factor_affect_emit() {
-    use crate::knobs::FigureAlign;
-
     // Mid-width: narrower than full content (~403pt) so align shifts x, but wide
     // enough that max_width_factor 0.4 forces fit_width to scale.
     let image = png_image(
@@ -824,8 +820,6 @@ fn figure_gap_after_title_affects_emit() {
 
 #[test]
 fn figure_title_align_and_caption_band_affect_emit() {
-    use crate::knobs::{CaptionBand, FigureAlign, FigureTextAlign, FigureTitleAlign};
-
     let image = png_image(
         280,
         80,
@@ -902,8 +896,6 @@ fn figure_title_align_and_caption_band_affect_emit() {
 
 #[test]
 fn caption_overflow_soft_only_differs_from_hard_break() {
-    use crate::knobs::CaptionOverflow;
-
     // Narrow band + long unbreakable token exercises overflow policy.
     let image = png_image(
         280,

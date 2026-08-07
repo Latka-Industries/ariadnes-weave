@@ -105,7 +105,7 @@ pub(super) struct LaidLine {
     /// Width of the alignment box; text is placed within `[indent, indent+measure]`.
     pub measure: f32,
     /// In-band text alignment within [`Self::measure`].
-    pub text_align: crate::knobs::FigureAlign,
+    pub text_align: FigureAlign,
 }
 
 impl LaidLine {
@@ -122,7 +122,7 @@ impl LaidLine {
             glue_after: false,
             indent: 0.0,
             measure: 0.0,
-            text_align: crate::knobs::FigureAlign::Left,
+            text_align: FigureAlign::Left,
         }
     }
 
@@ -134,17 +134,12 @@ impl LaidLine {
             glue_after: false,
             indent: 0.0,
             measure,
-            text_align: crate::knobs::FigureAlign::Left,
+            text_align: FigureAlign::Left,
         }
     }
 
     /// Place this line in a figure-width band (indent + measure + in-band align).
-    pub(super) fn apply_figure_band(
-        &mut self,
-        align: crate::knobs::FigureAlign,
-        content_w: f32,
-        band_w: f32,
-    ) {
+    pub(super) fn apply_figure_band(&mut self, align: FigureAlign, content_w: f32, band_w: f32) {
         self.indent = align.offset_x(content_w, band_w);
         self.measure = band_w;
         self.text_align = align;
@@ -168,7 +163,7 @@ impl LaidLine {
             glue_after: false,
             indent: 0.0,
             measure: 0.0,
-            text_align: crate::knobs::FigureAlign::Left,
+            text_align: FigureAlign::Left,
         })
     }
 
@@ -384,5 +379,5 @@ pub(super) struct RunLayout {
     /// Split tokens wider than the wrap measure (false = soft wrap only).
     pub hard_break_overflow: bool,
     /// In-band text alignment within the wrap measure.
-    pub text_align: crate::knobs::FigureAlign,
+    pub text_align: FigureAlign,
 }

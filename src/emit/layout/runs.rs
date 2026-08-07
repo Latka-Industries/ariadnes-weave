@@ -3,7 +3,7 @@
 use crate::error::WeaveError;
 use crate::font::{FaceId, FaceRef, FontBag, shape_text_with_fallback, shaped_runs_width};
 use crate::ir::{InlineStyle, TextRun};
-use crate::knobs::{LayoutKnobs, ProseFontCategory};
+use crate::knobs::{CaptionBand, CaptionOverflow, FigureAlign, LayoutKnobs, ProseFontCategory};
 use crate::profile::ProfileMetrics;
 
 use super::super::types::{
@@ -31,8 +31,6 @@ pub(super) fn body_layout(
     indent: f32,
     paint: PaintCategory,
 ) -> RunLayout {
-    use crate::knobs::FigureAlign;
-
     RunLayout {
         font_size: metrics.body_size,
         leading: metrics.body_leading,
@@ -49,7 +47,7 @@ pub(super) fn body_layout(
 
 /// Indent + wrap measure for a figure-width text band inside the content box.
 fn figure_band_box(
-    align: crate::knobs::FigureAlign,
+    align: FigureAlign,
     content_w: f32,
     band_width: f32,
     min_width: f32,
@@ -70,8 +68,6 @@ pub(super) fn caption_layout(
     knobs: &LayoutKnobs,
     band_width: f32,
 ) -> RunLayout {
-    use crate::knobs::{CaptionBand, CaptionOverflow};
-
     let font_size = metrics.body_size * knobs.prose.caption.size_factor;
     let content_w = metrics.content_width();
     let figure_align = knobs.prose.figure.align;
