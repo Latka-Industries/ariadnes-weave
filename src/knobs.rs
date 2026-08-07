@@ -342,12 +342,7 @@ impl FigureTitleAlign {
     /// Resolve to a concrete [`FigureAlign`] given the figure's image align.
     #[must_use]
     pub fn resolve(self, figure_align: FigureAlign) -> FigureAlign {
-        match self {
-            Self::Follow => figure_align,
-            Self::Left => FigureAlign::Left,
-            Self::Center => FigureAlign::Center,
-            Self::Right => FigureAlign::Right,
-        }
+        resolve_follow_align(self.into(), figure_align)
     }
 }
 
@@ -373,11 +368,46 @@ impl FigureTextAlign {
     /// Resolve to a concrete [`FigureAlign`] for in-band text placement.
     #[must_use]
     pub fn resolve(self, figure_align: FigureAlign) -> FigureAlign {
-        match self {
-            Self::Follow => figure_align,
-            Self::Left => FigureAlign::Left,
-            Self::Center => FigureAlign::Center,
-            Self::Right => FigureAlign::Right,
+        resolve_follow_align(self.into(), figure_align)
+    }
+}
+
+/// Shared Follow / Left / Center / Right choice used by title band + text_align.
+#[derive(Clone, Copy)]
+enum FollowOrAlign {
+    Follow,
+    Left,
+    Center,
+    Right,
+}
+
+fn resolve_follow_align(choice: FollowOrAlign, figure_align: FigureAlign) -> FigureAlign {
+    match choice {
+        FollowOrAlign::Follow => figure_align,
+        FollowOrAlign::Left => FigureAlign::Left,
+        FollowOrAlign::Center => FigureAlign::Center,
+        FollowOrAlign::Right => FigureAlign::Right,
+    }
+}
+
+impl From<FigureTitleAlign> for FollowOrAlign {
+    fn from(value: FigureTitleAlign) -> Self {
+        match value {
+            FigureTitleAlign::Follow => Self::Follow,
+            FigureTitleAlign::Left => Self::Left,
+            FigureTitleAlign::Center => Self::Center,
+            FigureTitleAlign::Right => Self::Right,
+        }
+    }
+}
+
+impl From<FigureTextAlign> for FollowOrAlign {
+    fn from(value: FigureTextAlign) -> Self {
+        match value {
+            FigureTextAlign::Follow => Self::Follow,
+            FigureTextAlign::Left => Self::Left,
+            FigureTextAlign::Center => Self::Center,
+            FigureTextAlign::Right => Self::Right,
         }
     }
 }

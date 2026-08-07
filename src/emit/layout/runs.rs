@@ -47,6 +47,19 @@ pub(super) fn body_layout(
     }
 }
 
+/// Indent + wrap measure for a figure-width text band inside the content box.
+fn figure_band_box(
+    align: crate::knobs::FigureAlign,
+    content_w: f32,
+    band_width: f32,
+    min_width: f32,
+) -> (f32, f32) {
+    (
+        align.offset_x(content_w, band_width),
+        band_width.max(min_width),
+    )
+}
+
 /// Caption layout: body size × `[caption].size_factor`, caption gap / paint.
 ///
 /// `[caption].band` chooses match-figure vs full-measure; `[caption].overflow`
@@ -64,10 +77,15 @@ pub(super) fn caption_layout(
     let figure_align = knobs.prose.figure.align;
     let text_align = knobs.prose.caption.text_align.resolve(figure_align);
     let (indent, max_width) = match knobs.prose.caption.band {
-        CaptionBand::MatchFigure => (
-            figure_align.offset_x(content_w, band_width),
-            Some(band_width.max(knobs.prose.wrap.min_width)),
-        ),
+        CaptionBand::MatchFigure => {
+            let (indent, measure) = figure_band_box(
+                figure_align,
+                content_w,
+                band_width,
+                knobs.prose.wrap.min_width,
+            );
+            (indent, Some(measure))
+        }
         CaptionBand::FullMeasure => (0.0, None),
     };
     RunLayout {
@@ -93,7 +111,12 @@ pub(super) fn figure_title_layout(
     let figure_align = knobs.prose.figure.align;
     let band_align = knobs.prose.figure.title_align.resolve(figure_align);
     let text_align = knobs.prose.figure.title_text_align.resolve(figure_align);
-    let indent = band_align.offset_x(metrics.content_width(), band_width);
+    let (indent, measure) = figure_band_box(
+        band_align,
+        metrics.content_width(),
+        band_width,
+        knobs.prose.wrap.min_width,
+    );
     RunLayout {
         font_size: metrics.body_size,
         leading: metrics.body_leading,
@@ -101,7 +124,7 @@ pub(super) fn figure_title_layout(
         glue_last_content: true,
         mode: FaceMode::Body,
         indent,
-        max_width: Some(band_width.max(knobs.prose.wrap.min_width)),
+        max_width: Some(measure),
         paint: PaintCategory::Text,
         hard_break_overflow: true,
         text_align,

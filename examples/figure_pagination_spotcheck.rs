@@ -7,8 +7,8 @@
 //! cargo run --example figure_pagination_spotcheck
 //! ```
 use ariadnes_weave::{
-    EmitOptions, FigureAlign, FigurePlacement, InlineStyle, LayoutKnobs, PrintBlock, PrintDocument,
-    PrintImage, PrintMeta, PrintProfileId, TextRun, emit_pdf, emit_pdf_with,
+    EmitOptions, FigureAlign, FigurePlacement, LayoutKnobs, PrintBlock, PrintDocument, PrintImage,
+    PrintMeta, PrintProfileId, TextRun, emit_pdf, emit_pdf_with,
 };
 use image::{ImageBuffer, ImageFormat, Rgb};
 
@@ -35,17 +35,6 @@ fn shared_image() -> PrintImage {
     }
 }
 
-fn title_run(text: &str) -> TextRun {
-    TextRun {
-        text: text.into(),
-        style: InlineStyle {
-            strong: true,
-            ..InlineStyle::default()
-        },
-        face: None,
-    }
-}
-
 fn para(text: &str) -> PrintBlock {
     PrintBlock::Paragraph {
         runs: vec![TextRun::plain(text)],
@@ -56,7 +45,7 @@ fn figure(title: &str, caption: &str, placement: FigurePlacement) -> PrintBlock 
     PrintBlock::Figure {
         image: shared_image(),
         alt: "swatch".into(),
-        title: vec![title_run(title)],
+        title: vec![TextRun::strong(title)],
         caption: vec![TextRun::plain(caption)],
         placement,
     }
@@ -136,6 +125,8 @@ fn write_layout(name: &str, doc: &PrintDocument, tweak: impl FnOnce(&mut LayoutK
     );
 }
 
+type SpotVariant = (&'static str, fn(&mut LayoutKnobs));
+
 fn main() {
     let d = doc();
     write_pdf(
@@ -143,21 +134,30 @@ fn main() {
         &emit_pdf(&d).unwrap(),
     );
 
-    // Same IR; only display size changes — compare page counts / break points.
-    write_layout("figure_pagination_spotcheck_full.pdf", &d, |layout| {
-        layout.prose.figure.max_width_factor = 1.0;
-    });
-    write_layout("figure_pagination_spotcheck_wide.pdf", &d, |layout| {
-        layout.prose.figure.max_width_factor = 0.75;
-    });
-    write_layout("figure_pagination_spotcheck_mid.pdf", &d, |layout| {
-        layout.prose.figure.max_width_factor = 0.5;
-    });
-    write_layout("figure_pagination_spotcheck_narrow.pdf", &d, |layout| {
-        layout.prose.figure.max_width_factor = 0.35;
-    });
-    write_layout("figure_pagination_spotcheck_left_mid.pdf", &d, |layout| {
-        layout.prose.figure.align = FigureAlign::Left;
-        layout.prose.figure.max_width_factor = 0.5;
-    });
+    // Same IR; only display size / align changes — compare page counts / breaks.
+    let variants: &[SpotVariant] = &[
+        ("full", |layout| {
+            layout.prose.figure.max_width_factor = 1.0;
+        }),
+        ("wide", |layout| {
+            layout.prose.figure.max_width_factor = 0.75;
+        }),
+        ("mid", |layout| {
+            layout.prose.figure.max_width_factor = 0.5;
+        }),
+        ("narrow", |layout| {
+            layout.prose.figure.max_width_factor = 0.35;
+        }),
+        ("left_mid", |layout| {
+            layout.prose.figure.align = FigureAlign::Left;
+            layout.prose.figure.max_width_factor = 0.5;
+        }),
+    ];
+    for &(name, tweak) in variants {
+        write_layout(
+            &format!("figure_pagination_spotcheck_{name}.pdf"),
+            &d,
+            tweak,
+        );
+    }
 }

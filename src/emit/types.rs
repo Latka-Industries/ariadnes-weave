@@ -126,6 +126,30 @@ impl LaidLine {
         }
     }
 
+    /// Left-aligned wrapped line occupying `measure` (tables, body cells).
+    pub(super) fn wrapped(spans: Vec<LaidSpan>, leading: f32, measure: f32) -> Self {
+        Self {
+            spans,
+            leading,
+            glue_after: false,
+            indent: 0.0,
+            measure,
+            text_align: crate::knobs::FigureAlign::Left,
+        }
+    }
+
+    /// Place this line in a figure-width band (indent + measure + in-band align).
+    pub(super) fn apply_figure_band(
+        &mut self,
+        align: crate::knobs::FigureAlign,
+        content_w: f32,
+        band_w: f32,
+    ) {
+        self.indent = align.offset_x(content_w, band_w);
+        self.measure = band_w;
+        self.text_align = align;
+    }
+
     /// Shape `text` (with sealed script fallback) and record glyphs into `glyph_sets`.
     pub(super) fn shaped(
         fonts: &FontBag,

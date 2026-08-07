@@ -831,14 +831,7 @@ fn figure_title_align_and_caption_band_affect_emit() {
         80,
         rgb_png(280, 80, |x, y| Rgb([(x % 256) as u8, (y % 256) as u8, 90])),
     );
-    let title = TextRun {
-        text: "Figure title on the figure".into(),
-        style: InlineStyle {
-            strong: true,
-            ..InlineStyle::default()
-        },
-        face: None,
-    };
+    let title = TextRun::strong("Figure title on the figure");
     let doc = note_doc(
         "Figure title",
         vec![PrintBlock::Figure {

@@ -8,8 +8,8 @@
 //! ```
 use ariadnes_weave::{
     CaptionBand, CaptionOverflow, EmitOptions, FigureAlign, FigurePlacement, FigureTextAlign,
-    FigureTitleAlign, HexColor, InlineStyle, LayoutKnobs, PrintBlock, PrintDocument, PrintImage,
-    PrintMeta, PrintProfileId, TextRun, emit_pdf, emit_pdf_with,
+    FigureTitleAlign, HexColor, LayoutKnobs, PrintBlock, PrintDocument, PrintImage, PrintMeta,
+    PrintProfileId, TextRun, emit_pdf, emit_pdf_with,
 };
 use image::{ImageBuffer, ImageFormat, Rgb};
 
@@ -21,17 +21,6 @@ fn figure_png() -> Vec<u8> {
     let mut buf = std::io::Cursor::new(Vec::new());
     img.write_to(&mut buf, ImageFormat::Png).unwrap();
     buf.into_inner()
-}
-
-fn title_run(text: &str) -> TextRun {
-    TextRun {
-        text: text.into(),
-        style: InlineStyle {
-            strong: true,
-            ..InlineStyle::default()
-        },
-        face: None,
-    }
 }
 
 fn wrapping_caption() -> TextRun {
@@ -65,7 +54,7 @@ fn doc() -> PrintDocument {
                     height_px: Some(100),
                 },
                 alt: "swatch".into(),
-                title: vec![title_run("Figure title (Figure.title + title_align)")],
+                title: vec![TextRun::strong("Figure title (Figure.title + title_align)")],
                 caption: vec![wrapping_caption()],
                 placement: FigurePlacement::Flow,
             },
@@ -94,6 +83,13 @@ fn write_layout(name: &str, doc: &PrintDocument, tweak: impl FnOnce(&mut LayoutK
 
 type SpotVariant = (&'static str, fn(&mut LayoutKnobs));
 
+fn caption_text_align(align: FigureTextAlign) -> impl FnOnce(&mut LayoutKnobs) {
+    move |layout| {
+        layout.prose.figure.max_width_factor = 0.42;
+        layout.prose.caption.text_align = align;
+    }
+}
+
 fn main() {
     let d = doc();
     write_pdf("caption_spotcheck_default.pdf", &emit_pdf(&d).unwrap());
@@ -121,19 +117,6 @@ fn main() {
         ("title_left", |layout| {
             layout.prose.figure.title_align = FigureTitleAlign::Left;
         }),
-        // Caption in-band text_align (narrow band so wrap shows the difference).
-        ("caption_text_left", |layout| {
-            layout.prose.figure.max_width_factor = 0.42;
-            layout.prose.caption.text_align = FigureTextAlign::Left;
-        }),
-        ("caption_text_center", |layout| {
-            layout.prose.figure.max_width_factor = 0.42;
-            layout.prose.caption.text_align = FigureTextAlign::Center;
-        }),
-        ("caption_text_right", |layout| {
-            layout.prose.figure.max_width_factor = 0.42;
-            layout.prose.caption.text_align = FigureTextAlign::Right;
-        }),
         ("text_left_on_center", |layout| {
             layout.prose.figure.max_width_factor = 0.45;
             layout.prose.figure.title_text_align = FigureTextAlign::Left;
@@ -150,5 +133,18 @@ fn main() {
     ];
     for &(name, tweak) in variants {
         write_layout(&format!("caption_spotcheck_{name}.pdf"), &d, tweak);
+    }
+
+    // Caption in-band text_align (narrow band so wrap shows the difference).
+    for (name, align) in [
+        ("caption_text_left", FigureTextAlign::Left),
+        ("caption_text_center", FigureTextAlign::Center),
+        ("caption_text_right", FigureTextAlign::Right),
+    ] {
+        write_layout(
+            &format!("caption_spotcheck_{name}.pdf"),
+            &d,
+            caption_text_align(align),
+        );
     }
 }

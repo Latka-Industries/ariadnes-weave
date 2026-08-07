@@ -409,6 +409,18 @@ impl TextRun {
         }
     }
 
+    /// Strong / bold run (figure titles, emphasis without other flags).
+    pub fn strong(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            style: InlineStyle {
+                strong: true,
+                ..InlineStyle::default()
+            },
+            face: None,
+        }
+    }
+
     /// Plain run that uses a pinned face id from [`crate::EmitOptions`].
     pub fn pinned(text: impl Into<String>, face: impl Into<String>) -> Self {
         Self {
