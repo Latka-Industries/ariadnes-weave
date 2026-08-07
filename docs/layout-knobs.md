@@ -68,6 +68,19 @@ Horizontal geometry is knob-driven (`align`, `max_width_factor`). Vertical polic
 
 Deferred: top/bottom page float, text wrap beside figures, freeform x/y. D24 `\layout{place/vspace/rule}` stays separate from `\figure{}`.
 
+### Next PR (locked)
+
+Not in this release — [THI-383](https://linear.app/thicclatka/issue/THI-383) after #15:
+
+| Item | Default | Notes |
+|------|---------|--------|
+| `PrintBlock::Figure.title: Vec<TextRun>` | empty | Title on the figure (replace Tessera prior-`Paragraph`+strong hack) |
+| `[figure].title_align` | `follow` | `follow` = same as `[figure].align`; or force `left` / `center` / `right`. Band width matches the image |
+| `[caption].band` | `match_figure` | `match_figure` = today’s indent + wrap width; `full_measure` = content-left, full wrap |
+| `[caption].overflow` | `hard_break` | Overlong token: `hard_break` (split) vs `soft_only` (whitespace wrap only; may stick out) |
+
+Soft wrap at spaces stays on whenever caption lays multiple lines; `overflow` only controls mid-word splitting.
+
 ## Category fonts (optional)
 
 Omit these keys to keep Liberation style mapping (bundled `defaults/prose.toml` omits them). Values are pin ids into `EmitOptions.pinned_faces` (same namespace as explicit `TextRun.face` / pack `fonts.toml`):

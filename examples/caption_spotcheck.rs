@@ -1,6 +1,7 @@
 //! Spot-check: body + title + figure caption → `tmp/caption_spotcheck*.pdf`
 //!
 //! Tessera-shaped IR: body paragraph, title as `Paragraph`+`strong`, figure caption.
+//! Includes horizontal-band variants (`align`, `max_width_factor`).
 //!
 //! ```bash
 //! cargo run --example caption_spotcheck
@@ -11,9 +12,11 @@ use ariadnes_weave::{
 };
 use image::{ImageBuffer, ImageFormat, Rgb};
 
-fn tiny_png() -> Vec<u8> {
-    let img: ImageBuffer<Rgb<u8>, Vec<u8>> =
-        ImageBuffer::from_fn(120, 80, |x, y| Rgb([x as u8 * 2, y as u8 * 3, 180]));
+/// Mid-width (~280pt): align shifts are visible, and `max_width_factor` 0.4 still shrinks.
+fn figure_png() -> Vec<u8> {
+    let img: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::from_fn(280, 100, |x, y| {
+        Rgb([(x % 256) as u8, ((y * 3) % 256) as u8, 160])
+    });
     let mut buf = std::io::Cursor::new(Vec::new());
     img.write_to(&mut buf, ImageFormat::Png).unwrap();
     buf.into_inner()
@@ -51,14 +54,14 @@ fn doc() -> PrintDocument {
             },
             PrintBlock::Figure {
                 image: PrintImage {
-                    bytes: tiny_png(),
+                    bytes: figure_png(),
                     media_type: "image/png".into(),
-                    width_px: Some(120),
-                    height_px: Some(80),
+                    width_px: Some(280),
+                    height_px: Some(100),
                 },
                 alt: "swatch".into(),
                 caption: vec![TextRun::plain(
-                    "Figure caption (Figure.caption + [caption] knobs).",
+                    "Figure caption shares the image band — wrap should follow align/width, not full measure.",
                 )],
                 placement: FigurePlacement::Flow,
             },
@@ -76,7 +79,7 @@ fn write_pdf(name: &str, bytes: &[u8]) {
     println!("wrote {path} ({} bytes)", bytes.len());
 }
 
-fn write_layout(name: &str, doc: &PrintDocument, mut tweak: impl FnMut(&mut LayoutKnobs)) {
+fn write_layout(name: &str, doc: &PrintDocument, tweak: impl FnOnce(&mut LayoutKnobs)) {
     let mut layout = LayoutKnobs::bundled();
     tweak(&mut layout);
     write_pdf(
@@ -85,18 +88,35 @@ fn write_layout(name: &str, doc: &PrintDocument, mut tweak: impl FnMut(&mut Layo
     );
 }
 
+type SpotVariant = (&'static str, fn(&mut LayoutKnobs));
+
 fn main() {
     let d = doc();
     write_pdf("caption_spotcheck_default.pdf", &emit_pdf(&d).unwrap());
-    write_layout("caption_spotcheck_roman.pdf", &d, |layout| {
-        layout.prose.caption.italic = false;
-    });
-    write_layout("caption_spotcheck_color.pdf", &d, |layout| {
-        layout.prose.caption.color = Some(HexColor::parse("#336699").unwrap());
-        layout.prose.caption.size_factor = 1.15;
-    });
-    write_layout("caption_spotcheck_center_narrow.pdf", &d, |layout| {
-        layout.prose.figure.align = FigureAlign::Center;
-        layout.prose.figure.max_width_factor = 0.45;
-    });
+
+    let variants: &[SpotVariant] = &[
+        ("roman", |layout| {
+            layout.prose.caption.italic = false;
+        }),
+        ("color", |layout| {
+            layout.prose.caption.color = Some(HexColor::parse("#336699").unwrap());
+            layout.prose.caption.size_factor = 1.15;
+        }),
+        ("center", |layout| {
+            layout.prose.figure.align = FigureAlign::Center;
+        }),
+        ("right", |layout| {
+            layout.prose.figure.align = FigureAlign::Right;
+        }),
+        ("narrow", |layout| {
+            layout.prose.figure.max_width_factor = 0.4;
+        }),
+        ("center_narrow", |layout| {
+            layout.prose.figure.align = FigureAlign::Center;
+            layout.prose.figure.max_width_factor = 0.4;
+        }),
+    ];
+    for &(name, tweak) in variants {
+        write_layout(&format!("caption_spotcheck_{name}.pdf"), &d, tweak);
+    }
 }
