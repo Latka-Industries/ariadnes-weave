@@ -10,7 +10,7 @@ use super::super::types::{
 };
 use super::LayoutCtx;
 use super::block_name;
-use super::runs::{body_layout, push_styled_runs};
+use super::runs::{body_layout, push_styled_runs, with_knob_italic};
 use super::segment_has_content;
 
 pub(super) fn layout_heading(
@@ -51,11 +51,7 @@ pub(super) fn layout_quote(
     segments: &mut [LayoutSegment],
 ) -> Result<(), WeaveError> {
     let seg = segments.last_mut().expect("segment");
-    let body_italic = ctx.knobs.prose.quote.italic;
-    let body = runs.iter().cloned().map(|mut run| {
-        run.style.emphasis |= body_italic;
-        run
-    });
+    let body = with_knob_italic(runs, ctx.knobs.prose.quote.italic);
     let quoted: Vec<_> = std::iter::once(emphasized_quote_mark())
         .chain(body)
         .chain(std::iter::once(emphasized_quote_mark()))

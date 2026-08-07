@@ -87,7 +87,7 @@ pub(super) struct LaidSpan {
     pub glyphs: Vec<ShapedGlyph>,
     /// Fill RGB in 0.0..=1.0 (engine black when knobs omit color).
     pub fill: [f32; 3],
-    /// Stroke an underline under this span (cite policy).
+    /// Stroke an underline under this span (`InlineStyle.underline` or cite policy).
     pub underline: bool,
 }
 
@@ -313,19 +313,7 @@ pub(super) enum FaceMode {
 }
 
 /// Which aesthetic color category applies to a run sequence.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum PaintCategory {
-    /// Body / heading / list / caption — `[text].color`.
-    Text,
-    /// Quote block — `[quote].color` else `[text].color`.
-    Quote,
-}
-
-impl PaintCategory {
-    pub(super) fn is_quote(self) -> bool {
-        matches!(self, Self::Quote)
-    }
-}
+pub(super) use crate::knobs::ProsePaintCategory as PaintCategory;
 
 /// Parameters for wrapping a sequence of [`crate::ir::TextRun`]s into lines.
 #[derive(Clone, Copy)]

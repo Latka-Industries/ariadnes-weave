@@ -3,7 +3,7 @@
 use crate::error::WeaveError;
 use crate::font::{FaceId, FaceRef, FontBag, shape_text_with_fallback, shaped_runs_width};
 use crate::ir::{InlineStyle, TextRun};
-use crate::knobs::LayoutKnobs;
+use crate::knobs::{LayoutKnobs, ProseFontCategory};
 use crate::profile::ProfileMetrics;
 
 use super::super::types::{
@@ -43,6 +43,32 @@ pub(super) fn body_layout(
     }
 }
 
+/// Caption layout: body size × `[caption].size_factor`, caption gap / paint.
+pub(super) fn caption_layout(metrics: &ProfileMetrics, knobs: &LayoutKnobs) -> RunLayout {
+    let font_size = metrics.body_size * knobs.prose.caption.size_factor;
+    RunLayout {
+        font_size,
+        leading: font_size * knobs.prose.wrap.body_leading_factor,
+        gap_after: knobs.prose.caption.gap_after,
+        glue_last_content: false,
+        mode: FaceMode::Body,
+        indent: 0.0,
+        max_width: None,
+        paint: PaintCategory::Caption,
+    }
+}
+
+/// Clone runs, OR-ing `emphasis` when `italic` is set (quote / caption knobs).
+pub(super) fn with_knob_italic(runs: &[TextRun], italic: bool) -> Vec<TextRun> {
+    runs.iter()
+        .cloned()
+        .map(|mut run| {
+            run.style.emphasis |= italic;
+            run
+        })
+        .collect()
+}
+
 pub(super) fn resolve_face(
     style: InlineStyle,
     metrics: &ProfileMetrics,
@@ -61,6 +87,13 @@ pub(super) fn resolve_face(
     FaceRef::Bundled(id)
 }
 
+fn font_category(mode: FaceMode, paint: PaintCategory) -> ProseFontCategory {
+    match mode {
+        FaceMode::Heading => ProseFontCategory::Heading,
+        FaceMode::Body => ProseFontCategory::from(paint),
+    }
+}
+
 pub(super) fn resolve_run_face(
     run: &TextRun,
     metrics: &ProfileMetrics,
@@ -69,11 +102,9 @@ pub(super) fn resolve_run_face(
     knobs: &LayoutKnobs,
     paint: PaintCategory,
 ) -> Result<FaceRef, WeaveError> {
-    let category_pin = knobs.prose.category_font_pin(
-        run.style.cite,
-        matches!(mode, FaceMode::Heading),
-        paint.is_quote(),
-    );
+    let category_pin = knobs
+        .prose
+        .category_font_pin(run.style.cite, font_category(mode, paint));
     let effective = run.face.as_deref().or(category_pin);
     if let Some(id) = effective {
         #[cfg(feature = "os-fonts")]
@@ -141,10 +172,10 @@ pub(super) fn push_styled_runs(
             ctx.knobs,
             layout.paint,
         )?;
-        let (fill, underline) = ctx
-            .knobs
-            .prose
-            .run_paint_rgb01(run.style.cite, layout.paint.is_quote());
+        let (fill, underline) =
+            ctx.knobs
+                .prose
+                .run_paint_rgb01(run.style.cite, layout.paint, run.style.underline);
         let mut remaining = run.text.as_str();
         while !remaining.is_empty() {
             let (chunk, rest) = next_wrap_chunk(remaining);

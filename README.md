@@ -36,10 +36,12 @@ crates.io. Local suite work can still path-dep when cutting paired releases.
   [D-print-profile-axes](docs/decisions/D-print-profile-axes.md)
 - Layout knobs: named optical defaults in `defaults/*.toml` (prose / table /
   deck / math / page), overridable via `EmitOptions.layout`; quote body italic
-  by default (`[quote].italic`); optional `#RGB`/`#RRGGBB` fills for
-  `[text]` / `[quote]` / `[cite]` plus `[cite].underline`; optional category
-  `font` pin ids (same namespace as `TextRun.face`); dump with
-  `cargo run --example dump_knobs` — see [`docs/layout-knobs.md`](docs/layout-knobs.md)
+  by default (`[quote].italic`); figure captions via `[caption]` (`italic`,
+  `size_factor` vs body, `gap_after`); optional `#RGB`/`#RRGGBB` fills for
+  `[text]` / `[quote]` / `[caption]` / `[cite]` plus `[cite].underline` and
+  per-run `InlineStyle.underline`; optional category `font` pin ids (same
+  namespace as `TextRun.face`); dump with `cargo run --example dump_knobs` —
+  see [`docs/layout-knobs.md`](docs/layout-knobs.md)
 - Forced page breaks + keep-with-next + basic widow/orphan glue; page-number
   footers
 - Deterministic emit: sorted font object order + SHA-256 fixtures in

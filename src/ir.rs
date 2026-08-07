@@ -434,6 +434,9 @@ pub struct InlineStyle {
     /// Citation marker.
     #[serde(default)]
     pub cite: bool,
+    /// Underline this run (also painted when `cite` and `[cite].underline`).
+    #[serde(default)]
+    pub underline: bool,
 }
 
 /// Page-break / keep hints.

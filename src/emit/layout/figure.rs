@@ -7,8 +7,8 @@ use crate::ir::{FigurePlacement, PrintImage, TextRun};
 use crate::knobs::LayoutKnobs;
 use crate::profile::ProfileMetrics;
 
-use super::super::types::{GlyphSets, LaidItem, LaidLine, LayoutSegment, PaintCategory};
-use super::runs::{body_layout, layout_ctx, push_styled_runs};
+use super::super::types::{GlyphSets, LaidItem, LaidLine, LayoutSegment};
+use super::runs::{caption_layout, layout_ctx, push_styled_runs, with_knob_italic};
 
 /// Inputs for laying out a [`crate::ir::PrintBlock::Figure`].
 pub(super) struct PushFigureArgs<'a> {
@@ -56,6 +56,7 @@ impl PushFigureArgs<'_> {
             }
         }
 
+        let glue_after = !caption.is_empty() || float_near;
         let Ok(prepared) = prepare_image(image) else {
             let label = if alt.is_empty() {
                 "[figure]".into()
@@ -71,21 +72,17 @@ impl PushFigureArgs<'_> {
                 glyph_sets,
                 knobs.prose.text_fill_rgb01(),
             )?;
-            line.glue_after = !caption.is_empty() || float_near;
+            line.glue_after = glue_after;
             seg.1.push(LaidItem::Text(line));
-            if caption.is_empty() {
-                seg.1.push(LaidItem::Text(LaidLine::gap(
-                    knobs.prose.figure.alt_gap_after,
-                )));
-            } else {
-                push_styled_runs(
-                    &mut seg.1,
-                    caption,
-                    &mut layout_ctx(metrics, fonts, knobs, glyph_sets),
-                    body_layout(metrics, knobs, 0.0, PaintCategory::Text),
-                )?;
-            }
-            return Ok(());
+            return finish_caption_or_gap(
+                &mut seg.1,
+                caption,
+                knobs.prose.figure.alt_gap_after,
+                metrics,
+                fonts,
+                knobs,
+                glyph_sets,
+            );
         };
 
         let (w, h) = prepared.fit_width(metrics.content_width());
@@ -96,19 +93,38 @@ impl PushFigureArgs<'_> {
             img_idx,
             width: w,
             height: h,
-            glue_after: !caption.is_empty() || float_near,
+            glue_after,
         });
-        if caption.is_empty() {
-            seg.1
-                .push(LaidItem::Text(LaidLine::gap(knobs.prose.figure.gap_after)));
-        } else {
-            push_styled_runs(
-                &mut seg.1,
-                caption,
-                &mut layout_ctx(metrics, fonts, knobs, glyph_sets),
-                body_layout(metrics, knobs, 0.0, PaintCategory::Text),
-            )?;
-        }
-        Ok(())
+        finish_caption_or_gap(
+            &mut seg.1,
+            caption,
+            knobs.prose.figure.gap_after,
+            metrics,
+            fonts,
+            knobs,
+            glyph_sets,
+        )
     }
+}
+
+fn finish_caption_or_gap(
+    out: &mut Vec<LaidItem>,
+    caption: &[TextRun],
+    empty_gap: f32,
+    metrics: &ProfileMetrics,
+    fonts: &FontBag,
+    knobs: &LayoutKnobs,
+    glyph_sets: &mut GlyphSets,
+) -> Result<(), WeaveError> {
+    if caption.is_empty() {
+        out.push(LaidItem::Text(LaidLine::gap(empty_gap)));
+        return Ok(());
+    }
+    let runs = with_knob_italic(caption, knobs.prose.caption.italic);
+    push_styled_runs(
+        out,
+        &runs,
+        &mut layout_ctx(metrics, fonts, knobs, glyph_sets),
+        caption_layout(metrics, knobs),
+    )
 }

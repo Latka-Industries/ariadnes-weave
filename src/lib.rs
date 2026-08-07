@@ -38,8 +38,8 @@ pub use ir::{
     SlideRegionContent, TableRow, TextRun, VspaceAmount,
 };
 pub use knobs::{
-    DeckKnobs, HexColor, LayoutKnobs, MathKnobs, PageKnobs, ProseCiteKnobs, ProseKnobs,
-    ProseTextKnobs, TableKnobs,
+    DeckKnobs, HexColor, LayoutKnobs, MathKnobs, PageKnobs, ProseCaptionKnobs, ProseCiteKnobs,
+    ProseFontCategory, ProseKnobs, ProsePaintCategory, ProseTextKnobs, TableKnobs,
 };
 pub use options::{EmitOptions, FontResolveMode};
 pub use profile::{PageSize, ProfileMetrics, resolve_metrics};
