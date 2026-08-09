@@ -53,9 +53,14 @@ fn classify_symbol(text: &str) -> AtomKind {
     }
 }
 
-/// Large operators that take display under/over limits (TeX `\displaylimits` family).
+/// Large operators: Op spacing + optional display size bump.
 fn is_big_op(text: &str) -> bool {
     matches!(text.trim(), "∑" | "∏" | "∫" | "∮" | "∐" | "⋃" | "⋂")
+}
+
+/// TeX `\displaylimits` family: under/over limits in display (not ∫/∮ — those stay `\nolimits`).
+fn is_displaylimits_op(text: &str) -> bool {
+    matches!(text.trim(), "∑" | "∏" | "∐" | "⋃" | "⋂")
 }
 
 /// TeX-like inter-atom space in mu (0 = tight).
@@ -126,7 +131,7 @@ fn symbol_scale(text: &str, knobs: &MathKnobs) -> f32 {
 fn scripts_use_op_limits(base: &MathExpr, display: bool) -> bool {
     display
         && match base {
-            MathExpr::Ord(text) => is_big_op(text),
+            MathExpr::Ord(text) => is_displaylimits_op(text),
             _ => false,
         }
 }
@@ -296,7 +301,7 @@ fn layout_scripts(
     layout_side_scripts(base, sup, sub, ctx, font_size)
 }
 
-/// TeX-style under/over limits for display big ops (∑ ∏ ∫ …).
+/// TeX-style under/over limits for display ∑/∏/… (∫ keeps side scripts).
 fn layout_op_limits(
     base: &MathExpr,
     limsup: Option<&MathExpr>,

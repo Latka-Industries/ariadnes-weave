@@ -142,7 +142,7 @@ pub enum PrintBlock {
     /// Math (LaTeX source; structured layout for `\frac` / scripts / display
     /// ∑∏ limits / matrices).
     Math {
-        /// Display vs inline (`true` → under/over limits on big ops).
+        /// Display vs inline (`true` → under/over limits on ∑/∏/…; ∫ stays side).
         display: bool,
         /// LaTeX source.
         latex: String,

@@ -65,7 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         h1("THI-359 math sample"),
         note(
             "Each section is one layout case. Source LaTeX is in the note under the title. \
-             Display big ops (∑ ∏ ∫ ∮ ⋃ …) use under/over limits; inline keeps side scripts.",
+             Display ∑/∏/⋃… use under/over limits; ∫/∮ keep side scripts (TeX \\nolimits).",
         ),
     ];
 
@@ -108,7 +108,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             r"\prod_{k=1}^{n} k = n!",
         ),
         (
-            "10. Integral with under/over limits",
+            "10. Integral with side limits (nolimits)",
             r"Source: \int_{0}^{1} x^{2}\,dx",
             r"\int_{0}^{1} x^{2} dx",
         ),

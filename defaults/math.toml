@@ -13,8 +13,9 @@ fallback_ink_above_factor = 0.5
 notdef_height_factor = 0.75
 notdef_depth_factor = 0.25
 
-# Big operators (∑ ∏ ∫ ∮ ⋃ …). Display math uses under/over limits
-# (TeX \displaylimits style); inline keeps side scripts.
+# Big operators (∑ ∏ ∫ ∮ ⋃ …). Display math uses under/over limits for
+# ∑/∏/⋃/⋂/∐ (TeX \displaylimits); ∫/∮ keep side scripts (\nolimits).
+# Inline keeps side scripts for all.
 [op]
 size_factor = 1.35
 limit_size_factor = 0.65

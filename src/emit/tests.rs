@@ -1341,7 +1341,7 @@ fn math_int_display_limits_differ_from_inline() {
     let i = emit_pdf(&inline).expect("inline int");
     assert_ne!(
         d, i,
-        "display ∫ under/over should differ from inline side scripts"
+        "display ∫ (larger) should still differ from inline even with side scripts"
     );
 }
 
