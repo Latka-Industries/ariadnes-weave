@@ -86,7 +86,7 @@ Size is **`size_factor` vs body**, not absolute points — profiles keep owning 
 | `[script]` | Side super/subscripts (inline ∑/∏ and all ∫ limits) |
 | `[frac]` / `[matrix]` / `[paren]` / `[arrow]` / `[infinity]` | Structured frac, matrix, chrome |
 
-Display math places `^`/`_` as **under/over limits** on ∑ / ∏ / ⋃ / ⋂ / ∐ (TeX `\displaylimits`). ∫ / ∮ use **`\nolimits`**: limits to the right of the sign, at its top and bottom tips. Letter-like side scripts stay for everything else / inline non-ops.
+Display math places `^`/`_` as **under/over limits** on ∑ / ∏ / ⋃ / ⋂ / ∐ (centered). ∫ / ∮ use the same vertical under/over band, but the limits sit to the **right** of the sign.
 
 ### Figure placement (today)
 

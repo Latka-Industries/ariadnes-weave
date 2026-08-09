@@ -361,7 +361,7 @@ fn layout_op_limits(
     })
 }
 
-/// ∫/∮ `\nolimits`: limits to the right of the sign, at its top and bottom tips.
+/// ∫/∮: same vertical stack as displaylimits, but shifted to the right of the sign.
 fn layout_int_nolimits(
     base: &MathExpr,
     limsup: Option<&MathExpr>,
@@ -373,28 +373,28 @@ fn layout_int_nolimits(
     let limit_size = font_size * ctx.knobs.op.limit_size_factor;
     let upper = layout_opt(limsup, ctx, limit_size)?;
     let lower = layout_opt(liminf, ctx, limit_size)?;
-    let gap = ctx.mu(ctx.knobs.script.gap_mu + 1.5, font_size);
-    let script_x = base_box.width + gap;
-    let script_w = upper
+    let gap_x = ctx.mu(ctx.knobs.script.gap_mu, font_size);
+    let limit_x = base_box.width + gap_x;
+    let limit_w = upper
         .as_ref()
         .map_or(0.0, |b| b.width)
         .max(lower.as_ref().map_or(0.0, |b| b.width));
-    let width = script_x + script_w;
+    let width = limit_x + limit_w;
     let mut height = base_box.height;
     let mut depth = base_box.depth;
     let mut elements = base_box.elements;
+    let gap_above = font_size * ctx.knobs.op.gap_above_factor;
+    let gap_below = font_size * ctx.knobs.op.gap_below_factor;
 
     if let Some(upper) = upper {
-        // Center the upper limit on the top tip of the integral.
-        let y = base_box.height - upper.height * 0.5;
-        height = height.max(y + upper.height);
-        append_box(&mut elements, upper, script_x, y);
+        let y = height + gap_above + upper.depth;
+        height = y + upper.height;
+        append_box(&mut elements, upper, limit_x, y);
     }
     if let Some(lower) = lower {
-        // Center the lower limit on the bottom tip.
-        let y = -base_box.depth + lower.height * 0.5;
-        depth = depth.max((-y + lower.depth).max(0.0));
-        append_box(&mut elements, lower, script_x, y);
+        let y = -(depth + gap_below + lower.height);
+        depth = -y + lower.depth;
+        append_box(&mut elements, lower, limit_x, y);
     }
 
     Ok(MathBox {

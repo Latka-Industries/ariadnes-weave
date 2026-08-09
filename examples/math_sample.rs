@@ -108,7 +108,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             r"\prod_{k=1}^{n} k = n!",
         ),
         (
-            "10. Integral with nolimits (tip-side bounds)",
+            "10. Integral with right-shifted under/over limits",
             r"Source: \int_{0}^{1} x^{2}\,dx",
             r"\int_{0}^{1} x^{2} dx",
         ),
