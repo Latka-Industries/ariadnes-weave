@@ -3,9 +3,12 @@
 //!
 //! Leaf tokens still map through [`prettify::prettify_tokens`]. This is not a TeX engine.
 
+mod geo;
 mod layout;
+mod paint;
 mod parse;
 mod prettify;
+mod rel;
 
 use crate::error::WeaveError;
 use crate::font::{FaceId, FaceRef, FontBag};
@@ -15,6 +18,7 @@ use crate::profile::ProfileMetrics;
 use super::types::{GlyphSets, LaidItem, LaidLine, LaidMath, LayoutSegment};
 
 use layout::{MathCtx, layout_expr, shift_to_top_origin};
+pub(super) use paint::paint_math;
 use parse::{MathExpr, parse_math};
 pub(in crate::emit) use prettify::prettify_latex_math;
 use prettify::strip_math_delimiters;

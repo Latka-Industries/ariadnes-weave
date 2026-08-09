@@ -133,9 +133,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             r"\Delta t = \mathrm{after} - \mathrm{before}",
         ),
         (
-            "15. Sets with available glyphs",
-            r"Source: A \cap B \neq C",
-            r"A \cap B \neq C",
+            "15. Sets + membership (geo glyphs)",
+            r"Source: x \in A \subseteq B \cup C \neq \emptyset",
+            r"x \in A \subseteq B \cup C \neq \emptyset",
         ),
         (
             "16. Partial derivative",
@@ -153,27 +153,42 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             r"\Phi \Leftrightarrow \Psi \to \Omega",
         ),
         (
-            "19. Undelimited matrix",
+            "19. Logic + nabla + circ",
+            r"Source: \forall x \exists y\ (x \circ y) \notin \nabla",
+            r"\forall x \exists y (x \circ y) \notin \nabla",
+        ),
+        (
+            "20. Subset family + mp",
+            r"Source: A \subset B \supset C \supseteq D \mp E",
+            r"A \subset B \supset C \supseteq D \mp E",
+        ),
+        (
+            "21. Big cup/cap/coprod limits",
+            r"Source: \bigcup_{i=1}^{n} A_i \bigcap_{j} B_j \coprod_{k} C_k",
+            r"\bigcup_{i=1}^{n} A_{i} \bigcap_{j} B_{j} \coprod_{k} C_{k}",
+        ),
+        (
+            "22. Undelimited matrix",
             r"Source: \begin{matrix} 1 & 0 \\ 0 & 1 \end{matrix}",
             r"\begin{matrix} 1 & 0 \\ 0 & 1 \end{matrix}",
         ),
         (
-            "20. pmatrix 2×2",
+            "23. pmatrix 2×2",
             r"Source: \begin{pmatrix} a & b \\ c & d \end{pmatrix}",
             r"\begin{pmatrix} a & b \\ c & d \end{pmatrix}",
         ),
         (
-            "21. pmatrix 3×3",
+            "24. pmatrix 3×3",
             r"Source: \begin{pmatrix} 1 & 2 & 3 \\ 4 & 5 & 6 \\ 7 & 8 & 9 \end{pmatrix}",
             r"\begin{pmatrix} 1 & 2 & 3 \\ 4 & 5 & 6 \\ 7 & 8 & 9 \end{pmatrix}",
         ),
         (
-            "22. Fraction of a pmatrix",
+            "25. Fraction of a pmatrix",
             r"Source: M = \frac{1}{2}\begin{pmatrix} a & b \\ c & d \end{pmatrix}",
             r"M = \frac{1}{2}\begin{pmatrix} a & b \\ c & d \end{pmatrix}",
         ),
         (
-            "23. Polynomial with scripts",
+            "26. Polynomial with scripts",
             "Source: f(x) = x^{2} + 2x + 1",
             r"f(x) = x^{2} + 2x + 1",
         ),
@@ -188,15 +203,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ));
     push_inline_case(
         &mut blocks,
-        "24. Inline sum (side scripts)",
+        "27. Inline sum (side scripts)",
         r"Source (inline): \sum_{i=1}^{n} i",
         r"\sum_{i=1}^{n} i",
     );
     push_inline_case(
         &mut blocks,
-        "25. Inline integral (side scripts)",
+        "28. Inline integral (side scripts)",
         r"Source (inline): \int_{0}^{1} x dx",
         r"\int_{0}^{1} x dx",
+    );
+    push_inline_case(
+        &mut blocks,
+        "29. Inline geo sets",
+        r"Source (inline): a \in A \cup B",
+        r"a \in A \cup B",
     );
 
     let doc = PrintDocument {

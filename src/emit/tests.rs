@@ -1283,6 +1283,10 @@ fn math_prod_and_int_emit() {
         r"A \cap B \neq C",
         r"\partial_{t} \rho = \Phi(\chi)",
         r"\sqrt{b^{2} - 4ac}",
+        r"x \in A \subseteq B \cup C \neq \emptyset",
+        r"\forall x \exists y (x \circ y) \notin \nabla",
+        r"A \subset B \supset C \supseteq D \mp E",
+        r"\bigcup_{i=1}^{n} A_{i} \bigcap_{j} B_{j} \coprod_{k} C_{k}",
     ] {
         let doc = PrintDocument {
             meta: PrintMeta {

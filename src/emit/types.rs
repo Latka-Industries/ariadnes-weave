@@ -220,6 +220,27 @@ impl LaidColumns {
     }
 }
 
+/// Geometric math symbols Liberation lacks (sets, logic, big cup/cap).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum MathSymKind {
+    In,
+    NotIn,
+    Subset,
+    Superset,
+    SubsetEq,
+    SupersetEq,
+    Cup,
+    BigCup,
+    BigCap,
+    Coprod,
+    Forall,
+    Exists,
+    Empty,
+    Circ,
+    Mp,
+    Nabla,
+}
+
 /// One drawn element inside a [`LaidMath`] box (coords from the box top).
 #[derive(Debug, Clone)]
 pub(super) enum LaidMathEl {
@@ -272,6 +293,15 @@ pub(super) enum LaidMathEl {
         y: f32,
         height: f32,
         width: f32,
+        thickness: f32,
+    },
+    /// Geometric symbol (sets/logic/ops Liberation lacks); `y` is midline from box top.
+    Sym {
+        kind: MathSymKind,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
         thickness: f32,
     },
 }
