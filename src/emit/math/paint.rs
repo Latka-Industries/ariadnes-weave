@@ -438,7 +438,8 @@ fn paint_math_sym(content: &mut Content, geom: &SymGeom, chrome: &PageChromeKnob
         MathSymKind::Exists => paint_sym_exists(content, x, width, mid_y, top, bot),
         MathSymKind::Empty => paint_sym_empty(content, cx, mid_y, width, height, top, bot),
         MathSymKind::Circ => {
-            let r = height * 0.42;
+            // Keep the ring optically small inside a padded advance box.
+            let r = height * 0.38;
             ellipse_stroke(content, cx, mid_y, r, r);
             content.stroke();
         }
@@ -466,17 +467,35 @@ fn paint_sym_in(
     thickness: f32,
     kind: MathSymKind,
 ) {
-    // ε-like: open circle on the left + short stem to the right.
-    let r = height * 0.28;
-    let ocx = x + width * 0.38;
-    ellipse_stroke(content, ocx, mid_y, r * 1.05, r);
-    content.move_to(ocx + r * 0.15, mid_y);
-    content.line_to(x + width * 0.92, mid_y);
+    // ∈ shares ⊂'s open-right bowl, plus a mid bar (not a square E).
+    let near = x + width * 0.18;
+    let far = x + width * 0.9;
+    content.move_to(far, top - height * 0.08);
+    content.cubic_to(
+        near,
+        top - height * 0.08,
+        near,
+        mid_y + height * 0.08,
+        near,
+        mid_y,
+    );
+    content.cubic_to(
+        near,
+        mid_y - height * 0.08,
+        near,
+        bot + height * 0.08,
+        far,
+        bot + height * 0.08,
+    );
+    content.stroke();
+    content.move_to(near, mid_y);
+    content.line_to(x + width * 0.78, mid_y);
     content.stroke();
     if kind == MathSymKind::NotIn {
-        content.set_line_width(thickness * 0.9);
-        content.move_to(x + width * 0.12, bot + height * 0.18);
-        content.line_to(x + width * 0.88, top - height * 0.18);
+        // Same stroke weight as the bowl — a heavier slash reads as a scribble.
+        content.set_line_width(thickness);
+        content.move_to(x + width * 0.06, bot + height * 0.12);
+        content.line_to(x + width * 0.94, top - height * 0.12);
         content.stroke();
     }
 }

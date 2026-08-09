@@ -75,9 +75,14 @@ fn layout_geo_sym(ctx: &MathCtx, font_size: f32, kind: MathSymKind, big: bool) -
     } else {
         match kind {
             MathSymKind::Circ => (
-                ink.span().max(font_size * 0.28),
-                font_size * 0.38,
+                ink.span().max(font_size * 0.24),
+                font_size * 0.36,
                 clamped_stroke(font_size, 0.05, 0.55, 1.1),
+            ),
+            MathSymKind::In | MathSymKind::NotIn => (
+                ink.span().max(font_size * 0.72),
+                font_size * 0.68,
+                clamped_stroke(font_size, 0.065, 0.75, 1.45),
             ),
             MathSymKind::Mp => (
                 ink.span().max(font_size * 0.7),
@@ -96,7 +101,7 @@ fn layout_geo_sym(ctx: &MathCtx, font_size: f32, kind: MathSymKind, big: bool) -
     } else {
         ink.center()
     };
-    box_from_midline(
+    let box_ = box_from_midline(
         y,
         height / 2.0,
         width,
@@ -108,7 +113,14 @@ fn layout_geo_sym(ctx: &MathCtx, font_size: f32, kind: MathSymKind, big: bool) -
             height,
             thickness,
         }],
-    )
+    );
+    // ∘ is a small ring; generous side bearing on top of Bin atom space.
+    if kind == MathSymKind::Circ {
+        let pad = ctx.mu(6.0, font_size);
+        pad_box_h(box_, pad, pad)
+    } else {
+        box_
+    }
 }
 
 /// Stroked arrow sized/centered to match surrounding letter ink (not the tiny → glyph).

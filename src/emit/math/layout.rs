@@ -40,7 +40,9 @@ fn atom_kind(expr: &MathExpr) -> AtomKind {
 
 fn classify_symbol(text: &str) -> AtomKind {
     match text.trim() {
-        "+" | "-" | "−" | "±" | "∓" | "×" | "·" | "÷" | "∪" | "∩" => AtomKind::Bin,
+        "+" | "-" | "−" | "±" | "∓" | "×" | "·" | "∘" | "÷" | "∪" | "∩" => {
+            AtomKind::Bin
+        }
         // ∞ grouped with relations for spacing; drawn upright like arrows.
         "=" | "≤" | "≥" | "≠" | "≈" | "≡" | "→" | "←" | "⇒" | "⇔" | "↔" | "↦" | "∞" | "∈" | "∉"
         | "⊂" | "⊃" | "⊆" | "⊇" | "∀" | "∃" => AtomKind::Rel,
