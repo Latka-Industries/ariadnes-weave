@@ -12,6 +12,10 @@ pub(super) enum MathExpr {
         sup: Option<Box<MathExpr>>,
         sub: Option<Box<MathExpr>>,
     },
+    /// Upright / roman wrapper (`\mathrm{…}`).
+    MathRm(Box<MathExpr>),
+    /// Square root (`\sqrt{…}`) with vinculum over the radicand.
+    Sqrt(Box<MathExpr>),
     Matrix {
         delimited: bool,
         rows: Vec<Vec<MathExpr>>,
@@ -47,6 +51,8 @@ fn flatten(expr: MathExpr) -> MathExpr {
             sup: sup.map(|e| Box::new(flatten(*e))),
             sub: sub.map(|e| Box::new(flatten(*e))),
         },
+        MathExpr::MathRm(inner) => MathExpr::MathRm(Box::new(flatten(*inner))),
+        MathExpr::Sqrt(inner) => MathExpr::Sqrt(Box::new(flatten(*inner))),
         MathExpr::Matrix { delimited, rows } => MathExpr::Matrix {
             delimited,
             rows: rows
@@ -220,6 +226,18 @@ impl Parser {
             let den = self.parse_nucleus()?;
             return Ok(MathExpr::Frac(Box::new(num), Box::new(den)));
         }
+        if self.starts_with("mathrm") {
+            self.eat_str("mathrm")?;
+            self.skip_spaces();
+            let inner = self.parse_nucleus()?;
+            return Ok(MathExpr::MathRm(Box::new(inner)));
+        }
+        if self.starts_with("sqrt") {
+            self.eat_str("sqrt")?;
+            self.skip_spaces();
+            let inner = self.parse_nucleus()?;
+            return Ok(MathExpr::Sqrt(Box::new(inner)));
+        }
         if self.starts_with("begin") {
             return self.parse_begin_env();
         }
@@ -330,6 +348,64 @@ mod parse_tests {
                 assert_eq!(rows[0].len(), 2);
             }
             other => panic!("expected matrix, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_int_scripts() {
+        let e = parse_math(r"\int_{0}^{1}").expect("parse");
+        match e {
+            MathExpr::Scripts { base, sup, sub } => {
+                assert_eq!(*base, MathExpr::Ord("∫".into()));
+                assert!(sup.is_some() && sub.is_some());
+            }
+            other => panic!("expected scripts, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_mathrm() {
+        let e = parse_math(r"\mathrm{after}").expect("parse");
+        match e {
+            MathExpr::MathRm(inner) => match *inner {
+                MathExpr::Row(items) => assert_eq!(items.len(), 5),
+                MathExpr::Ord(s) => assert_eq!(s, "after"),
+                other => panic!("unexpected mathrm inner: {other:?}"),
+            },
+            other => panic!("expected mathrm, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_partial_row() {
+        let e = parse_math(r"\partial_{t} \rho = \Phi(\chi)").expect("parse");
+        match &e {
+            MathExpr::Row(items) => {
+                assert!(matches!(&items[0], MathExpr::Scripts { .. }), "{items:?}");
+            }
+            MathExpr::Scripts { .. } => {}
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_partial_sub() {
+        let e = parse_math(r"\partial_{t}").expect("parse");
+        match e {
+            MathExpr::Scripts { base, sub, .. } => {
+                assert_eq!(*base, MathExpr::Ord("∂".into()));
+                assert_eq!(sub.as_deref(), Some(&MathExpr::Ord("t".into())));
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_sqrt() {
+        let e = parse_math(r"\sqrt{b^{2}-4ac}").expect("parse");
+        match e {
+            MathExpr::Sqrt(inner) => assert!(matches!(*inner, MathExpr::Row(_))),
+            other => panic!("expected sqrt, got {other:?}"),
         }
     }
 }

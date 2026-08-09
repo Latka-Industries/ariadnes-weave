@@ -57,7 +57,8 @@ crates.io. Local suite work can still path-dep when cutting paired releases.
   `max_width_factor` / `title_align`; caption `band` / `overflow`);
   `Slide` → one page with `layout_id` templates (`title-body`,
   `two-column`, …); `Math` → structured layout for
-  `\frac`, multi-char scripts, and simple `matrix`/`pmatrix` (not full TeX)
+  `\frac`, multi-char scripts, `matrix`/`pmatrix`, and display
+  under/over limits on `\sum`/`\prod`/`\int`/… (not full TeX)
 
 Not yet: full TeX/MathML, OS font collection/CFF polish, full-coverage CJK/emoji
 packs (only tiny sealed subsets behind features), color-emoji PDF paint.

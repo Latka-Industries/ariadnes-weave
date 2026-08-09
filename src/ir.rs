@@ -139,9 +139,10 @@ pub enum PrintBlock {
         /// Placement hint.
         placement: FigurePlacement,
     },
-    /// Math (LaTeX source; structured layout for `\frac` / scripts / matrices).
+    /// Math (LaTeX source; structured layout for `\frac` / scripts / display
+    /// ∑∏ limits / matrices).
     Math {
-        /// Display vs inline.
+        /// Display vs inline (`true` → under/over limits on big ops).
         display: bool,
         /// LaTeX source.
         latex: String,

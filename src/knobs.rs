@@ -781,6 +781,8 @@ pub struct MathKnobs {
     pub display: MathDisplayKnobs,
     /// Axis / mu / `.notdef` metrics.
     pub metrics: MathMetricsKnobs,
+    /// Big operators (∑ / ∏ / ∫) and display under/over limits.
+    pub op: MathOpKnobs,
     /// Geometric arrows.
     pub arrow: MathArrowKnobs,
     /// Infinity glyph optics.
@@ -793,6 +795,8 @@ pub struct MathKnobs {
     pub matrix: MathMatrixKnobs,
     /// Stretchy parentheses.
     pub paren: MathParenKnobs,
+    /// Square-root radical + vinculum.
+    pub sqrt: MathSqrtKnobs,
 }
 
 /// `[display]` in `math.toml`.
@@ -817,12 +821,25 @@ pub struct MathMetricsKnobs {
     pub mu_per_em: f32,
     /// Fallback ink above when glyph bounds missing.
     pub fallback_ink_above_factor: f32,
-    /// Extra space after big operators (mu).
-    pub op_after_space_mu: f32,
     /// `.notdef` box height factor.
     pub notdef_height_factor: f32,
     /// `.notdef` box depth factor.
     pub notdef_depth_factor: f32,
+}
+
+/// `[op]` in `math.toml` — large operators and display-style limits.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MathOpKnobs {
+    /// Glyph scale for ∑ / ∏ / ∫ relative to surrounding math size.
+    pub size_factor: f32,
+    /// Limit (under/over) size as a factor of surrounding math size.
+    pub limit_size_factor: f32,
+    /// Gap above the operator to the upper limit (factor of font size).
+    pub gap_above_factor: f32,
+    /// Gap below the operator to the lower limit (factor of font size).
+    pub gap_below_factor: f32,
+    /// Extra horizontal space after an op-with-limits atom (mu).
+    pub after_space_mu: f32,
 }
 
 /// `[arrow]` in `math.toml`.
@@ -921,6 +938,21 @@ pub struct MathParenKnobs {
     pub thickness_max: f32,
 }
 
+/// `[sqrt]` in `math.toml`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MathSqrtKnobs {
+    /// Gap between vinculum and radicand (factor of font size).
+    pub gap_factor: f32,
+    /// Vinculum thickness factor.
+    pub rule_thickness_factor: f32,
+    /// Vinculum thickness minimum (points).
+    pub rule_thickness_min: f32,
+    /// Extra pad after the radical before content (factor of font size).
+    pub pad_factor: f32,
+    /// Horizontal overhang of the vinculum past the radicand (factor of font size).
+    pub overhang_factor: f32,
+}
+
 /// Page chrome knobs (`defaults/page.toml`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PageKnobs {
@@ -968,6 +1000,8 @@ mod tests {
         assert_eq!(k.prose.paragraph.text_align, TextAlign::Left);
         assert!((k.math.metrics.mu_per_em - 18.0).abs() < f32::EPSILON);
         assert!((k.math.frac.gap_num_factor - 0.1).abs() < f32::EPSILON);
+        assert!((k.math.op.size_factor - 1.35).abs() < f32::EPSILON);
+        assert!((k.math.op.after_space_mu - 2.5).abs() < f32::EPSILON);
         let dump = k.describe();
         assert!(dump.contains("prose.paragraph.gap_after = 10"));
         assert!(
@@ -975,6 +1009,7 @@ mod tests {
                 || dump.contains("prose.paragraph.text_align = left")
         );
         assert!(dump.contains("math.metrics.axis_factor = 0.25"));
+        assert!(dump.contains("math.op.limit_size_factor = 0.65"));
         assert!(dump.contains("page.footer.font_size = 9"));
         assert!(dump.contains("prose.heading.leading_factor = 1.35"));
         assert!(k.prose.quote.italic);

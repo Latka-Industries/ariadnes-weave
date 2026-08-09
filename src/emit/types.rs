@@ -256,6 +256,24 @@ pub(super) enum LaidMathEl {
         thickness: f32,
         left: bool,
     },
+    /// Geometric integral; `axis_y` is the math-axis distance from the box top.
+    Integral {
+        x: f32,
+        axis_y: f32,
+        half_h: f32,
+        width: f32,
+        thickness: f32,
+        contour: bool,
+    },
+    /// Geometric radical (checkmark) for `\sqrt`; vinculum is a separate [`Self::Rule`].
+    Radical {
+        x: f32,
+        /// Top of the radical (vinculum join), from box top.
+        y: f32,
+        height: f32,
+        width: f32,
+        thickness: f32,
+    },
 }
 
 /// Structured math formula (fractions, scripts, matrices).

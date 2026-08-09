@@ -1,4 +1,5 @@
-//! Structured math layout for a small LaTeX subset (fractions, scripts, matrices).
+//! Structured math layout for a small LaTeX subset
+//! (fractions, scripts, display op limits, matrices).
 //!
 //! Leaf tokens still map through [`prettify::prettify_tokens`]. This is not a TeX engine.
 
@@ -51,6 +52,7 @@ pub(super) fn layout_math(
         face,
         knobs,
         glyph_sets,
+        display,
     };
     let math = layout_expr(&expr, &mut ctx, font_size)?;
     seg.1.push(LaidItem::Math(LaidMath {

@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use pdf_writer::types::LineCapStyle;
+use pdf_writer::types::{LineCapStyle, LineJoinStyle};
 use pdf_writer::{Content, Name, Str};
 
 use crate::error::WeaveError;
@@ -28,6 +28,42 @@ struct ParenGeom {
     width: f32,
     thickness: f32,
     left: bool,
+}
+
+struct IntegralGeom {
+    x: f32,
+    axis_y: f32,
+    half_h: f32,
+    width: f32,
+    thickness: f32,
+    contour: bool,
+}
+
+struct RadicalGeom {
+    x: f32,
+    top_y: f32,
+    height: f32,
+    width: f32,
+    thickness: f32,
+}
+
+/// Shared stroke prelude for math chrome (rules, arrows, parens, integrals, radicals).
+fn begin_math_stroke(
+    content: &mut Content,
+    chrome: &PageChromeKnobs,
+    thickness: f32,
+    round_cap: bool,
+    round_join: bool,
+) {
+    content.save_state();
+    content.set_stroke_gray(chrome.stroke_gray);
+    content.set_line_width(thickness);
+    if round_cap {
+        content.set_line_cap(LineCapStyle::RoundCap);
+    }
+    if round_join {
+        content.set_line_join(LineJoinStyle::RoundJoin);
+    }
 }
 
 fn paint_span_text(
@@ -593,9 +629,7 @@ pub(super) fn paint_math(
                 width,
                 thickness,
             } => {
-                content.save_state();
-                content.set_stroke_gray(0.1);
-                content.set_line_width(*thickness);
+                begin_math_stroke(content, chrome, *thickness, false, false);
                 let rule_y = top_y - y;
                 content.move_to(origin_x + x, rule_y);
                 content.line_to(origin_x + x + width, rule_y);
@@ -644,8 +678,72 @@ pub(super) fn paint_math(
                     chrome,
                 );
             }
+            LaidMathEl::Integral {
+                x,
+                axis_y,
+                half_h,
+                width,
+                thickness,
+                contour,
+            } => {
+                paint_math_integral(
+                    content,
+                    &IntegralGeom {
+                        x: origin_x + x,
+                        axis_y: top_y - axis_y,
+                        half_h: *half_h,
+                        width: *width,
+                        thickness: *thickness,
+                        contour: *contour,
+                    },
+                    chrome,
+                );
+            }
+            LaidMathEl::Radical {
+                x,
+                y,
+                height,
+                width,
+                thickness,
+            } => {
+                paint_math_radical(
+                    content,
+                    &RadicalGeom {
+                        x: origin_x + x,
+                        top_y: top_y - y,
+                        height: *height,
+                        width: *width,
+                        thickness: *thickness,
+                    },
+                    chrome,
+                );
+            }
         }
     }
+}
+
+/// Stroke a radical checkmark; top-right joins the vinculum [`LaidMathEl::Rule`].
+fn paint_math_radical(content: &mut Content, geom: &RadicalGeom, chrome: &PageChromeKnobs) {
+    let RadicalGeom {
+        x,
+        top_y,
+        height,
+        width,
+        thickness,
+    } = *geom;
+    // Path: left tick → bottom V → up to vinculum join (top-right of radical box).
+    let join_x = x + width;
+    let join_y = top_y;
+    let bot_y = top_y - height;
+    let v_x = x + width * 0.38;
+    let tick_x = x + width * 0.08;
+    let tick_y = bot_y + height * 0.28;
+    begin_math_stroke(content, chrome, thickness, true, true);
+    content.move_to(tick_x, tick_y);
+    content.line_to(v_x, bot_y + thickness * 0.5);
+    content.line_to(join_x, join_y);
+    content.stroke();
+    content.restore_state();
 }
 
 fn paint_math_arrow(content: &mut Content, geom: &ArrowGeom, chrome: &PageChromeKnobs) {
@@ -664,11 +762,8 @@ fn paint_math_arrow(content: &mut Content, geom: &ArrowGeom, chrome: &PageChrome
     } else {
         (x, x + width, x + width - head_w)
     };
-    content.save_state();
-    content.set_stroke_gray(chrome.stroke_gray);
+    begin_math_stroke(content, chrome, thickness, true, false);
     content.set_fill_gray(chrome.fill_gray);
-    content.set_line_width(thickness);
-    content.set_line_cap(LineCapStyle::RoundCap);
     content.move_to(tail_x, mid_y);
     content.line_to(head_base, mid_y);
     content.stroke();
@@ -677,6 +772,60 @@ fn paint_math_arrow(content: &mut Content, geom: &ArrowGeom, chrome: &PageChrome
     content.line_to(head_base, mid_y - head_h / 2.0);
     content.close_path();
     content.fill_nonzero();
+    content.restore_state();
+}
+
+/// Stroke a tall upright integral (optional contour loop), centered on the math axis.
+///
+/// Kept nearly vertical (minimal italic slant) so display under/over limits center
+/// cleanly above/below like ∑, rather than tucking into slanted hooks.
+fn paint_math_integral(content: &mut Content, geom: &IntegralGeom, chrome: &PageChromeKnobs) {
+    let IntegralGeom {
+        x,
+        axis_y,
+        half_h,
+        width,
+        thickness,
+        contour,
+    } = *geom;
+    let top = axis_y + half_h;
+    let bot = axis_y - half_h;
+    let mid = axis_y;
+    let cx = x + width * 0.5;
+    let serif = width * 0.28;
+    begin_math_stroke(content, chrome, thickness, true, true);
+    // Top serif (rightward) → upright stem with slight S → bottom serif (leftward).
+    content.move_to(cx + serif, top);
+    content.line_to(cx - serif * 0.15, top);
+    content.cubic_to(
+        cx - serif * 0.35,
+        top - half_h * 0.08,
+        cx - serif * 0.2,
+        mid + half_h * 0.35,
+        cx,
+        mid,
+    );
+    content.cubic_to(
+        cx + serif * 0.2,
+        mid - half_h * 0.35,
+        cx + serif * 0.35,
+        bot + half_h * 0.08,
+        cx + serif * 0.15,
+        bot,
+    );
+    content.line_to(cx - serif, bot);
+    content.stroke();
+    if contour {
+        let r = width * 0.16;
+        content.set_line_width(thickness * 0.85);
+        let k = 0.5523 * r;
+        content.move_to(cx + r, mid);
+        content.cubic_to(cx + r, mid + k, cx + k, mid + r, cx, mid + r);
+        content.cubic_to(cx - k, mid + r, cx - r, mid + k, cx - r, mid);
+        content.cubic_to(cx - r, mid - k, cx - k, mid - r, cx, mid - r);
+        content.cubic_to(cx + k, mid - r, cx + r, mid - k, cx + r, mid);
+        content.stroke();
+    }
     content.restore_state();
 }
 
@@ -693,10 +842,7 @@ fn paint_math_paren(content: &mut Content, geom: &ParenGeom, chrome: &PageChrome
     let top = axis_y + half_h;
     let bot = axis_y - half_h;
     let mid = axis_y;
-    content.save_state();
-    content.set_stroke_gray(chrome.stroke_gray);
-    content.set_line_width(thickness);
-    content.set_line_cap(LineCapStyle::RoundCap);
+    begin_math_stroke(content, chrome, thickness, true, false);
     if left {
         content.move_to(x + width, top);
         content.cubic_to(

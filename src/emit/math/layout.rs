@@ -16,6 +16,8 @@ pub(super) struct MathCtx<'a> {
     pub(super) face: FaceRef,
     pub(super) knobs: &'a MathKnobs,
     pub(super) glyph_sets: &'a mut GlyphSets,
+    /// Display math (under/over limits for big ops); inline keeps side scripts.
+    pub(super) display: bool,
 }
 
 impl MathCtx<'_> {
@@ -45,7 +47,12 @@ impl MathCtx<'_> {
 
 impl MathArrowKnobs {
     fn stroke_thickness(&self, font_size: f32) -> f32 {
-        (font_size * self.thickness_factor).clamp(self.thickness_min, self.thickness_max)
+        clamped_stroke(
+            font_size,
+            self.thickness_factor,
+            self.thickness_min,
+            self.thickness_max,
+        )
     }
 }
 
@@ -61,8 +68,21 @@ impl MathParenKnobs {
     }
 
     fn stroke_thickness(&self, font_size: f32) -> f32 {
-        (font_size * self.thickness_factor).clamp(self.thickness_min, self.thickness_max)
+        clamped_stroke(
+            font_size,
+            self.thickness_factor,
+            self.thickness_min,
+            self.thickness_max,
+        )
     }
+}
+
+fn clamped_stroke(font_size: f32, factor: f32, min: f32, max: f32) -> f32 {
+    (font_size * factor).clamp(min, max)
+}
+
+fn rule_thickness(font_size: f32, factor: f32, min: f32) -> f32 {
+    (font_size * factor).max(min)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,6 +101,8 @@ fn atom_kind(expr: &MathExpr) -> AtomKind {
     match expr {
         MathExpr::Ord(text) => classify_symbol(text),
         MathExpr::Scripts { base, .. } => atom_kind(base),
+        MathExpr::MathRm(inner) => atom_kind(inner),
+        MathExpr::Sqrt(_) => AtomKind::Ord,
         MathExpr::Matrix {
             delimited: true, ..
         } => AtomKind::Inner,
@@ -90,14 +112,20 @@ fn atom_kind(expr: &MathExpr) -> AtomKind {
 
 fn classify_symbol(text: &str) -> AtomKind {
     match text.trim() {
-        "+" | "-" | "−" | "±" | "×" | "·" => AtomKind::Bin,
+        "+" | "-" | "−" | "±" | "∓" | "×" | "·" | "÷" | "∪" | "∩" => AtomKind::Bin,
         // ∞ grouped with relations for spacing; drawn upright like arrows.
-        "=" | "≤" | "≥" | "≠" | "≈" | "→" | "←" | "⇒" | "∞" => AtomKind::Rel,
+        "=" | "≤" | "≥" | "≠" | "≈" | "≡" | "→" | "←" | "⇒" | "⇔" | "↔" | "↦" | "∞" | "∈" | "∉"
+        | "⊂" | "⊃" | "⊆" | "⊇" | "∀" | "∃" => AtomKind::Rel,
         "(" | "[" | "{" => AtomKind::Open,
         ")" | "]" | "}" => AtomKind::Close,
-        "∑" | "∏" | "∫" => AtomKind::Op,
+        t if is_big_op(t) => AtomKind::Op,
         _ => AtomKind::Ord,
     }
+}
+
+/// Large operators that take display under/over limits (TeX `\displaylimits` family).
+fn is_big_op(text: &str) -> bool {
+    matches!(text.trim(), "∑" | "∏" | "∫" | "∮" | "∐" | "⋃" | "⋂")
 }
 
 /// TeX-like inter-atom space in mu (0 = tight).
@@ -177,10 +205,34 @@ pub(super) enum RelEl {
         thickness: f32,
         left: bool,
     },
+    /// Geometric integral; `axis` is the math-axis offset from the baseline.
+    Integral {
+        x: f32,
+        axis: f32,
+        half_h: f32,
+        width: f32,
+        thickness: f32,
+        /// Contour integral (circle on the stem).
+        contour: bool,
+    },
+    /// Geometric radical (checkmark); vinculum is a separate [`Self::Rule`].
+    Radical {
+        x: f32,
+        /// Top of the radical (vinculum join), relative to baseline.
+        y: f32,
+        height: f32,
+        width: f32,
+        thickness: f32,
+    },
 }
 
 impl RelEl {
     fn offset(self, dx: f32, dy: f32) -> Self {
+        self.map_xy(|x, y| (x + dx, y + dy))
+    }
+
+    /// Remap the element's horizontal + vertical placement fields (`y` or `axis`).
+    fn map_xy(self, f: impl FnOnce(f32, f32) -> (f32, f32)) -> Self {
         match self {
             Self::Text {
                 x,
@@ -188,24 +240,30 @@ impl RelEl {
                 face,
                 font_size,
                 glyphs,
-            } => Self::Text {
-                x: x + dx,
-                y: y + dy,
-                face,
-                font_size,
-                glyphs,
-            },
+            } => {
+                let (x, y) = f(x, y);
+                Self::Text {
+                    x,
+                    y,
+                    face,
+                    font_size,
+                    glyphs,
+                }
+            }
             Self::Rule {
                 x,
                 y,
                 width,
                 thickness,
-            } => Self::Rule {
-                x: x + dx,
-                y: y + dy,
-                width,
-                thickness,
-            },
+            } => {
+                let (x, y) = f(x, y);
+                Self::Rule {
+                    x,
+                    y,
+                    width,
+                    thickness,
+                }
+            }
             Self::Paren {
                 x,
                 axis,
@@ -213,14 +271,17 @@ impl RelEl {
                 width,
                 thickness,
                 left,
-            } => Self::Paren {
-                x: x + dx,
-                axis: axis + dy,
-                half_h,
-                width,
-                thickness,
-                left,
-            },
+            } => {
+                let (x, axis) = f(x, axis);
+                Self::Paren {
+                    x,
+                    axis,
+                    half_h,
+                    width,
+                    thickness,
+                    left,
+                }
+            }
             Self::Arrow {
                 x,
                 y,
@@ -228,20 +289,57 @@ impl RelEl {
                 height,
                 thickness,
                 left,
-            } => Self::Arrow {
-                x: x + dx,
-                y: y + dy,
+            } => {
+                let (x, y) = f(x, y);
+                Self::Arrow {
+                    x,
+                    y,
+                    width,
+                    height,
+                    thickness,
+                    left,
+                }
+            }
+            Self::Integral {
+                x,
+                axis,
+                half_h,
                 width,
-                height,
                 thickness,
-                left,
-            },
+                contour,
+            } => {
+                let (x, axis) = f(x, axis);
+                Self::Integral {
+                    x,
+                    axis,
+                    half_h,
+                    width,
+                    thickness,
+                    contour,
+                }
+            }
+            Self::Radical {
+                x,
+                y,
+                height,
+                width,
+                thickness,
+            } => {
+                let (x, y) = f(x, y);
+                Self::Radical {
+                    x,
+                    y,
+                    height,
+                    width,
+                    thickness,
+                }
+            }
         }
     }
 
     fn into_laid(self, top: f32) -> LaidMathEl {
         /// Baseline-relative `y` → distance from the box top (PDF paint space).
-        fn from_top_y(top: f32, y: f32) -> f32 {
+        fn from_top(top: f32, y: f32) -> f32 {
             top - y
         }
         match self {
@@ -253,7 +351,7 @@ impl RelEl {
                 glyphs,
             } => LaidMathEl::Text {
                 x,
-                y: from_top_y(top, y),
+                y: from_top(top, y),
                 face,
                 font_size,
                 glyphs,
@@ -265,7 +363,7 @@ impl RelEl {
                 thickness,
             } => LaidMathEl::Rule {
                 x,
-                y: from_top_y(top, y),
+                y: from_top(top, y),
                 width,
                 thickness,
             },
@@ -278,7 +376,7 @@ impl RelEl {
                 left,
             } => LaidMathEl::Paren {
                 x,
-                axis_y: from_top_y(top, axis),
+                axis_y: from_top(top, axis),
                 half_h,
                 width,
                 thickness,
@@ -293,11 +391,39 @@ impl RelEl {
                 left,
             } => LaidMathEl::Arrow {
                 x,
-                y: from_top_y(top, y),
+                y: from_top(top, y),
                 width,
                 height,
                 thickness,
                 left,
+            },
+            Self::Integral {
+                x,
+                axis,
+                half_h,
+                width,
+                thickness,
+                contour,
+            } => LaidMathEl::Integral {
+                x,
+                axis_y: from_top(top, axis),
+                half_h,
+                width,
+                thickness,
+                contour,
+            },
+            Self::Radical {
+                x,
+                y,
+                height,
+                width,
+                thickness,
+            } => LaidMathEl::Radical {
+                x,
+                y: from_top(top, y),
+                height,
+                width,
+                thickness,
             },
         }
     }
@@ -312,14 +438,13 @@ fn h_center(container: f32, content: f32) -> f32 {
     (container - content) / 2.0
 }
 
-fn paren_element(x: f32, axis: f32, half_h: f32, width: f32, thickness: f32, left: bool) -> RelEl {
-    RelEl::Paren {
-        x,
-        axis,
-        half_h,
+/// Math box whose vertical extent is centered on a midline (`mid_y` from baseline).
+fn box_from_midline(mid_y: f32, half_extent: f32, width: f32, elements: Vec<RelEl>) -> MathBox {
+    MathBox {
         width,
-        thickness,
-        left,
+        height: mid_y + half_extent,
+        depth: (half_extent - mid_y).max(0.0),
+        elements,
     }
 }
 
@@ -347,6 +472,8 @@ pub(super) fn layout_expr(
         MathExpr::Scripts { base, sup, sub } => {
             layout_scripts(base, sup.as_deref(), sub.as_deref(), ctx, font_size)
         }
+        MathExpr::MathRm(inner) => ctx.with_upright_face(|ctx| layout_expr(inner, ctx, font_size)),
+        MathExpr::Sqrt(inner) => layout_sqrt(inner, ctx, font_size),
         MathExpr::Matrix { delimited, rows } => layout_matrix(*delimited, rows, ctx, font_size),
     }
 }
@@ -359,11 +486,20 @@ fn layout_opt(
     expr.map(|e| layout_expr(e, ctx, font_size)).transpose()
 }
 
-fn symbol_scale(text: &str) -> f32 {
-    match text.trim() {
-        "∑" | "∏" | "∫" => 1.35,
-        _ => 1.0,
+fn symbol_scale(text: &str, knobs: &MathKnobs) -> f32 {
+    if is_big_op(text) {
+        knobs.op.size_factor
+    } else {
+        1.0
     }
+}
+
+fn scripts_use_op_limits(base: &MathExpr, display: bool) -> bool {
+    display
+        && match base {
+            MathExpr::Ord(text) => is_big_op(text),
+            _ => false,
+        }
 }
 
 fn upright_face(face: FaceRef) -> FaceRef {
@@ -419,18 +555,55 @@ fn letter_ink_ref(ctx: &MathCtx, font_size: f32) -> InkBox {
 fn layout_ord(text: &str, ctx: &mut MathCtx, font_size: f32) -> Result<MathBox, WeaveError> {
     match text.trim() {
         "←" => return Ok(layout_geo_arrow(ctx, font_size, true)),
-        "→" | "⇒" => return Ok(layout_geo_arrow(ctx, font_size, false)),
+        "→" | "⇒" | "↦" => return Ok(layout_geo_arrow(ctx, font_size, false)),
         "∞" => return layout_infinity(ctx, font_size),
+        // Geometric ∫/∮: compact upright stem so display under/over limits clear like ∑.
+        "∫" => return Ok(layout_geo_integral(ctx, font_size, false)),
+        "∮" => return Ok(layout_geo_integral(ctx, font_size, true)),
         _ => {}
     }
-    let draw_size = font_size * symbol_scale(text);
-    let mut box_ = layout_ord_raw(text, ctx, draw_size)?;
-    if classify_symbol(text) == AtomKind::Op {
+    // Upright for large ops (∑ ∏ …) so under/over limits clear the glyph like TeX `\sum`.
+    let draw_size = font_size * symbol_scale(text, ctx.knobs);
+    let op = classify_symbol(text) == AtomKind::Op;
+    let mut box_ = if op {
+        ctx.with_upright_face(|ctx| layout_ord_raw(text, ctx, draw_size))?
+    } else {
+        layout_ord_raw(text, ctx, draw_size)?
+    };
+    if op {
+        let ch = text.chars().next().unwrap_or('∑');
+        if let Some(ink) = char_ink(ctx.fonts, upright_face(ctx.face), ch, draw_size) {
+            box_.height = ink.above;
+            box_.depth = ink.below;
+        }
         let center = (box_.height - box_.depth) / 2.0;
         let dy = ctx.axis(font_size) - center;
         box_ = shift_box_vert(box_, dy);
     }
     Ok(box_)
+}
+
+/// Compact geometric integral centered on the math axis (displaylimits-friendly).
+fn layout_geo_integral(ctx: &MathCtx, font_size: f32, contour: bool) -> MathBox {
+    let draw_size = font_size * ctx.knobs.op.size_factor;
+    // Match ∑ optical height so under/over limits sit in the same band.
+    let half_h = draw_size * 0.48;
+    let width = draw_size * 0.55;
+    let thickness = clamped_stroke(font_size, 0.06, 0.7, 1.45);
+    let axis = ctx.axis(font_size);
+    box_from_midline(
+        axis,
+        half_h,
+        width,
+        vec![RelEl::Integral {
+            x: 0.0,
+            axis,
+            half_h,
+            width,
+            thickness,
+            contour,
+        }],
+    )
 }
 
 /// Stroked arrow sized/centered to match surrounding letter ink (not the tiny → glyph).
@@ -442,11 +615,11 @@ fn layout_geo_arrow(ctx: &MathCtx, font_size: f32, left: bool) -> MathBox {
     let width = font_size * ctx.knobs.arrow.width_factor;
     let thickness = ctx.knobs.arrow.stroke_thickness(font_size);
     let y = ink.center();
-    MathBox {
+    box_from_midline(
+        y,
+        height / 2.0,
         width,
-        height: y + height / 2.0,
-        depth: (height / 2.0 - y).max(0.0),
-        elements: vec![RelEl::Arrow {
+        vec![RelEl::Arrow {
             x: 0.0,
             y,
             width,
@@ -454,7 +627,7 @@ fn layout_geo_arrow(ctx: &MathCtx, font_size: f32, left: bool) -> MathBox {
             thickness,
             left,
         }],
-    }
+    )
 }
 
 /// Upright ∞: ink-matched to letters, then optically enlarged / lowered / padded.
@@ -523,7 +696,7 @@ fn layout_row(
             x += ctx.mu(space_mu(kinds[i - 1], kinds[i]), font_size);
             // Extra clearance only after large-op limits (∑_{i=1}^{n} i), not ordinary x^y.
             if kinds[i - 1] == AtomKind::Op && matches!(&items[i - 1], MathExpr::Scripts { .. }) {
-                x += ctx.mu(ctx.knobs.metrics.op_after_space_mu, font_size);
+                x += ctx.mu(ctx.knobs.op.after_space_mu, font_size);
             }
         }
         let box_ = layout_expr(item, ctx, font_size)?;
@@ -550,8 +723,11 @@ fn layout_frac(
     let script = font_size * ctx.knobs.frac.script_size_factor;
     let num_b = layout_expr(num, ctx, script)?;
     let den_b = layout_expr(den, ctx, script)?;
-    let thickness =
-        (font_size * ctx.knobs.frac.rule_thickness_factor).max(ctx.knobs.frac.rule_thickness_min);
+    let thickness = rule_thickness(
+        font_size,
+        ctx.knobs.frac.rule_thickness_factor,
+        ctx.knobs.frac.rule_thickness_min,
+    );
     // Slightly more air under the bar than above so num/den look even optically.
     let gap_num = font_size * ctx.knobs.frac.gap_num_factor;
     let gap_den = font_size * ctx.knobs.frac.gap_den_factor;
@@ -581,7 +757,116 @@ fn layout_frac(
     })
 }
 
+/// `\sqrt{…}`: geometric radical + vinculum spanning the full radicand width.
+fn layout_sqrt(inner: &MathExpr, ctx: &mut MathCtx, font_size: f32) -> Result<MathBox, WeaveError> {
+    let body = layout_expr(inner, ctx, font_size)?;
+    let body_w = body.width;
+    let gap = font_size * ctx.knobs.sqrt.gap_factor;
+    let thickness = rule_thickness(
+        font_size,
+        ctx.knobs.sqrt.rule_thickness_factor,
+        ctx.knobs.sqrt.rule_thickness_min,
+    );
+    let pad = font_size * ctx.knobs.sqrt.pad_factor;
+    let overhang = font_size * ctx.knobs.sqrt.overhang_factor;
+
+    let content_span = body.height + body.depth;
+    let radical_h = (content_span + gap + thickness).max(font_size * 0.95);
+    let radical_w = font_size * 0.55;
+    let vinculum_y = body.height + gap + thickness / 2.0;
+    // Radical top joins the vinculum; stem drops to below the radicand.
+    let radical_top = vinculum_y + thickness / 2.0;
+    let body_x = radical_w + pad;
+    let vinculum_x = radical_w * 0.85;
+    let vinculum_w = body_x + body_w - vinculum_x + overhang;
+
+    let height = radical_top;
+    let depth = body.depth.max(radical_h - radical_top).max(0.0);
+
+    let mut elements = vec![
+        RelEl::Radical {
+            x: 0.0,
+            y: radical_top,
+            height: radical_h,
+            width: radical_w,
+            thickness,
+        },
+        RelEl::Rule {
+            x: vinculum_x,
+            y: vinculum_y,
+            width: vinculum_w,
+            thickness,
+        },
+    ];
+    append_box(&mut elements, body, body_x, 0.0);
+
+    Ok(MathBox {
+        width: body_x + body_w + overhang,
+        height,
+        depth,
+        elements,
+    })
+}
+
 fn layout_scripts(
+    base: &MathExpr,
+    sup: Option<&MathExpr>,
+    sub: Option<&MathExpr>,
+    ctx: &mut MathCtx,
+    font_size: f32,
+) -> Result<MathBox, WeaveError> {
+    if scripts_use_op_limits(base, ctx.display) {
+        return layout_op_limits(base, sup, sub, ctx, font_size);
+    }
+    layout_side_scripts(base, sup, sub, ctx, font_size)
+}
+
+/// TeX-style under/over limits for display big ops (∑ ∏ ∫ …).
+fn layout_op_limits(
+    base: &MathExpr,
+    limsup: Option<&MathExpr>,
+    liminf: Option<&MathExpr>,
+    ctx: &mut MathCtx,
+    font_size: f32,
+) -> Result<MathBox, WeaveError> {
+    let base_box = layout_expr(base, ctx, font_size)?;
+    let limit_size = font_size * ctx.knobs.op.limit_size_factor;
+    let upper = layout_opt(limsup, ctx, limit_size)?;
+    let lower = layout_opt(liminf, ctx, limit_size)?;
+    let base_w = base_box.width;
+    let mut height = base_box.height;
+    let mut depth = base_box.depth;
+    let upper_w = upper.as_ref().map_or(0.0, |b| b.width);
+    let lower_w = lower.as_ref().map_or(0.0, |b| b.width);
+    let width = base_w.max(upper_w).max(lower_w);
+    let gap_above = font_size * ctx.knobs.op.gap_above_factor;
+    let gap_below = font_size * ctx.knobs.op.gap_below_factor;
+
+    let mut elements = Vec::new();
+    append_box(&mut elements, base_box, h_center(width, base_w), 0.0);
+
+    if let Some(upper) = upper {
+        let uw = upper.width;
+        let y = height + gap_above + upper.depth;
+        height = y + upper.height;
+        append_box(&mut elements, upper, h_center(width, uw), y);
+    }
+    if let Some(lower) = lower {
+        let lw = lower.width;
+        let y = -(depth + gap_below + lower.height);
+        depth = -y + lower.depth;
+        append_box(&mut elements, lower, h_center(width, lw), y);
+    }
+
+    Ok(MathBox {
+        width,
+        height,
+        depth,
+        elements,
+    })
+}
+
+fn layout_side_scripts(
     base: &MathExpr,
     sup: Option<&MathExpr>,
     sub: Option<&MathExpr>,
@@ -596,11 +881,16 @@ fn layout_scripts(
         .as_ref()
         .map_or(0.0, |b| b.width)
         .max(subscript.as_ref().map_or(0.0, |b| b.width));
-    // Asymmetric: a little air before y; trim advance sidebearing after y.
+    // Asymmetric: a little air before y; trim advance sidebearing after y (sup-only).
+    // Keep full advance when a subscript is present so ∂_t ρ does not eat the script.
     let script_gap = ctx.mu(ctx.knobs.script.gap_mu, font_size);
     let script_x = base_box.width + script_gap;
-    let width =
-        (script_x + script_w - ctx.mu(ctx.knobs.script.overlap_mu, font_size)).max(script_x);
+    let overlap = if subscript.is_some() {
+        0.0
+    } else {
+        ctx.mu(ctx.knobs.script.overlap_mu, font_size)
+    };
+    let width = (script_x + script_w - overlap).max(script_x);
     let mut height = base_box.height;
     let mut depth = base_box.depth;
     let mut elements = base_box.elements;
@@ -610,7 +900,9 @@ fn layout_scripts(
         append_box(&mut elements, superscript, script_x, y);
     }
     if let Some(subscript) = subscript {
-        let y = -font_size * ctx.knobs.script.subscript_lower_factor;
+        // Drop at least past the base ink so ∂_t / χ_i stay readable (not tucked into the glyph).
+        let y = -(font_size * ctx.knobs.script.subscript_lower_factor)
+            .max(base_box.depth * 0.55 + font_size * 0.06);
         depth = depth.max(-y + subscript.depth);
         append_box(&mut elements, subscript, script_x, y);
     }
@@ -675,15 +967,22 @@ fn layout_matrix(
         let paren_w = ctx.knobs.paren.delim_width(half_h);
         let thick = ctx.knobs.paren.stroke_thickness(font_size);
         let width = inner_w + 2.0 * pad + 2.0 * paren_w;
-        elements.push(paren_element(0.0, axis, half_h, paren_w, thick, true));
-        elements.push(paren_element(
-            width - paren_w,
+        elements.push(RelEl::Paren {
+            x: 0.0,
             axis,
             half_h,
-            paren_w,
-            thick,
-            false,
-        ));
+            width: paren_w,
+            thickness: thick,
+            left: true,
+        });
+        elements.push(RelEl::Paren {
+            x: width - paren_w,
+            axis,
+            half_h,
+            width: paren_w,
+            thickness: thick,
+            left: false,
+        });
         (paren_w, width)
     } else {
         (0.0, inner_w + 2.0 * pad)

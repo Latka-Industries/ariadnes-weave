@@ -1234,6 +1234,111 @@ fn math_pmatrix_emits() {
 }
 
 #[test]
+fn math_sum_display_limits_emit() {
+    let display = PrintDocument {
+        meta: PrintMeta {
+            title: "Sum display".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::Math {
+            display: true,
+            latex: r"\sum_{i=1}^{n} i".into(),
+        }],
+    };
+    let inline = PrintDocument {
+        meta: PrintMeta {
+            title: "Sum inline".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::Math {
+            display: false,
+            latex: r"\sum_{i=1}^{n} i".into(),
+        }],
+    };
+    let d = emit_pdf(&display).expect("emit display sum");
+    let i = emit_pdf(&inline).expect("emit inline sum");
+    assert!(d.starts_with(b"%PDF-"));
+    assert!(i.starts_with(b"%PDF-"));
+    // Under/over vs side scripts must not produce identical pages.
+    assert_ne!(
+        d, i,
+        "display under/over limits should differ from inline side scripts"
+    );
+}
+
+#[test]
+fn math_prod_and_int_emit() {
+    for latex in [
+        r"\prod_{k=1}^{n} k",
+        r"\int_{0}^{1} x^{2} dx",
+        r"\oint_{C} F",
+        r"\sum_{n=1}^{\infty} \frac{1}{n^{2}}",
+        r"\Delta t = \mathrm{after}",
+        r"A \cap B \neq C",
+        r"\partial_{t} \rho = \Phi(\chi)",
+        r"\sqrt{b^{2} - 4ac}",
+    ] {
+        let doc = PrintDocument {
+            meta: PrintMeta {
+                title: "Op".into(),
+                doc_kind: "note".into(),
+                language: None,
+                source_doc_id: None,
+            },
+            profile: PrintProfileId::print_v0(),
+            blocks: vec![PrintBlock::Math {
+                display: true,
+                latex: latex.into(),
+            }],
+        };
+        let bytes = emit_pdf(&doc).unwrap_or_else(|e| panic!("emit {latex}: {e}"));
+        assert!(bytes.starts_with(b"%PDF-"), "{latex}");
+    }
+}
+
+#[test]
+fn math_int_display_limits_differ_from_inline() {
+    let display = PrintDocument {
+        meta: PrintMeta {
+            title: "Int display".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::Math {
+            display: true,
+            latex: r"\int_{0}^{1} x dx".into(),
+        }],
+    };
+    let inline = PrintDocument {
+        meta: PrintMeta {
+            title: "Int inline".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::Math {
+            display: false,
+            latex: r"\int_{0}^{1} x dx".into(),
+        }],
+    };
+    let d = emit_pdf(&display).expect("display int");
+    let i = emit_pdf(&inline).expect("inline int");
+    assert_ne!(
+        d, i,
+        "display ∫ under/over should differ from inline side scripts"
+    );
+}
+
+#[test]
 fn float_near_figure_emits() {
     let doc = PrintDocument {
         meta: PrintMeta {

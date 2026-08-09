@@ -2,35 +2,99 @@
 
 /// Command → Unicode map, longest first (so `\rightarrow` wins over shorter prefixes).
 const TOKEN_REPLACEMENTS: &[(&str, &str)] = &[
+    // Arrows (longest first)
+    ("\\Leftrightarrow", "⇔"),
+    ("\\leftrightarrow", "↔"),
+    ("\\Rightarrow", "⇒"),
     ("\\rightarrow", "→"),
     ("\\leftarrow", "←"),
-    ("\\Rightarrow", "⇒"),
+    ("\\mapsto", "↦"),
+    ("\\to", "→"),
+    // Relations / sets
+    ("\\subseteq", "⊆"),
+    ("\\supseteq", "⊇"),
+    ("\\subset", "⊂"),
+    ("\\supset", "⊃"),
+    ("\\notin", "∉"),
     ("\\approx", "≈"),
     ("\\infty", "∞"),
-    ("\\times", "×"),
-    ("\\cdot", "·"),
+    ("\\equiv", "≡"),
     ("\\leq", "≤"),
     ("\\geq", "≥"),
     ("\\neq", "≠"),
+    // Integral family before `\in` (otherwise `\int` → `∈t`).
+    ("\\iiint", "∭"),
+    ("\\iint", "∬"),
+    ("\\oint", "∮"),
+    ("\\int", "∫"),
+    ("\\in", "∈"),
+    ("\\forall", "∀"),
+    ("\\exists", "∃"),
+    ("\\emptyset", "∅"),
+    ("\\varnothing", "∅"),
+    // Binary ops
+    ("\\times", "×"),
+    ("\\cdot", "·"),
+    ("\\circ", "∘"),
+    ("\\div", "÷"),
+    ("\\mp", "∓"),
     ("\\pm", "±"),
+    ("\\cup", "∪"),
+    ("\\cap", "∩"),
+    // Big operators
+    ("\\coprod", "∐"),
+    ("\\bigcup", "⋃"),
+    ("\\bigcap", "⋂"),
+    ("\\sum", "∑"),
+    ("\\prod", "∏"),
+    // Calculus / misc
+    ("\\partial", "∂"),
+    ("\\nabla", "∇"),
+    ("\\sqrt", "√"),
+    ("\\ldots", "…"),
+    ("\\dots", "…"),
+    ("\\hbar", "ℏ"),
+    // Greek capitals
+    ("\\Gamma", "Γ"),
+    ("\\Delta", "Δ"),
+    ("\\Theta", "Θ"),
+    ("\\Lambda", "Λ"),
+    ("\\Xi", "Ξ"),
+    ("\\Pi", "Π"),
+    ("\\Sigma", "Σ"),
+    ("\\Upsilon", "Υ"),
+    ("\\Phi", "Φ"),
+    ("\\Psi", "Ψ"),
+    ("\\Omega", "Ω"),
+    // Greek variants / lowercase (longest first)
+    ("\\varepsilon", "ε"),
+    ("\\vartheta", "ϑ"),
+    ("\\varrho", "ϱ"),
+    ("\\varphi", "φ"),
     ("\\alpha", "α"),
     ("\\beta", "β"),
     ("\\gamma", "γ"),
     ("\\delta", "δ"),
     ("\\epsilon", "ε"),
+    ("\\zeta", "ζ"),
+    ("\\eta", "η"),
     ("\\theta", "θ"),
+    ("\\iota", "ι"),
+    ("\\kappa", "κ"),
     ("\\lambda", "λ"),
     ("\\mu", "μ"),
+    ("\\nu", "ν"),
+    ("\\xi", "ξ"),
     ("\\pi", "π"),
+    ("\\rho", "ρ"),
     ("\\sigma", "σ"),
+    ("\\tau", "τ"),
+    ("\\upsilon", "υ"),
     ("\\phi", "φ"),
+    ("\\chi", "χ"),
+    ("\\psi", "ψ"),
     ("\\omega", "ω"),
-    ("\\sum", "∑"),
-    ("\\prod", "∏"),
-    ("\\int", "∫"),
-    ("\\sqrt", "√"),
-    ("\\ldots", "…"),
-    ("\\dots", "…"),
+    // Spacing
     ("\\ ", " "),
     ("\\,", " "),
     ("\\;", " "),
@@ -127,4 +191,20 @@ fn to_subscript(ch: char) -> Option<char> {
         'i' => 'ᵢ',
         _ => return None,
     })
+}
+
+#[cfg(test)]
+mod prettify_tests {
+    use super::prettify_tokens;
+
+    #[test]
+    fn maps_delta_and_long_arrows() {
+        assert_eq!(prettify_tokens(r"\Delta"), "Δ");
+        assert_eq!(prettify_tokens(r"\Leftrightarrow"), "⇔");
+        assert_eq!(prettify_tokens(r"\subseteq"), "⊆");
+        assert_eq!(prettify_tokens(r"\oint"), "∮");
+        assert_eq!(prettify_tokens(r"\int"), "∫");
+        assert_eq!(prettify_tokens(r"\in"), "∈");
+        assert_ne!(prettify_tokens(r"\int"), "∈t");
+    }
 }
