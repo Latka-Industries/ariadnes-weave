@@ -82,7 +82,7 @@ Size is **`size_factor` vs body**, not absolute points — profiles keep owning 
 |---------|---------|
 | `[display]` | Display size factor + pre/post gaps (inline uses `inline_gap_after`) |
 | `[metrics]` | Math axis, mu/em, `.notdef` box |
-| `[op]` | Big operators: glyph `size_factor`; display under/over `limit_size_factor` / `gap_above_factor` / `gap_below_factor`; `after_space_mu` after an op-with-limits atom |
+| `[op]` | Big operators: display uses LM Math `.v1` glyphs; `size_factor` only for geo fallback; ∑-family under/over via `limit_size_factor` / `gap_*`; ∫/∮ `\nolimits`; `after_space_mu` after op-with-limits |
 | `[script]` | Side super/subscripts (inline ∑/∏ and all ∫ limits) |
 | `[frac]` / `[matrix]` / `[paren]` / `[arrow]` / `[infinity]` | Structured frac, matrix, chrome |
 

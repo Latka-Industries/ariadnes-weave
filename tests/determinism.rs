@@ -196,7 +196,7 @@ const QUADRATIC_FORMULA_SHA256: &str =
     "f97c2a115da9f6a9a26fdee16f7a8c13dad044d585820fe2e06c42ee107f32b5";
 
 /// Pin: bump intentionally when display ∑/∏ under/over limit layout changes.
-const SUM_LIMITS_SHA256: &str = "45896842a39913c29b70f9741c55ced79a03d5042dd9bac0bdc5d8cbfce09526";
+const SUM_LIMITS_SHA256: &str = "77ff6b648c884aa4cdab47106905946eb37ae646ac2733f0155490ec340850ee";
 
 /// Pin: bump intentionally when layout place/vspace/rule paint changes.
 const LAYOUT_PLACE_FLUSH_SHA256: &str =

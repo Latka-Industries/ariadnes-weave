@@ -781,7 +781,7 @@ pub struct MathKnobs {
     pub display: MathDisplayKnobs,
     /// Axis / mu / `.notdef` metrics.
     pub metrics: MathMetricsKnobs,
-    /// Big operators (∑ / ∏ / ∫) and display under/over limits.
+    /// Big operators (∑ / ∏ / ∫): display `.v1` glyphs; ∑-family under/over; ∫ `\nolimits`.
     pub op: MathOpKnobs,
     /// Geometric arrows.
     pub arrow: MathArrowKnobs,
@@ -830,7 +830,7 @@ pub struct MathMetricsKnobs {
 /// `[op]` in `math.toml` — large operators and display-style limits.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MathOpKnobs {
-    /// Glyph scale for ∑ / ∏ / ∫ relative to surrounding math size.
+    /// Geometric fallback scale when the face lacks the op glyph (display uses `.v1`).
     pub size_factor: f32,
     /// Limit (under/over) size as a factor of surrounding math size.
     pub limit_size_factor: f32,

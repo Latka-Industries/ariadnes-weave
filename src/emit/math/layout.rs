@@ -1,7 +1,6 @@
 //! Box layout for parsed [`super::parse::MathExpr`] trees.
 
 use crate::error::WeaveError;
-use crate::knobs::MathKnobs;
 
 use super::geo::try_layout_geo;
 use super::parse::MathExpr;
@@ -53,7 +52,7 @@ fn classify_symbol(text: &str) -> AtomKind {
     }
 }
 
-/// Large operators: Op spacing + optional display size bump.
+/// Large operators that take Op spacing (and display `.v1` glyphs when available).
 fn is_big_op(text: &str) -> bool {
     matches!(text.trim(), "∑" | "∏" | "∫" | "∮" | "∐" | "⋃" | "⋂")
 }
@@ -61,6 +60,18 @@ fn is_big_op(text: &str) -> bool {
 /// TeX `\displaylimits` family: under/over limits in display (not ∫/∮ — those stay `\nolimits`).
 fn is_displaylimits_op(text: &str) -> bool {
     matches!(text.trim(), "∑" | "∏" | "∐" | "⋃" | "⋂")
+}
+
+/// TeX `\nolimits` integrals: tip-side scripts (not mid-body letter scripts).
+fn is_integral_op(text: &str) -> bool {
+    matches!(text.trim(), "∫" | "∮")
+}
+
+fn ord_atom(expr: &MathExpr) -> Option<&str> {
+    match expr {
+        MathExpr::Ord(text) => Some(text.as_str()),
+        _ => None,
+    }
 }
 
 /// TeX-like inter-atom space in mu (0 = tight).
@@ -120,31 +131,33 @@ fn layout_opt(
     expr.map(|e| layout_expr(e, ctx, font_size)).transpose()
 }
 
-fn symbol_scale(text: &str, knobs: &MathKnobs) -> f32 {
-    if is_big_op(text) {
-        knobs.op.size_factor
-    } else {
-        1.0
-    }
+/// Layout `base` plus optional scripts at `size_factor × font_size`.
+fn layout_base_with_scripts(
+    base: &MathExpr,
+    limsup: Option<&MathExpr>,
+    liminf: Option<&MathExpr>,
+    ctx: &mut MathCtx,
+    font_size: f32,
+    size_factor: f32,
+) -> Result<(MathBox, Option<MathBox>, Option<MathBox>), WeaveError> {
+    let base_box = layout_expr(base, ctx, font_size)?;
+    let script_size = font_size * size_factor;
+    let upper = layout_opt(limsup, ctx, script_size)?;
+    let lower = layout_opt(liminf, ctx, script_size)?;
+    Ok((base_box, upper, lower))
 }
 
-/// TeX `\nolimits` integrals: side scripts at the top/bottom of the sign (not mid-body).
-fn is_integral_op(text: &str) -> bool {
-    matches!(text.trim(), "∫" | "∮")
-}
-
-fn scripts_use_op_limits(base: &MathExpr, display: bool) -> bool {
-    display
-        && match base {
-            MathExpr::Ord(text) => is_displaylimits_op(text),
-            _ => false,
-        }
-}
-
-fn scripts_use_int_nolimits(base: &MathExpr) -> bool {
-    match base {
-        MathExpr::Ord(text) => is_integral_op(text),
-        _ => false,
+/// Sealed LM Math PUA → display-style `.v1` operator glyphs (TeX `\displaystyle`).
+fn display_op_char(ch: char) -> Option<char> {
+    match ch {
+        '∫' => Some('\u{E000}'),
+        '∮' => Some('\u{E001}'),
+        '∑' => Some('\u{E002}'),
+        '∏' => Some('\u{E003}'),
+        '∐' => Some('\u{E004}'),
+        '⋃' => Some('\u{E005}'),
+        '⋂' => Some('\u{E006}'),
+        _ => None,
     }
 }
 
@@ -152,17 +165,28 @@ fn layout_ord(text: &str, ctx: &mut MathCtx, font_size: f32) -> Result<MathBox, 
     if let Some(geo) = try_layout_geo(text, ctx, font_size) {
         return geo;
     }
-    // Upright for large ops (∑ ∏ …) so under/over limits clear the glyph like TeX `\sum`.
-    let draw_size = font_size * symbol_scale(text, ctx.knobs);
-    let op = classify_symbol(text) == AtomKind::Op;
-    let mut box_ = if op {
-        ctx.with_upright_face(|ctx| layout_ord_raw(text, ctx, draw_size))?
+    let trimmed = text.trim();
+    // Display: use the font's large op glyph (`.v1`), not a scaled text-style ∫/∑.
+    let draw_text = if ctx.display {
+        trimmed
+            .chars()
+            .next()
+            .filter(|_| is_big_op(trimmed))
+            .and_then(display_op_char)
+            .map(|c| c.to_string())
+            .unwrap_or_else(|| trimmed.to_string())
     } else {
-        layout_ord_raw(text, ctx, draw_size)?
+        trimmed.to_string()
+    };
+    let op = classify_symbol(trimmed) == AtomKind::Op;
+    let mut box_ = if op {
+        ctx.with_upright_face(|ctx| layout_ord_raw(&draw_text, ctx, font_size))?
+    } else {
+        layout_ord_raw(&draw_text, ctx, font_size)?
     };
     if op {
-        let ch = text.chars().next().unwrap_or('∑');
-        if let Some(ink) = char_ink(ctx.fonts, upright_face(ctx.face), ch, draw_size) {
+        let ink_ch = draw_text.chars().next().unwrap_or('∑');
+        if let Some(ink) = char_ink(ctx.fonts, upright_face(ctx.face), ink_ch, font_size) {
             box_.height = ink.above;
             box_.depth = ink.below;
         }
@@ -307,16 +331,16 @@ fn layout_scripts(
     ctx: &mut MathCtx,
     font_size: f32,
 ) -> Result<MathBox, WeaveError> {
-    if scripts_use_op_limits(base, ctx.display) {
-        return layout_op_limits(base, sup, sub, ctx, font_size);
+    match ord_atom(base) {
+        Some(text) if ctx.display && is_displaylimits_op(text) => {
+            layout_op_limits(base, sup, sub, ctx, font_size)
+        }
+        Some(text) if is_integral_op(text) => layout_int_nolimits(base, sup, sub, ctx, font_size),
+        _ => layout_side_scripts(base, sup, sub, ctx, font_size),
     }
-    if scripts_use_int_nolimits(base) {
-        return layout_int_nolimits(base, sup, sub, ctx, font_size);
-    }
-    layout_side_scripts(base, sup, sub, ctx, font_size)
 }
 
-/// TeX-style under/over limits for display ∑/∏/… (∫ keeps side scripts).
+/// TeX-style under/over limits for display ∑/∏/….
 fn layout_op_limits(
     base: &MathExpr,
     limsup: Option<&MathExpr>,
@@ -324,10 +348,14 @@ fn layout_op_limits(
     ctx: &mut MathCtx,
     font_size: f32,
 ) -> Result<MathBox, WeaveError> {
-    let base_box = layout_expr(base, ctx, font_size)?;
-    let limit_size = font_size * ctx.knobs.op.limit_size_factor;
-    let upper = layout_opt(limsup, ctx, limit_size)?;
-    let lower = layout_opt(liminf, ctx, limit_size)?;
+    let (base_box, upper, lower) = layout_base_with_scripts(
+        base,
+        limsup,
+        liminf,
+        ctx,
+        font_size,
+        ctx.knobs.op.limit_size_factor,
+    )?;
     let base_w = base_box.width;
     let mut height = base_box.height;
     let mut depth = base_box.depth;
@@ -361,7 +389,12 @@ fn layout_op_limits(
     })
 }
 
-/// ∫/∮: same vertical stack as displaylimits, but shifted to the right of the sign.
+/// Lower-limit start as a fraction of integral advance (TeX italic correction stand-in).
+const INT_LOWER_X_FRAC: f32 = 0.58;
+/// Extra drop below the glyph bottom, as a fraction of the lower limit's height.
+const INT_LOWER_DROP_FRAC: f32 = 0.15;
+
+/// ∫/∮ TeX `\nolimits`: upper at the top-right tip; lower near the bottom curl.
 fn layout_int_nolimits(
     base: &MathExpr,
     limsup: Option<&MathExpr>,
@@ -369,32 +402,33 @@ fn layout_int_nolimits(
     ctx: &mut MathCtx,
     font_size: f32,
 ) -> Result<MathBox, WeaveError> {
-    let base_box = layout_expr(base, ctx, font_size)?;
-    let limit_size = font_size * ctx.knobs.op.limit_size_factor;
-    let upper = layout_opt(limsup, ctx, limit_size)?;
-    let lower = layout_opt(liminf, ctx, limit_size)?;
-    let gap_x = ctx.mu(ctx.knobs.script.gap_mu, font_size);
-    let limit_x = base_box.width + gap_x;
-    let limit_w = upper
-        .as_ref()
-        .map_or(0.0, |b| b.width)
-        .max(lower.as_ref().map_or(0.0, |b| b.width));
-    let width = limit_x + limit_w;
+    let (base_box, upper, lower) = layout_base_with_scripts(
+        base,
+        limsup,
+        liminf,
+        ctx,
+        font_size,
+        ctx.knobs.op.limit_size_factor,
+    )?;
+    let gap = ctx.mu(ctx.knobs.script.gap_mu, font_size);
+    let upper_x = base_box.width + gap;
+    let lower_x = base_box.width * INT_LOWER_X_FRAC;
+    let mut width = base_box.width;
     let mut height = base_box.height;
     let mut depth = base_box.depth;
     let mut elements = base_box.elements;
-    let gap_above = font_size * ctx.knobs.op.gap_above_factor;
-    let gap_below = font_size * ctx.knobs.op.gap_below_factor;
 
     if let Some(upper) = upper {
-        let y = height + gap_above + upper.depth;
-        height = y + upper.height;
-        append_box(&mut elements, upper, limit_x, y);
+        let y = base_box.height - upper.height * 0.5;
+        height = height.max(y + upper.height);
+        width = width.max(upper_x + upper.width);
+        append_box(&mut elements, upper, upper_x, y);
     }
     if let Some(lower) = lower {
-        let y = -(depth + gap_below + lower.height);
-        depth = -y + lower.depth;
-        append_box(&mut elements, lower, limit_x, y);
+        let y = -base_box.depth - lower.height * INT_LOWER_DROP_FRAC;
+        depth = depth.max((-y + lower.depth).max(0.0));
+        width = width.max(lower_x + lower.width);
+        append_box(&mut elements, lower, lower_x, y);
     }
 
     Ok(MathBox {
@@ -412,10 +446,8 @@ fn layout_side_scripts(
     ctx: &mut MathCtx,
     font_size: f32,
 ) -> Result<MathBox, WeaveError> {
-    let base_box = layout_expr(base, ctx, font_size)?;
-    let script_size = font_size * ctx.knobs.script.size_factor;
-    let superscript = layout_opt(sup, ctx, script_size)?;
-    let subscript = layout_opt(sub, ctx, script_size)?;
+    let (base_box, superscript, subscript) =
+        layout_base_with_scripts(base, sup, sub, ctx, font_size, ctx.knobs.script.size_factor)?;
     let script_w = superscript
         .as_ref()
         .map_or(0.0, |b| b.width)

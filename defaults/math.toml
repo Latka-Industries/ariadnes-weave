@@ -13,10 +13,10 @@ fallback_ink_above_factor = 0.5
 notdef_height_factor = 0.75
 notdef_depth_factor = 0.25
 
-# Big operators (∑ ∏ ∫ ∮ ⋃ …). Display math uses under/over limits for
-# ∑/∏/⋃/⋂/∐ (centered under/over); ∫/∮ keep that vertical band but
-# shift the limits to the right of the sign.
-# Inline letter scripts for everything else.
+# Big operators (∑ ∏ ∫ ∮ ⋃ …). Display: LM Math `.v1` glyphs (not a scaled
+# text-style op). ∑/∏/⋃/⋂/∐ use TeX `\displaylimits` (centered under/over);
+# ∫/∮ use `\nolimits` (side scripts at the glyph tips). `size_factor` remains
+# for geometric fallback when the face lacks the character.
 [op]
 size_factor = 1.35
 limit_size_factor = 0.65
