@@ -14,8 +14,8 @@ notdef_height_factor = 0.75
 notdef_depth_factor = 0.25
 
 # Big operators (∑ ∏ ∫ ∮ ⋃ …). Display math uses under/over limits for
-# ∑/∏/⋃/⋂/∐ (TeX \displaylimits); ∫/∮ keep side scripts (\nolimits).
-# Inline keeps side scripts for all.
+# ∑/∏/⋃/⋂/∐ (TeX \displaylimits); ∫/∮ use side limits at the glyph tips
+# (TeX \nolimits). Inline letter scripts for everything else.
 [op]
 size_factor = 1.35
 limit_size_factor = 0.65

@@ -128,12 +128,24 @@ fn symbol_scale(text: &str, knobs: &MathKnobs) -> f32 {
     }
 }
 
+/// TeX `\nolimits` integrals: side scripts at the top/bottom of the sign (not mid-body).
+fn is_integral_op(text: &str) -> bool {
+    matches!(text.trim(), "∫" | "∮")
+}
+
 fn scripts_use_op_limits(base: &MathExpr, display: bool) -> bool {
     display
         && match base {
             MathExpr::Ord(text) => is_displaylimits_op(text),
             _ => false,
         }
+}
+
+fn scripts_use_int_nolimits(base: &MathExpr) -> bool {
+    match base {
+        MathExpr::Ord(text) => is_integral_op(text),
+        _ => false,
+    }
 }
 
 fn layout_ord(text: &str, ctx: &mut MathCtx, font_size: f32) -> Result<MathBox, WeaveError> {
@@ -298,6 +310,9 @@ fn layout_scripts(
     if scripts_use_op_limits(base, ctx.display) {
         return layout_op_limits(base, sup, sub, ctx, font_size);
     }
+    if scripts_use_int_nolimits(base) {
+        return layout_int_nolimits(base, sup, sub, ctx, font_size);
+    }
     layout_side_scripts(base, sup, sub, ctx, font_size)
 }
 
@@ -336,6 +351,50 @@ fn layout_op_limits(
         let y = -(depth + gap_below + lower.height);
         depth = -y + lower.depth;
         append_box(&mut elements, lower, h_center(width, lw), y);
+    }
+
+    Ok(MathBox {
+        width,
+        height,
+        depth,
+        elements,
+    })
+}
+
+/// ∫/∮ `\nolimits`: limits to the right of the sign, at its top and bottom tips.
+fn layout_int_nolimits(
+    base: &MathExpr,
+    limsup: Option<&MathExpr>,
+    liminf: Option<&MathExpr>,
+    ctx: &mut MathCtx,
+    font_size: f32,
+) -> Result<MathBox, WeaveError> {
+    let base_box = layout_expr(base, ctx, font_size)?;
+    let limit_size = font_size * ctx.knobs.op.limit_size_factor;
+    let upper = layout_opt(limsup, ctx, limit_size)?;
+    let lower = layout_opt(liminf, ctx, limit_size)?;
+    let gap = ctx.mu(ctx.knobs.script.gap_mu + 1.5, font_size);
+    let script_x = base_box.width + gap;
+    let script_w = upper
+        .as_ref()
+        .map_or(0.0, |b| b.width)
+        .max(lower.as_ref().map_or(0.0, |b| b.width));
+    let width = script_x + script_w;
+    let mut height = base_box.height;
+    let mut depth = base_box.depth;
+    let mut elements = base_box.elements;
+
+    if let Some(upper) = upper {
+        // Center the upper limit on the top tip of the integral.
+        let y = base_box.height - upper.height * 0.5;
+        height = height.max(y + upper.height);
+        append_box(&mut elements, upper, script_x, y);
+    }
+    if let Some(lower) = lower {
+        // Center the lower limit on the bottom tip.
+        let y = -base_box.depth + lower.height * 0.5;
+        depth = depth.max((-y + lower.depth).max(0.0));
+        append_box(&mut elements, lower, script_x, y);
     }
 
     Ok(MathBox {
