@@ -317,6 +317,7 @@ fn letter_ink_ref(ctx: &MathCtx, font_size: f32) -> InkBox {
 
 pub(super) fn upright_face(face: FaceRef) -> FaceRef {
     match face {
+        FaceRef::Bundled(FaceId::Math) => FaceRef::Bundled(FaceId::Math),
         FaceRef::Bundled(
             FaceId::SerifRegular
             | FaceId::SerifBold

@@ -1,4 +1,7 @@
 //! Geometric stand-ins for Liberation-missing math glyphs (∫, sets, logic, …).
+//!
+//! When the active face already has the character (Latin Modern Math), we skip
+//! geo and let shaping use the font glyph.
 
 use super::super::types::MathSymKind;
 use super::rel::{
@@ -6,6 +9,18 @@ use super::rel::{
     shift_box_vert, upright_face,
 };
 use crate::error::WeaveError;
+use crate::font::{FaceId, FaceRef};
+use ttf_parser::Face as TtfFace;
+
+fn face_has_char(ctx: &MathCtx, ch: char) -> bool {
+    let Ok(data) = ctx.fonts.ttf_bytes(ctx.face) else {
+        return false;
+    };
+    let Ok(face) = TtfFace::parse(data, 0) else {
+        return false;
+    };
+    face.glyph_index(ch).is_some()
+}
 
 /// Try a geometric draw for `text`; `None` means fall back to font shaping.
 pub(super) fn try_layout_geo(
@@ -13,7 +28,18 @@ pub(super) fn try_layout_geo(
     ctx: &mut MathCtx,
     font_size: f32,
 ) -> Option<Result<MathBox, WeaveError>> {
-    Some(Ok(match text.trim() {
+    let trimmed = text.trim();
+    // Prefer real math-font glyphs when present (esp. Latin Modern Math).
+    if matches!(ctx.face, FaceRef::Bundled(FaceId::Math))
+        && trimmed.chars().count() == 1
+        && trimmed
+            .chars()
+            .next()
+            .is_some_and(|ch| face_has_char(ctx, ch))
+    {
+        return None;
+    }
+    Some(Ok(match trimmed {
         "←" => layout_geo_arrow(ctx, font_size, true),
         "→" | "⇒" | "↦" => layout_geo_arrow(ctx, font_size, false),
         "∞" => return Some(layout_infinity(ctx, font_size)),

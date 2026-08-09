@@ -193,10 +193,10 @@ const MANUSCRIPT_TWO_CHAPTER_SHA256: &str =
 
 /// Pin: bump intentionally when math box layout/version change.
 const QUADRATIC_FORMULA_SHA256: &str =
-    "7b0c16dd2c903a35124c40c59b52b593906a16cfc5c07a883b24687bc8d743f6";
+    "f97c2a115da9f6a9a26fdee16f7a8c13dad044d585820fe2e06c42ee107f32b5";
 
 /// Pin: bump intentionally when display ∑/∏ under/over limit layout changes.
-const SUM_LIMITS_SHA256: &str = "570f0d7b7f0fbe35c4abfb8f307e814073e70c01084424df05e47b598b287f96";
+const SUM_LIMITS_SHA256: &str = "45896842a39913c29b70f9741c55ced79a03d5042dd9bac0bdc5d8cbfce09526";
 
 /// Pin: bump intentionally when layout place/vspace/rule paint changes.
 const LAYOUT_PLACE_FLUSH_SHA256: &str =

@@ -33,11 +33,7 @@ pub(super) fn layout_math(
     segments: &mut [LayoutSegment],
     glyph_sets: &mut GlyphSets,
 ) -> Result<(), WeaveError> {
-    let face = FaceRef::Bundled(if metrics.serif_body {
-        FaceId::SerifItalic
-    } else {
-        FaceId::SansItalic
-    });
+    let face = FaceRef::Bundled(FaceId::Math);
     let font_size = if display {
         metrics.body_size * knobs.display.size_factor
     } else {

@@ -1188,7 +1188,10 @@ fn math_prettify_and_emit() {
     let bytes = emit_pdf(&doc).expect("emit math");
     assert!(bytes.starts_with(b"%PDF-"));
     let s = String::from_utf8_lossy(&bytes);
-    assert!(s.contains("LiberationSans-Italic") || s.contains("LiberationSerif-Italic"));
+    assert!(
+        s.contains("LatinModernMath"),
+        "math should embed Latin Modern Math"
+    );
 }
 
 #[test]
