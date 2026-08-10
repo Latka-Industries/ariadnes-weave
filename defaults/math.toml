@@ -62,7 +62,7 @@ row_gap = 0.25
 pad = 0.2
 
 [paren]
-# Matrix fences: "round" (…) or "square" […]
+# Matrix fences: `pmatrix` uses this style (`round` / `square`); `bmatrix` is always square.
 style = "round"
 width_factor = 0.3
 width_min = 4.0

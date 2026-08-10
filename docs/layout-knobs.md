@@ -84,7 +84,7 @@ Size is **`size_factor` vs body**, not absolute points — profiles keep owning 
 | `[metrics]` | Math axis, mu/em, `.notdef` box |
 | `[op]` | Big operators: display uses LM Math `.v1` glyphs; `size_factor` only for geo fallback; ∑-family under/over via `limit_size_factor` / `gap_*`; ∫/∮ `\nolimits`; `after_space_mu` after op-with-limits |
 | `[script]` | Side super/subscripts (inline ∑/∏ and all ∫ limits) |
-| `[frac]` / `[matrix]` / `[paren]` / `[arrow]` / `[infinity]` | Structured frac, matrix, chrome; `[paren].style` is `round` or `square` |
+| `[frac]` / `[matrix]` / `[paren]` / `[arrow]` / `[infinity]` | Structured frac, matrix, chrome; `[paren].style` (`round`/`square`) applies to `pmatrix`; `bmatrix` is always square |
 
 Display math places `^`/`_` as **under/over limits** on ∑ / ∏ / ⋃ / ⋂ / ∐ (centered). ∫ / ∮ keep tip-side `\nolimits`.
 

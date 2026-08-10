@@ -9,8 +9,7 @@
 //! ```
 
 use ariadnes_weave::{
-    BreakHint, EmitOptions, LayoutKnobs, MathParenStyle, PrintBlock, PrintDocument, PrintMeta,
-    PrintProfileId, TextRun, emit_pdf_with,
+    BreakHint, PrintBlock, PrintDocument, PrintMeta, PrintProfileId, TextRun, emit_pdf,
 };
 
 fn h1(text: &str) -> PrintBlock {
@@ -67,8 +66,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         note(
             "Each section is one layout case. Source LaTeX is in the note under the title. \
              Display ops use LM Math `.v1` glyphs; ∑/∏/⋃… under/over (\\displaylimits); \
-             ∫/∮ tip-side scripts (\\nolimits). Matrix fences use `[paren].style` \
-             (this sample sets `square`; bundled default is `round`).",
+             ∫/∮ tip-side scripts (\\nolimits). Matrices: `pmatrix` uses `[paren].style` \
+             (bundled `round`); `bmatrix` is always square brackets.",
         ),
     ];
 
@@ -176,14 +175,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             r"\begin{matrix} 1 & 0 \\ 0 & 1 \end{matrix}",
         ),
         (
-            "23. pmatrix 2×2",
+            "23. pmatrix 2×2 (round fences via [paren].style)",
             r"Source: \begin{pmatrix} a & b \\ c & d \end{pmatrix}",
             r"\begin{pmatrix} a & b \\ c & d \end{pmatrix}",
         ),
         (
-            "24. pmatrix 3×3",
-            r"Source: \begin{pmatrix} 1 & 2 & 3 \\ 4 & 5 & 6 \\ 7 & 8 & 9 \end{pmatrix}",
-            r"\begin{pmatrix} 1 & 2 & 3 \\ 4 & 5 & 6 \\ 7 & 8 & 9 \end{pmatrix}",
+            "24. bmatrix 3×3 (square fences)",
+            r"Source: \begin{bmatrix} 1 & 2 & 3 \\ 4 & 5 & 6 \\ 7 & 8 & 9 \end{bmatrix}",
+            r"\begin{bmatrix} 1 & 2 & 3 \\ 4 & 5 & 6 \\ 7 & 8 & 9 \end{bmatrix}",
         ),
         (
             "25. Fraction of a pmatrix",
@@ -234,9 +233,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         blocks,
     };
 
-    let mut layout = LayoutKnobs::bundled();
-    layout.math.paren.style = MathParenStyle::Square;
-    let bytes = emit_pdf_with(&doc, &EmitOptions::bundled_only().with_layout(layout))?;
+    let bytes = emit_pdf(&doc)?;
     std::fs::create_dir_all("tmp")?;
     let out = "tmp/thi359_math_sample.pdf";
     std::fs::write(out, &bytes)?;

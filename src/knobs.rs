@@ -924,7 +924,7 @@ pub struct MathMatrixKnobs {
 /// `[paren]` in `math.toml` — stretchy matrix delimiters.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MathParenKnobs {
-    /// Delimiter shape: `round` `(…)` or `square` `[…]`.
+    /// Delimiter shape for `pmatrix`: `round` `(…)` or `square` `[…]` (`bmatrix` is always square).
     pub style: MathParenStyle,
     /// Width as factor of half-height.
     pub width_factor: f32,

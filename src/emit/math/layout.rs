@@ -3,7 +3,7 @@
 use crate::error::WeaveError;
 
 use super::geo::try_layout_geo;
-use super::parse::MathExpr;
+use super::parse::{MathExpr, MatrixFence};
 use super::rel::{
     MathBox, RelEl, append_box, char_ink, h_center, layout_ord_raw, rule_thickness, shift_box_vert,
     upright_face,
@@ -28,9 +28,7 @@ fn atom_kind(expr: &MathExpr) -> AtomKind {
         MathExpr::Ord(text) => classify_symbol(text),
         MathExpr::Scripts { base, .. } => atom_kind(base),
         MathExpr::MathRm(inner) => atom_kind(inner),
-        MathExpr::Matrix {
-            delimited: true, ..
-        } => AtomKind::Inner,
+        MathExpr::Matrix { fence, .. } if fence.is_delimited() => AtomKind::Inner,
         MathExpr::Sqrt(_) | MathExpr::Row(_) | MathExpr::Frac(_, _) | MathExpr::Matrix { .. } => {
             AtomKind::Ord
         }
@@ -119,7 +117,7 @@ pub(super) fn layout_expr(
         }
         MathExpr::MathRm(inner) => ctx.with_upright_face(|ctx| layout_expr(inner, ctx, font_size)),
         MathExpr::Sqrt(inner) => layout_sqrt(inner, ctx, font_size),
-        MathExpr::Matrix { delimited, rows } => layout_matrix(*delimited, rows, ctx, font_size),
+        MathExpr::Matrix { fence, rows } => layout_matrix(*fence, rows, ctx, font_size),
     }
 }
 
@@ -483,7 +481,7 @@ fn layout_side_scripts(
 }
 
 fn layout_matrix(
-    delimited: bool,
+    fence: MatrixFence,
     rows: &[Vec<MathExpr>],
     ctx: &mut MathCtx,
     font_size: f32,
@@ -528,11 +526,14 @@ fn layout_matrix(
     let depth = -body_bot + pad * 0.5;
 
     let mut elements = Vec::new();
-    let (delim_w, width) = if delimited {
+    let (delim_w, width) = if let Some(style) = match fence {
+        MatrixFence::None => None,
+        MatrixFence::Paren => Some(ctx.knobs.paren.style),
+        MatrixFence::Bracket => Some(crate::knobs::MathParenStyle::Square),
+    } {
         let half_h = half + pad * 0.15;
         let paren_w = ctx.knobs.paren.delim_width(half_h);
         let thick = ctx.knobs.paren.stroke_thickness(font_size);
-        let style = ctx.knobs.paren.style;
         let width = inner_w + 2.0 * pad + 2.0 * paren_w;
         elements.push(RelEl::Paren {
             x: 0.0,

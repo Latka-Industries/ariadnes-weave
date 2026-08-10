@@ -17,9 +17,25 @@ pub(super) enum MathExpr {
     /// Square root (`\sqrt{…}`) with vinculum over the radicand.
     Sqrt(Box<MathExpr>),
     Matrix {
-        delimited: bool,
+        fence: MatrixFence,
         rows: Vec<Vec<MathExpr>>,
     },
+}
+
+/// Matrix delimiters: none, `pmatrix` (knob style), or `bmatrix` (always square).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum MatrixFence {
+    None,
+    /// `\begin{pmatrix}` — fence shape from `[paren].style`.
+    Paren,
+    /// `\begin{bmatrix}` — square brackets.
+    Bracket,
+}
+
+impl MatrixFence {
+    pub(super) fn is_delimited(self) -> bool {
+        !matches!(self, Self::None)
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -53,8 +69,8 @@ fn flatten(expr: MathExpr) -> MathExpr {
         },
         MathExpr::MathRm(inner) => MathExpr::MathRm(Box::new(flatten(*inner))),
         MathExpr::Sqrt(inner) => MathExpr::Sqrt(Box::new(flatten(*inner))),
-        MathExpr::Matrix { delimited, rows } => MathExpr::Matrix {
-            delimited,
+        MathExpr::Matrix { fence, rows } => MathExpr::Matrix {
+            fence,
             rows: rows
                 .into_iter()
                 .map(|r| r.into_iter().map(flatten).collect())
@@ -280,9 +296,10 @@ impl Parser {
     fn parse_begin_env(&mut self) -> Result<MathExpr, ParseError> {
         self.eat_str("begin")?;
         let env = self.read_braced_name()?;
-        let delimited = match env.as_str() {
-            "matrix" => false,
-            "pmatrix" => true,
+        let fence = match env.as_str() {
+            "matrix" => MatrixFence::None,
+            "pmatrix" => MatrixFence::Paren,
+            "bmatrix" => MatrixFence::Bracket,
             _ => return Err(ParseError),
         };
         let mut rows = Vec::new();
@@ -318,7 +335,7 @@ impl Parser {
         if rows.is_empty() {
             rows.push(vec![MathExpr::Ord(String::new())]);
         }
-        Ok(MathExpr::Matrix { delimited, rows })
+        Ok(MathExpr::Matrix { fence, rows })
     }
 }
 
@@ -342,10 +359,21 @@ mod parse_tests {
     fn parses_pmatrix() {
         let e = parse_math(r"\begin{pmatrix} a & b \\ c & d \end{pmatrix}").expect("parse");
         match e {
-            MathExpr::Matrix { delimited, rows } => {
-                assert!(delimited);
+            MathExpr::Matrix { fence, rows } => {
+                assert_eq!(fence, super::MatrixFence::Paren);
                 assert_eq!(rows.len(), 2);
                 assert_eq!(rows[0].len(), 2);
+            }
+            other => panic!("expected matrix, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_bmatrix() {
+        let e = parse_math(r"\begin{bmatrix} 1 & 2 \\ 3 & 4 \end{bmatrix}").expect("parse");
+        match e {
+            MathExpr::Matrix { fence, .. } => {
+                assert_eq!(fence, super::MatrixFence::Bracket);
             }
             other => panic!("expected matrix, got {other:?}"),
         }
