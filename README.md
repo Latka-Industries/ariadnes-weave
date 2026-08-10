@@ -57,7 +57,8 @@ crates.io. Local suite work can still path-dep when cutting paired releases.
   `max_width_factor` / `title_align`; caption `band` / `overflow`);
   `Slide` → one page with `layout_id` templates (`title-body`,
   `two-column`, …); `Math` → structured layout for
-  `\frac`, multi-char scripts, and simple `matrix`/`pmatrix` (not full TeX)
+  `\frac`, multi-char scripts, `matrix`/`pmatrix`/`bmatrix`, and display
+  under/over limits on `\sum`/`\prod`/…; `\int` keeps side limits (not full TeX)
 
 Not yet: full TeX/MathML, OS font collection/CFF polish, full-coverage CJK/emoji
 packs (only tiny sealed subsets behind features), color-emoji PDF paint.
@@ -85,7 +86,7 @@ cargo test --features icons
 cargo test --features cjk,emoji
 cargo clippy --all-targets -- -D warnings
 cargo run --example prose
-mise samples   # regenerates tmp/*.pdf (prose, math, hello, prose_sample, …)
+mise samples   # regenerates tmp/*.pdf (prose, math, layout flush, caption/figure spotchecks, …)
 ```
 
 CI (`.github/workflows/ci.yml`, same layout as Tessera): fmt / clippy / test on

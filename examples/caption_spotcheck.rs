@@ -13,6 +13,10 @@ use ariadnes_weave::{
 };
 use image::{ImageBuffer, ImageFormat, Rgb};
 
+#[path = "common/mod.rs"]
+mod common;
+use common::write_pdf;
+
 /// Mid-width (~280pt): align shifts are visible, and `max_width_factor` 0.4 still shrinks.
 fn figure_png() -> Vec<u8> {
     let img: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::from_fn(280, 100, |x, y| {
@@ -67,13 +71,6 @@ fn doc() -> PrintDocument {
             },
         ],
     }
-}
-
-fn write_pdf(name: &str, bytes: &[u8]) {
-    let path = format!("tmp/{name}");
-    std::fs::create_dir_all("tmp").ok();
-    std::fs::write(&path, bytes).unwrap();
-    println!("wrote {path} ({} bytes)", bytes.len());
 }
 
 fn write_layout(name: &str, doc: &PrintDocument, tweak: impl FnOnce(&mut LayoutKnobs)) {

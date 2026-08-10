@@ -14,6 +14,11 @@ see [`layout-knobs.md`](layout-knobs.md).
 | Sans | Liberation Sans R/B/I/BI | SIL OFL — `fonts/LICENSE-Liberation.txt` |
 | Serif | Liberation Serif R/B/I/BI | same |
 | Mono | Liberation Mono Regular | same |
+| Math | Latin Modern Math (`FaceId::Math`) | GUST — `fonts/LICENSE-LatinModernMath.txt` |
+
+Math is always-on for structured math. The sealed TTF is glyf-only (no MATH
+table); display-size ops (∫ ∑ ∏ … `.v1`) are mapped via PUA `U+E000`–`U+E006`
+so layout can select TeX `\displaystyle` glyphs without inventing a scale.
 
 ## Opt-in Cargo features
 

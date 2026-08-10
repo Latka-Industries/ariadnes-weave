@@ -12,10 +12,42 @@ pub(super) enum MathExpr {
         sup: Option<Box<MathExpr>>,
         sub: Option<Box<MathExpr>>,
     },
+    /// Upright / roman wrapper (`\mathrm{…}`).
+    MathRm(Box<MathExpr>),
+    /// Square root (`\sqrt{…}`) with vinculum over the radicand.
+    Sqrt(Box<MathExpr>),
     Matrix {
-        delimited: bool,
+        fence: MatrixFence,
         rows: Vec<Vec<MathExpr>>,
     },
+}
+
+/// Matrix delimiters: none, `pmatrix` (knob style), or `bmatrix` (always square).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum MatrixFence {
+    None,
+    /// `\begin{pmatrix}` — fence shape from `[paren].style`.
+    Paren,
+    /// `\begin{bmatrix}` — square brackets.
+    Bracket,
+}
+
+impl MatrixFence {
+    pub(super) fn is_delimited(self) -> bool {
+        !matches!(self, Self::None)
+    }
+
+    /// Paint style for delimited fences (`pmatrix` follows knobs; `bmatrix` is square).
+    pub(super) fn paint_style(
+        self,
+        paren: &crate::knobs::MathParenKnobs,
+    ) -> Option<crate::knobs::MathParenStyle> {
+        match self {
+            Self::None => None,
+            Self::Paren => Some(paren.style),
+            Self::Bracket => Some(crate::knobs::MathParenStyle::Square),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -47,8 +79,10 @@ fn flatten(expr: MathExpr) -> MathExpr {
             sup: sup.map(|e| Box::new(flatten(*e))),
             sub: sub.map(|e| Box::new(flatten(*e))),
         },
-        MathExpr::Matrix { delimited, rows } => MathExpr::Matrix {
-            delimited,
+        MathExpr::MathRm(inner) => MathExpr::MathRm(Box::new(flatten(*inner))),
+        MathExpr::Sqrt(inner) => MathExpr::Sqrt(Box::new(flatten(*inner))),
+        MathExpr::Matrix { fence, rows } => MathExpr::Matrix {
+            fence,
             rows: rows
                 .into_iter()
                 .map(|r| r.into_iter().map(flatten).collect())
@@ -220,6 +254,18 @@ impl Parser {
             let den = self.parse_nucleus()?;
             return Ok(MathExpr::Frac(Box::new(num), Box::new(den)));
         }
+        if self.starts_with("mathrm") {
+            self.eat_str("mathrm")?;
+            self.skip_spaces();
+            let inner = self.parse_nucleus()?;
+            return Ok(MathExpr::MathRm(Box::new(inner)));
+        }
+        if self.starts_with("sqrt") {
+            self.eat_str("sqrt")?;
+            self.skip_spaces();
+            let inner = self.parse_nucleus()?;
+            return Ok(MathExpr::Sqrt(Box::new(inner)));
+        }
         if self.starts_with("begin") {
             return self.parse_begin_env();
         }
@@ -262,9 +308,10 @@ impl Parser {
     fn parse_begin_env(&mut self) -> Result<MathExpr, ParseError> {
         self.eat_str("begin")?;
         let env = self.read_braced_name()?;
-        let delimited = match env.as_str() {
-            "matrix" => false,
-            "pmatrix" => true,
+        let fence = match env.as_str() {
+            "matrix" => MatrixFence::None,
+            "pmatrix" => MatrixFence::Paren,
+            "bmatrix" => MatrixFence::Bracket,
             _ => return Err(ParseError),
         };
         let mut rows = Vec::new();
@@ -300,7 +347,7 @@ impl Parser {
         if rows.is_empty() {
             rows.push(vec![MathExpr::Ord(String::new())]);
         }
-        Ok(MathExpr::Matrix { delimited, rows })
+        Ok(MathExpr::Matrix { fence, rows })
     }
 }
 
@@ -324,12 +371,81 @@ mod parse_tests {
     fn parses_pmatrix() {
         let e = parse_math(r"\begin{pmatrix} a & b \\ c & d \end{pmatrix}").expect("parse");
         match e {
-            MathExpr::Matrix { delimited, rows } => {
-                assert!(delimited);
+            MathExpr::Matrix { fence, rows } => {
+                assert_eq!(fence, super::MatrixFence::Paren);
                 assert_eq!(rows.len(), 2);
                 assert_eq!(rows[0].len(), 2);
             }
             other => panic!("expected matrix, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_bmatrix() {
+        let e = parse_math(r"\begin{bmatrix} 1 & 2 \\ 3 & 4 \end{bmatrix}").expect("parse");
+        match e {
+            MathExpr::Matrix { fence, .. } => {
+                assert_eq!(fence, super::MatrixFence::Bracket);
+            }
+            other => panic!("expected matrix, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_int_scripts() {
+        let e = parse_math(r"\int_{0}^{1}").expect("parse");
+        match e {
+            MathExpr::Scripts { base, sup, sub } => {
+                assert_eq!(*base, MathExpr::Ord("∫".into()));
+                assert!(sup.is_some() && sub.is_some());
+            }
+            other => panic!("expected scripts, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_mathrm() {
+        let e = parse_math(r"\mathrm{after}").expect("parse");
+        match e {
+            MathExpr::MathRm(inner) => match *inner {
+                MathExpr::Row(items) => assert_eq!(items.len(), 5),
+                MathExpr::Ord(s) => assert_eq!(s, "after"),
+                other => panic!("unexpected mathrm inner: {other:?}"),
+            },
+            other => panic!("expected mathrm, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_partial_row() {
+        let e = parse_math(r"\partial_{t} \rho = \Phi(\chi)").expect("parse");
+        match &e {
+            MathExpr::Row(items) => {
+                assert!(matches!(&items[0], MathExpr::Scripts { .. }), "{items:?}");
+            }
+            MathExpr::Scripts { .. } => {}
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_partial_sub() {
+        let e = parse_math(r"\partial_{t}").expect("parse");
+        match e {
+            MathExpr::Scripts { base, sub, .. } => {
+                assert_eq!(*base, MathExpr::Ord("∂".into()));
+                assert_eq!(sub.as_deref(), Some(&MathExpr::Ord("t".into())));
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_sqrt() {
+        let e = parse_math(r"\sqrt{b^{2}-4ac}").expect("parse");
+        match e {
+            MathExpr::Sqrt(inner) => assert!(matches!(*inner, MathExpr::Row(_))),
+            other => panic!("expected sqrt, got {other:?}"),
         }
     }
 }

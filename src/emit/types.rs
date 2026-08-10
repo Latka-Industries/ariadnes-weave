@@ -220,6 +220,27 @@ impl LaidColumns {
     }
 }
 
+/// Geometric math symbols Liberation lacks (sets, logic, big cup/cap).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum MathSymKind {
+    In,
+    NotIn,
+    Subset,
+    Superset,
+    SubsetEq,
+    SupersetEq,
+    Cup,
+    BigCup,
+    BigCap,
+    Coprod,
+    Forall,
+    Exists,
+    Empty,
+    Circ,
+    Mp,
+    Nabla,
+}
+
 /// One drawn element inside a [`LaidMath`] box (coords from the box top).
 #[derive(Debug, Clone)]
 pub(super) enum LaidMathEl {
@@ -238,7 +259,7 @@ pub(super) enum LaidMathEl {
         width: f32,
         thickness: f32,
     },
-    /// Stroked stretchy parenthesis; `axis_y` is the math-axis distance from the box top.
+    /// Stroked stretchy matrix delimiter; `axis_y` is the math-axis distance from the box top.
     Paren {
         x: f32,
         axis_y: f32,
@@ -246,6 +267,7 @@ pub(super) enum LaidMathEl {
         width: f32,
         thickness: f32,
         left: bool,
+        style: crate::knobs::MathParenStyle,
     },
     /// Geometric arrow; `y` is the shaft midline from the box top.
     Arrow {
@@ -255,6 +277,33 @@ pub(super) enum LaidMathEl {
         height: f32,
         thickness: f32,
         left: bool,
+    },
+    /// Geometric integral; `axis_y` is the math-axis distance from the box top.
+    Integral {
+        x: f32,
+        axis_y: f32,
+        half_h: f32,
+        width: f32,
+        thickness: f32,
+        contour: bool,
+    },
+    /// Geometric radical (checkmark) for `\sqrt`; vinculum is a separate [`Self::Rule`].
+    Radical {
+        x: f32,
+        /// Top of the radical (vinculum join), from box top.
+        y: f32,
+        height: f32,
+        width: f32,
+        thickness: f32,
+    },
+    /// Geometric symbol (sets/logic/ops Liberation lacks); `y` is midline from box top.
+    Sym {
+        kind: MathSymKind,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        thickness: f32,
     },
 }
 

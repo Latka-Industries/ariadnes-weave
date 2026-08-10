@@ -11,6 +11,10 @@ use ariadnes_weave::{
     RuleWidth, TextRun, VspaceAmount, emit_pdf,
 };
 
+#[path = "common/mod.rs"]
+mod common;
+use common::write_pdf;
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let doc = PrintDocument {
         meta: PrintMeta {
@@ -47,8 +51,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let bytes = emit_pdf(&doc)?;
-    std::fs::create_dir_all("tmp")?;
-    std::fs::write("tmp/layout_place_flush.pdf", &bytes)?;
-    println!("wrote tmp/layout_place_flush.pdf ({} bytes)", bytes.len());
+    write_pdf("layout_place_flush.pdf", &bytes);
     Ok(())
 }

@@ -7,7 +7,7 @@ Emit uses named optical defaults from per-category TOML files under `defaults/`:
 | `prose.toml` | prose | Paragraph/heading/list/quote/code/figure/caption spacing and figure align/width, quote/caption italic, optional text/quote/cite/caption colors, cite underline, optional category font pins, wrap width |
 | `table.toml` | table | Cell padding, leading, and block gap |
 | `deck.toml` | deck | Slide title/subtitle/body scales and column gaps |
-| `math.toml` | math | Fractions, scripts, matrices, arrows, display gaps |
+| `math.toml` | math | Fractions, scripts, big-op limits, matrices, arrows, display gaps |
 | `page.toml` | page | Footer size/position, bottom clearance, math stroke gray |
 
 Profiles (`print@0`, `deck@0`, …) still own page size, margins, and body font size. Knobs are the hard-coded paddings, gaps, and scale factors inside emit.
@@ -75,6 +75,18 @@ Figure vertical stack:
 Figure title lives on `PrintBlock::Figure.title` (empty = none). Prefer that over a prior `Paragraph`+strong stand-in so title can share the figure band.
 
 Size is **`size_factor` vs body**, not absolute points — profiles keep owning body size.
+
+## Math knobs (`defaults/math.toml`)
+
+| Section | Meaning |
+|---------|---------|
+| `[display]` | Display size factor + pre/post gaps (inline uses `inline_gap_after`) |
+| `[metrics]` | Math axis, mu/em, `.notdef` box |
+| `[op]` | Big operators: display uses LM Math `.v1` glyphs; `size_factor` only for geo fallback; ∑-family under/over via `limit_size_factor` / `gap_*`; ∫/∮ `\nolimits`; `after_space_mu` after op-with-limits |
+| `[script]` | Side super/subscripts (inline ∑/∏ and all ∫ limits) |
+| `[frac]` / `[matrix]` / `[paren]` / `[arrow]` / `[infinity]` | Structured frac, matrix, chrome; `[paren].style` (`round`/`square`) applies to `pmatrix`; `bmatrix` is always square |
+
+Display math places `^`/`_` as **under/over limits** on ∑ / ∏ / ⋃ / ⋂ / ∐ (centered). ∫ / ∮ keep tip-side `\nolimits`.
 
 ### Figure placement (today)
 

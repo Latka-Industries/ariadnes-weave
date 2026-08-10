@@ -42,6 +42,8 @@ pub enum FaceId {
     SerifBoldItalic,
     /// Liberation Mono Regular (code).
     MonoRegular,
+    /// Latin Modern Math (sealed; TeX-style math symbols).
+    Math,
     /// Font Awesome Free Solid (`icons` feature).
     #[cfg(feature = "icons")]
     IconSolid,
@@ -101,6 +103,7 @@ impl FaceId {
             Self::MonoRegular => {
                 include_bytes!("../fonts/LiberationMono-Regular.ttf")
             }
+            Self::Math => include_bytes!("../fonts/latinmodern-math.ttf"),
             #[cfg(feature = "icons")]
             Self::IconSolid => include_bytes!("../fonts/fa-solid-900.ttf"),
             #[cfg(feature = "icons")]
@@ -125,6 +128,7 @@ impl FaceId {
             Self::SerifItalic => "LiberationSerif-Italic",
             Self::SerifBoldItalic => "LiberationSerif-BoldItalic",
             Self::MonoRegular => "LiberationMono",
+            Self::Math => "LatinModernMath",
             #[cfg(feature = "icons")]
             Self::IconSolid => "FontAwesome6Free-Solid",
             #[cfg(feature = "icons")]
@@ -149,6 +153,7 @@ impl FaceId {
             Self::SerifItalic => b"SI",
             Self::SerifBoldItalic => b"SBI",
             Self::MonoRegular => b"M",
+            Self::Math => b"LM",
             #[cfg(feature = "icons")]
             Self::IconSolid => b"IS",
             #[cfg(feature = "icons")]
@@ -165,7 +170,11 @@ impl FaceId {
     fn is_serif(self) -> bool {
         matches!(
             self,
-            Self::SerifRegular | Self::SerifBold | Self::SerifItalic | Self::SerifBoldItalic
+            Self::SerifRegular
+                | Self::SerifBold
+                | Self::SerifItalic
+                | Self::SerifBoldItalic
+                | Self::Math
         )
     }
 

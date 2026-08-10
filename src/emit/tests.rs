@@ -17,6 +17,11 @@ use crate::options::EmitOptions;
 use crate::profile::{self, PageSize};
 use image::{ImageBuffer, ImageFormat, Rgb};
 
+fn write_tmp_sample(name: &str, bytes: &[u8]) {
+    let _ = std::fs::create_dir_all("tmp");
+    let _ = std::fs::write(format!("tmp/{name}"), bytes);
+}
+
 fn hello_doc() -> PrintDocument {
     PrintDocument {
         meta: PrintMeta {
@@ -1064,8 +1069,7 @@ fn figure_png_embeds_xobject() {
     assert!(bytes.starts_with(b"%PDF-"));
     let s = String::from_utf8_lossy(&bytes);
     assert!(s.contains("/Subtype /Image") || s.contains("/Subtype/Image"));
-    std::fs::create_dir_all("tmp").ok();
-    std::fs::write("tmp/figure_sample.pdf", &bytes).ok();
+    write_tmp_sample("figure_sample.pdf", &bytes);
 }
 
 #[test]
@@ -1097,8 +1101,7 @@ fn deck_v0_is_landscape_16x9() {
     };
     let bytes = emit_pdf(&doc).expect("emit deck");
     assert!(bytes.starts_with(b"%PDF-"));
-    std::fs::create_dir_all("tmp").ok();
-    std::fs::write("tmp/deck_sample.pdf", &bytes).ok();
+    write_tmp_sample("deck_sample.pdf", &bytes);
 }
 
 #[test]
@@ -1137,8 +1140,7 @@ fn two_column_slide_emits_both_sides() {
         "two-column must not label left/right as body slots"
     );
     assert!(bytes.starts_with(b"%PDF-"));
-    std::fs::create_dir_all("tmp").ok();
-    std::fs::write("tmp/deck_two_column.pdf", &bytes).ok();
+    write_tmp_sample("deck_two_column.pdf", &bytes);
 }
 
 #[test]
@@ -1188,7 +1190,10 @@ fn math_prettify_and_emit() {
     let bytes = emit_pdf(&doc).expect("emit math");
     assert!(bytes.starts_with(b"%PDF-"));
     let s = String::from_utf8_lossy(&bytes);
-    assert!(s.contains("LiberationSans-Italic") || s.contains("LiberationSerif-Italic"));
+    assert!(
+        s.contains("LatinModernMath"),
+        "math should embed Latin Modern Math"
+    );
 }
 
 #[test]
@@ -1234,6 +1239,115 @@ fn math_pmatrix_emits() {
 }
 
 #[test]
+fn math_sum_display_limits_emit() {
+    let display = PrintDocument {
+        meta: PrintMeta {
+            title: "Sum display".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::Math {
+            display: true,
+            latex: r"\sum_{i=1}^{n} i".into(),
+        }],
+    };
+    let inline = PrintDocument {
+        meta: PrintMeta {
+            title: "Sum inline".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::Math {
+            display: false,
+            latex: r"\sum_{i=1}^{n} i".into(),
+        }],
+    };
+    let d = emit_pdf(&display).expect("emit display sum");
+    let i = emit_pdf(&inline).expect("emit inline sum");
+    assert!(d.starts_with(b"%PDF-"));
+    assert!(i.starts_with(b"%PDF-"));
+    // Under/over vs side scripts must not produce identical pages.
+    assert_ne!(
+        d, i,
+        "display under/over limits should differ from inline side scripts"
+    );
+}
+
+#[test]
+fn math_prod_and_int_emit() {
+    for latex in [
+        r"\prod_{k=1}^{n} k",
+        r"\int_{0}^{1} x^{2} dx",
+        r"\oint_{C} F",
+        r"\sum_{n=1}^{\infty} \frac{1}{n^{2}}",
+        r"\Delta t = \mathrm{after}",
+        r"A \cap B \neq C",
+        r"\partial_{t} \rho = \Phi(\chi)",
+        r"\sqrt{b^{2} - 4ac}",
+        r"x \in A \subseteq B \cup C \neq \emptyset",
+        r"\forall x \exists y (x \circ y) \notin \nabla",
+        r"A \subset B \supset C \supseteq D \mp E",
+        r"\bigcup_{i=1}^{n} A_{i} \bigcap_{j} B_{j} \coprod_{k} C_{k}",
+    ] {
+        let doc = PrintDocument {
+            meta: PrintMeta {
+                title: "Op".into(),
+                doc_kind: "note".into(),
+                language: None,
+                source_doc_id: None,
+            },
+            profile: PrintProfileId::print_v0(),
+            blocks: vec![PrintBlock::Math {
+                display: true,
+                latex: latex.into(),
+            }],
+        };
+        let bytes = emit_pdf(&doc).unwrap_or_else(|e| panic!("emit {latex}: {e}"));
+        assert!(bytes.starts_with(b"%PDF-"), "{latex}");
+    }
+}
+
+#[test]
+fn math_int_display_limits_differ_from_inline() {
+    let display = PrintDocument {
+        meta: PrintMeta {
+            title: "Int display".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::Math {
+            display: true,
+            latex: r"\int_{0}^{1} x dx".into(),
+        }],
+    };
+    let inline = PrintDocument {
+        meta: PrintMeta {
+            title: "Int inline".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::Math {
+            display: false,
+            latex: r"\int_{0}^{1} x dx".into(),
+        }],
+    };
+    let d = emit_pdf(&display).expect("display int");
+    let i = emit_pdf(&inline).expect("inline int");
+    assert_ne!(
+        d, i,
+        "display ∫ (larger) should still differ from inline even with side scripts"
+    );
+}
+
+#[test]
 fn float_near_figure_emits() {
     let doc = PrintDocument {
         meta: PrintMeta {
@@ -1275,8 +1389,7 @@ fn sealed_cjk_fallback_embeds_in_pdf() {
         s.contains("SealedCjkSans"),
         "expected sealed CJK face in PDF font names"
     );
-    std::fs::create_dir_all("tmp").ok();
-    std::fs::write("tmp/cjk_sample.pdf", &bytes).ok();
+    write_tmp_sample("cjk_sample.pdf", &bytes);
 }
 
 #[cfg(feature = "emoji")]
@@ -1301,8 +1414,7 @@ fn sealed_emoji_fallback_embeds_in_pdf() {
         s.contains("SealedNotoEmoji"),
         "expected sealed emoji face in PDF font names"
     );
-    std::fs::create_dir_all("tmp").ok();
-    std::fs::write("tmp/emoji_sample.pdf", &bytes).ok();
+    write_tmp_sample("emoji_sample.pdf", &bytes);
 }
 
 #[test]

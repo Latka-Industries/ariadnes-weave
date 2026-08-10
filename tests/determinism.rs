@@ -53,6 +53,30 @@ fn quadratic_formula_doc() -> PrintDocument {
     }
 }
 
+/// THI-359: display ∑ with under/over limits.
+fn sum_limits_doc() -> PrintDocument {
+    PrintDocument {
+        meta: PrintMeta {
+            title: "Sum limits".into(),
+            doc_kind: "note".into(),
+            language: Some("en".into()),
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![
+            PrintBlock::Heading {
+                level: 1,
+                runs: vec![TextRun::plain("Sum with limits")],
+                break_before: BreakHint::None,
+            },
+            PrintBlock::Math {
+                display: true,
+                latex: r"\sum_{i=1}^{n} i = \frac{n(n+1)}{2}".into(),
+            },
+        ],
+    }
+}
+
 /// THI-362: `place frac=1` flush + vspace + full-width rule.
 fn layout_place_flush_doc() -> PrintDocument {
     PrintDocument {
@@ -169,7 +193,10 @@ const MANUSCRIPT_TWO_CHAPTER_SHA256: &str =
 
 /// Pin: bump intentionally when math box layout/version change.
 const QUADRATIC_FORMULA_SHA256: &str =
-    "3b1788b647e2eb93a4abb0225fcbc6cb86b5b4b1c6c9dd4130f1e0d62991c0be";
+    "f97c2a115da9f6a9a26fdee16f7a8c13dad044d585820fe2e06c42ee107f32b5";
+
+/// Pin: bump intentionally when display ∑/∏ under/over limit layout changes.
+const SUM_LIMITS_SHA256: &str = "77ff6b648c884aa4cdab47106905946eb37ae646ac2733f0155490ec340850ee";
 
 /// Pin: bump intentionally when layout place/vspace/rule paint changes.
 const LAYOUT_PLACE_FLUSH_SHA256: &str =
@@ -226,6 +253,13 @@ fn print_profile_does_not_force_h1_chapter_break() {
 fn quadratic_formula_sha256_fixture() {
     let a = assert_emit_deterministic(&quadratic_formula_doc());
     assert_eq!(sha256_hex(&a), QUADRATIC_FORMULA_SHA256);
+}
+
+/// THI-359: display ∑ under/over limits stay byte-stable.
+#[test]
+fn sum_limits_sha256_fixture() {
+    let a = assert_emit_deterministic(&sum_limits_doc());
+    assert_eq!(sha256_hex(&a), SUM_LIMITS_SHA256);
 }
 
 /// THI-362: `place frac=1` flush paints deterministically with vspace/rule.
