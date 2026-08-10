@@ -9,7 +9,8 @@
 //! ```
 
 use ariadnes_weave::{
-    BreakHint, PrintBlock, PrintDocument, PrintMeta, PrintProfileId, TextRun, emit_pdf,
+    BreakHint, EmitOptions, LayoutKnobs, MathParenStyle, PrintBlock, PrintDocument, PrintMeta,
+    PrintProfileId, TextRun, emit_pdf_with,
 };
 
 fn h1(text: &str) -> PrintBlock {
@@ -66,7 +67,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         note(
             "Each section is one layout case. Source LaTeX is in the note under the title. \
              Display ops use LM Math `.v1` glyphs; ∑/∏/⋃… under/over (\\displaylimits); \
-             ∫/∮ tip-side scripts (\\nolimits).",
+             ∫/∮ tip-side scripts (\\nolimits). Matrix fences use `[paren].style` \
+             (this sample sets `square`; bundled default is `round`).",
         ),
     ];
 
@@ -115,8 +117,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
         (
             "11. Contour integral",
-            r"Source: \oint_{C} F \cdot dr",
-            r"\oint_{C} F \cdot dr",
+            r"Source: \oint_{C}^{\gamma} F \cdot dr",
+            r"\oint_{C}^{\gamma} F \cdot dr",
         ),
         (
             "12. Nested sum of a fraction",
@@ -232,7 +234,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         blocks,
     };
 
-    let bytes = emit_pdf(&doc)?;
+    let mut layout = LayoutKnobs::bundled();
+    layout.math.paren.style = MathParenStyle::Square;
+    let bytes = emit_pdf_with(&doc, &EmitOptions::bundled_only().with_layout(layout))?;
     std::fs::create_dir_all("tmp")?;
     let out = "tmp/thi359_math_sample.pdf";
     std::fs::write(out, &bytes)?;

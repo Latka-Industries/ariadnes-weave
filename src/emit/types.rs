@@ -259,7 +259,7 @@ pub(super) enum LaidMathEl {
         width: f32,
         thickness: f32,
     },
-    /// Stroked stretchy parenthesis; `axis_y` is the math-axis distance from the box top.
+    /// Stroked stretchy matrix delimiter; `axis_y` is the math-axis distance from the box top.
     Paren {
         x: f32,
         axis_y: f32,
@@ -267,6 +267,7 @@ pub(super) enum LaidMathEl {
         width: f32,
         thickness: f32,
         left: bool,
+        style: crate::knobs::MathParenStyle,
     },
     /// Geometric arrow; `y` is the shaft midline from the box top.
     Arrow {

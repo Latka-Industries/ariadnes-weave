@@ -111,7 +111,7 @@ pub(super) enum RelEl {
         width: f32,
         thickness: f32,
     },
-    /// Stroked paren; `axis` is the math-axis offset from the baseline.
+    /// Stroked stretchy matrix delimiter; `axis` is math-axis from baseline.
     Paren {
         x: f32,
         axis: f32,
@@ -119,6 +119,7 @@ pub(super) enum RelEl {
         width: f32,
         thickness: f32,
         left: bool,
+        style: crate::knobs::MathParenStyle,
     },
     /// Geometric arrow; `y` is the shaft midline relative to the baseline.
     Arrow {
@@ -180,8 +181,8 @@ impl RelEl {
                 Self::Text { x, y, face, font_size, glyphs },
             Self::Rule { x, y, width, thickness } => (x, y)
                 Self::Rule { x, y, width, thickness },
-            Self::Paren { x, axis, half_h, width, thickness, left } => (x, axis)
-                Self::Paren { x, axis, half_h, width, thickness, left },
+            Self::Paren { x, axis, half_h, width, thickness, left, style } => (x, axis)
+                Self::Paren { x, axis, half_h, width, thickness, left, style },
             Self::Arrow { x, y, width, height, thickness, left } => (x, y)
                 Self::Arrow { x, y, width, height, thickness, left },
             Self::Integral { x, axis, half_h, width, thickness, contour } => (x, axis)
@@ -207,8 +208,8 @@ impl RelEl {
             Self::Rule { x, y: yy, width, thickness } => LaidMathEl::Rule {
                 x, y: y(yy), width, thickness,
             },
-            Self::Paren { x, axis, half_h, width, thickness, left } => LaidMathEl::Paren {
-                x, axis_y: y(axis), half_h, width, thickness, left,
+            Self::Paren { x, axis, half_h, width, thickness, left, style } => LaidMathEl::Paren {
+                x, axis_y: y(axis), half_h, width, thickness, left, style,
             },
             Self::Arrow { x, y: yy, width, height, thickness, left } => LaidMathEl::Arrow {
                 x, y: y(yy), width, height, thickness, left,

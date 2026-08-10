@@ -921,9 +921,11 @@ pub struct MathMatrixKnobs {
     pub pad: f32,
 }
 
-/// `[paren]` in `math.toml`.
+/// `[paren]` in `math.toml` — stretchy matrix delimiters.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MathParenKnobs {
+    /// Delimiter shape: `round` `(…)` or `square` `[…]`.
+    pub style: MathParenStyle,
     /// Width as factor of half-height.
     pub width_factor: f32,
     /// Width clamp min (points).
@@ -936,6 +938,17 @@ pub struct MathParenKnobs {
     pub thickness_min: f32,
     /// Thickness clamp max.
     pub thickness_max: f32,
+}
+
+/// Matrix fence style (`[paren].style` in `math.toml`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MathParenStyle {
+    /// Curved parentheses (TeX `pmatrix`).
+    #[default]
+    Round,
+    /// Square brackets (TeX `bmatrix`-like).
+    Square,
 }
 
 /// `[sqrt]` in `math.toml`.
@@ -1002,6 +1015,7 @@ mod tests {
         assert!((k.math.frac.gap_num_factor - 0.1).abs() < f32::EPSILON);
         assert!((k.math.op.size_factor - 1.35).abs() < f32::EPSILON);
         assert!((k.math.op.after_space_mu - 2.5).abs() < f32::EPSILON);
+        assert_eq!(k.math.paren.style, MathParenStyle::Round);
         let dump = k.describe();
         assert!(dump.contains("prose.paragraph.gap_after = 10"));
         assert!(

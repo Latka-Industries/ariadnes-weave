@@ -532,6 +532,7 @@ fn layout_matrix(
         let half_h = half + pad * 0.15;
         let paren_w = ctx.knobs.paren.delim_width(half_h);
         let thick = ctx.knobs.paren.stroke_thickness(font_size);
+        let style = ctx.knobs.paren.style;
         let width = inner_w + 2.0 * pad + 2.0 * paren_w;
         elements.push(RelEl::Paren {
             x: 0.0,
@@ -540,6 +541,7 @@ fn layout_matrix(
             width: paren_w,
             thickness: thick,
             left: true,
+            style,
         });
         elements.push(RelEl::Paren {
             x: width - paren_w,
@@ -548,6 +550,7 @@ fn layout_matrix(
             width: paren_w,
             thickness: thick,
             left: false,
+            style,
         });
         (paren_w, width)
     } else {

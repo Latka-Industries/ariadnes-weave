@@ -62,6 +62,8 @@ row_gap = 0.25
 pad = 0.2
 
 [paren]
+# Matrix fences: "round" (…) or "square" […]
+style = "round"
 width_factor = 0.3
 width_min = 4.0
 width_max = 18.0

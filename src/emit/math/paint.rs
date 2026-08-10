@@ -4,7 +4,7 @@ use pdf_writer::types::{LineCapStyle, LineJoinStyle};
 use pdf_writer::{Content, Name, Str};
 
 use crate::font::{FontBag, encode_gids};
-use crate::knobs::PageChromeKnobs;
+use crate::knobs::{MathParenStyle, PageChromeKnobs};
 
 use super::super::types::{LaidMath, LaidMathEl, MathSymKind};
 
@@ -24,6 +24,7 @@ struct ParenGeom {
     width: f32,
     thickness: f32,
     left: bool,
+    style: MathParenStyle,
 }
 
 struct IntegralGeom {
@@ -152,6 +153,7 @@ fn paint_math_chrome(
             width,
             thickness,
             left,
+            style,
         } => paint_math_paren(
             content,
             &ParenGeom {
@@ -161,6 +163,7 @@ fn paint_math_chrome(
                 width: *width,
                 thickness: *thickness,
                 left: *left,
+                style: *style,
             },
             chrome,
         ),
@@ -349,7 +352,7 @@ fn paint_math_integral(content: &mut Content, geom: &IntegralGeom, chrome: &Page
     content.restore_state();
 }
 
-/// Stroke a stretchy parenthesis centered on `axis_y` (PDF space).
+/// Stroke a stretchy matrix delimiter centered on `axis_y` (PDF space).
 fn paint_math_paren(content: &mut Content, geom: &ParenGeom, chrome: &PageChromeKnobs) {
     let ParenGeom {
         x,
@@ -358,47 +361,65 @@ fn paint_math_paren(content: &mut Content, geom: &ParenGeom, chrome: &PageChrome
         width,
         thickness,
         left,
+        style,
     } = *geom;
     let top = axis_y + half_h;
     let bot = axis_y - half_h;
-    let mid = axis_y;
     begin_math_stroke(content, chrome, thickness, true, false);
-    if left {
-        content.move_to(x + width, top);
-        content.cubic_to(
-            x + width * 0.15,
-            top - half_h * 0.05,
-            x,
-            mid + half_h * 0.45,
-            x,
-            mid,
-        );
-        content.cubic_to(
-            x,
-            mid - half_h * 0.45,
-            x + width * 0.15,
-            bot + half_h * 0.05,
-            x + width,
-            bot,
-        );
-    } else {
-        content.move_to(x, top);
-        content.cubic_to(
-            x + width * 0.85,
-            top - half_h * 0.05,
-            x + width,
-            mid + half_h * 0.45,
-            x + width,
-            mid,
-        );
-        content.cubic_to(
-            x + width,
-            mid - half_h * 0.45,
-            x + width * 0.85,
-            bot + half_h * 0.05,
-            x,
-            bot,
-        );
+    match style {
+        MathParenStyle::Square => {
+            if left {
+                content.move_to(x + width, top);
+                content.line_to(x, top);
+                content.line_to(x, bot);
+                content.line_to(x + width, bot);
+            } else {
+                content.move_to(x, top);
+                content.line_to(x + width, top);
+                content.line_to(x + width, bot);
+                content.line_to(x, bot);
+            }
+        }
+        MathParenStyle::Round => {
+            let mid = axis_y;
+            if left {
+                content.move_to(x + width, top);
+                content.cubic_to(
+                    x + width * 0.15,
+                    top - half_h * 0.05,
+                    x,
+                    mid + half_h * 0.45,
+                    x,
+                    mid,
+                );
+                content.cubic_to(
+                    x,
+                    mid - half_h * 0.45,
+                    x + width * 0.15,
+                    bot + half_h * 0.05,
+                    x + width,
+                    bot,
+                );
+            } else {
+                content.move_to(x, top);
+                content.cubic_to(
+                    x + width * 0.85,
+                    top - half_h * 0.05,
+                    x + width,
+                    mid + half_h * 0.45,
+                    x + width,
+                    mid,
+                );
+                content.cubic_to(
+                    x + width,
+                    mid - half_h * 0.45,
+                    x + width * 0.85,
+                    bot + half_h * 0.05,
+                    x,
+                    bot,
+                );
+            }
+        }
     }
     content.stroke();
     content.restore_state();
