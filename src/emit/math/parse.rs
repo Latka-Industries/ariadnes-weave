@@ -36,6 +36,18 @@ impl MatrixFence {
     pub(super) fn is_delimited(self) -> bool {
         !matches!(self, Self::None)
     }
+
+    /// Paint style for delimited fences (`pmatrix` follows knobs; `bmatrix` is square).
+    pub(super) fn paint_style(
+        self,
+        paren: &crate::knobs::MathParenKnobs,
+    ) -> Option<crate::knobs::MathParenStyle> {
+        match self {
+            Self::None => None,
+            Self::Paren => Some(paren.style),
+            Self::Bracket => Some(crate::knobs::MathParenStyle::Square),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

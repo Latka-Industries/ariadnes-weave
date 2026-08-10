@@ -8,6 +8,10 @@ use ariadnes_weave::{
     PrintProfileId, TextAlign, TextRun, emit_pdf, emit_pdf_with,
 };
 
+#[path = "common/mod.rs"]
+mod common;
+use common::write_pdf;
+
 const LOREM: &str = "\
 Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor \
 incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis \
@@ -77,13 +81,6 @@ fn doc() -> PrintDocument {
             },
         ],
     }
-}
-
-fn write_pdf(name: &str, bytes: &[u8]) {
-    let path = format!("tmp/{name}");
-    std::fs::create_dir_all("tmp").ok();
-    std::fs::write(&path, bytes).unwrap();
-    println!("wrote {path} ({} bytes)", bytes.len());
 }
 
 fn write_align(name: &str, doc: &PrintDocument, align: TextAlign) {

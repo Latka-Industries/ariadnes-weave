@@ -365,60 +365,40 @@ fn paint_math_paren(content: &mut Content, geom: &ParenGeom, chrome: &PageChrome
     } = *geom;
     let top = axis_y + half_h;
     let bot = axis_y - half_h;
+    // Outer tip / stem: left fence opens to the right, right fence to the left.
+    let (outer, inner) = if left { (x + width, x) } else { (x, x + width) };
     begin_math_stroke(content, chrome, thickness, true, false);
     match style {
         MathParenStyle::Square => {
-            if left {
-                content.move_to(x + width, top);
-                content.line_to(x, top);
-                content.line_to(x, bot);
-                content.line_to(x + width, bot);
-            } else {
-                content.move_to(x, top);
-                content.line_to(x + width, top);
-                content.line_to(x + width, bot);
-                content.line_to(x, bot);
-            }
+            content.move_to(outer, top);
+            content.line_to(inner, top);
+            content.line_to(inner, bot);
+            content.line_to(outer, bot);
         }
         MathParenStyle::Round => {
             let mid = axis_y;
-            if left {
-                content.move_to(x + width, top);
-                content.cubic_to(
-                    x + width * 0.15,
-                    top - half_h * 0.05,
-                    x,
-                    mid + half_h * 0.45,
-                    x,
-                    mid,
-                );
-                content.cubic_to(
-                    x,
-                    mid - half_h * 0.45,
-                    x + width * 0.15,
-                    bot + half_h * 0.05,
-                    x + width,
-                    bot,
-                );
+            let wing = if left {
+                x + width * 0.15
             } else {
-                content.move_to(x, top);
-                content.cubic_to(
-                    x + width * 0.85,
-                    top - half_h * 0.05,
-                    x + width,
-                    mid + half_h * 0.45,
-                    x + width,
-                    mid,
-                );
-                content.cubic_to(
-                    x + width,
-                    mid - half_h * 0.45,
-                    x + width * 0.85,
-                    bot + half_h * 0.05,
-                    x,
-                    bot,
-                );
-            }
+                x + width * 0.85
+            };
+            content.move_to(outer, top);
+            content.cubic_to(
+                wing,
+                top - half_h * 0.05,
+                inner,
+                mid + half_h * 0.45,
+                inner,
+                mid,
+            );
+            content.cubic_to(
+                inner,
+                mid - half_h * 0.45,
+                wing,
+                bot + half_h * 0.05,
+                outer,
+                bot,
+            );
         }
     }
     content.stroke();

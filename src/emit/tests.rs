@@ -17,6 +17,11 @@ use crate::options::EmitOptions;
 use crate::profile::{self, PageSize};
 use image::{ImageBuffer, ImageFormat, Rgb};
 
+fn write_tmp_sample(name: &str, bytes: &[u8]) {
+    let _ = std::fs::create_dir_all("tmp");
+    let _ = std::fs::write(format!("tmp/{name}"), bytes);
+}
+
 fn hello_doc() -> PrintDocument {
     PrintDocument {
         meta: PrintMeta {
@@ -1064,8 +1069,7 @@ fn figure_png_embeds_xobject() {
     assert!(bytes.starts_with(b"%PDF-"));
     let s = String::from_utf8_lossy(&bytes);
     assert!(s.contains("/Subtype /Image") || s.contains("/Subtype/Image"));
-    std::fs::create_dir_all("tmp").ok();
-    std::fs::write("tmp/figure_sample.pdf", &bytes).ok();
+    write_tmp_sample("figure_sample.pdf", &bytes);
 }
 
 #[test]
@@ -1097,8 +1101,7 @@ fn deck_v0_is_landscape_16x9() {
     };
     let bytes = emit_pdf(&doc).expect("emit deck");
     assert!(bytes.starts_with(b"%PDF-"));
-    std::fs::create_dir_all("tmp").ok();
-    std::fs::write("tmp/deck_sample.pdf", &bytes).ok();
+    write_tmp_sample("deck_sample.pdf", &bytes);
 }
 
 #[test]
@@ -1137,8 +1140,7 @@ fn two_column_slide_emits_both_sides() {
         "two-column must not label left/right as body slots"
     );
     assert!(bytes.starts_with(b"%PDF-"));
-    std::fs::create_dir_all("tmp").ok();
-    std::fs::write("tmp/deck_two_column.pdf", &bytes).ok();
+    write_tmp_sample("deck_two_column.pdf", &bytes);
 }
 
 #[test]
@@ -1387,8 +1389,7 @@ fn sealed_cjk_fallback_embeds_in_pdf() {
         s.contains("SealedCjkSans"),
         "expected sealed CJK face in PDF font names"
     );
-    std::fs::create_dir_all("tmp").ok();
-    std::fs::write("tmp/cjk_sample.pdf", &bytes).ok();
+    write_tmp_sample("cjk_sample.pdf", &bytes);
 }
 
 #[cfg(feature = "emoji")]
@@ -1413,8 +1414,7 @@ fn sealed_emoji_fallback_embeds_in_pdf() {
         s.contains("SealedNotoEmoji"),
         "expected sealed emoji face in PDF font names"
     );
-    std::fs::create_dir_all("tmp").ok();
-    std::fs::write("tmp/emoji_sample.pdf", &bytes).ok();
+    write_tmp_sample("emoji_sample.pdf", &bytes);
 }
 
 #[test]

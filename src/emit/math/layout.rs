@@ -57,7 +57,7 @@ fn is_big_op(text: &str) -> bool {
 
 /// TeX `\displaylimits` family: under/over limits in display (not ∫/∮ — those stay `\nolimits`).
 fn is_displaylimits_op(text: &str) -> bool {
-    matches!(text.trim(), "∑" | "∏" | "∐" | "⋃" | "⋂")
+    is_big_op(text) && !is_integral_op(text)
 }
 
 /// TeX `\nolimits` integrals: tip-side scripts (not mid-body letter scripts).
@@ -526,33 +526,22 @@ fn layout_matrix(
     let depth = -body_bot + pad * 0.5;
 
     let mut elements = Vec::new();
-    let (delim_w, width) = if let Some(style) = match fence {
-        MatrixFence::None => None,
-        MatrixFence::Paren => Some(ctx.knobs.paren.style),
-        MatrixFence::Bracket => Some(crate::knobs::MathParenStyle::Square),
-    } {
+    let (delim_w, width) = if let Some(style) = fence.paint_style(&ctx.knobs.paren) {
         let half_h = half + pad * 0.15;
         let paren_w = ctx.knobs.paren.delim_width(half_h);
         let thick = ctx.knobs.paren.stroke_thickness(font_size);
         let width = inner_w + 2.0 * pad + 2.0 * paren_w;
-        elements.push(RelEl::Paren {
-            x: 0.0,
-            axis,
-            half_h,
-            width: paren_w,
-            thickness: thick,
-            left: true,
-            style,
-        });
-        elements.push(RelEl::Paren {
-            x: width - paren_w,
-            axis,
-            half_h,
-            width: paren_w,
-            thickness: thick,
-            left: false,
-            style,
-        });
+        for left in [true, false] {
+            elements.push(RelEl::Paren {
+                x: if left { 0.0 } else { width - paren_w },
+                axis,
+                half_h,
+                width: paren_w,
+                thickness: thick,
+                left,
+                style,
+            });
+        }
         (paren_w, width)
     } else {
         (0.0, inner_w + 2.0 * pad)

@@ -12,6 +12,10 @@ use ariadnes_weave::{
     BreakHint, PrintBlock, PrintDocument, PrintMeta, PrintProfileId, TextRun, emit_pdf,
 };
 
+#[path = "common/mod.rs"]
+mod common;
+use common::write_pdf;
+
 fn h1(text: &str) -> PrintBlock {
     PrintBlock::Heading {
         level: 1,
@@ -234,17 +238,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let bytes = emit_pdf(&doc)?;
-    std::fs::create_dir_all("tmp")?;
-    let out = "tmp/thi359_math_sample.pdf";
-    std::fs::write(out, &bytes)?;
-    println!(
-        "wrote {out} ({} bytes, {})",
-        bytes.len(),
-        if bytes.starts_with(b"%PDF-") {
-            "valid magic"
-        } else {
-            "missing magic"
-        }
-    );
+    write_pdf("thi359_math_sample.pdf", &bytes);
     Ok(())
 }

@@ -7,19 +7,17 @@ run = """
 #!/usr/bin/env bash
 set -euo pipefail
 mkdir -p tmp
-# Core corpus (prose / math / layout flush)
-cargo run --quiet --example prose
-cargo run --quiet --example math_sample
-cargo run --quiet --example layout_flush
-# 0.2.6–0.2.7 spotchecks (THI-362 / THI-382 / THI-383)
-cargo run --quiet --example caption_spotcheck
-cargo run --quiet --example figure_pagination_spotcheck
+# Core corpus + 0.2.6–0.2.7 spotchecks
+for ex in prose math_sample layout_flush caption_spotcheck figure_pagination_spotcheck; do
+  cargo run --quiet --example "$ex"
+done
 # Integration tests that also drop sample PDFs into tmp/
 cargo test --quiet --test hello_world --test prose_sample -- --nocapture
-cargo test --quiet --lib figure_png_embeds_xobject -- --nocapture
-cargo test --quiet --lib deck_v0_is_landscape_16x9 -- --nocapture
-cargo test --quiet --lib two_column_slide_emits_both_sides -- --nocapture
+for t in figure_png_embeds_xobject deck_v0_is_landscape_16x9 two_column_slide_emits_both_sides; do
+  cargo test --quiet --lib "$t" -- --nocapture
+done
 # Optional sealed packs (CJK / emoji)
-cargo test --quiet --features cjk,emoji --lib sealed_cjk_fallback_embeds_in_pdf -- --nocapture
-cargo test --quiet --features cjk,emoji --lib sealed_emoji_fallback_embeds_in_pdf -- --nocapture
+for t in sealed_cjk_fallback_embeds_in_pdf sealed_emoji_fallback_embeds_in_pdf; do
+  cargo test --quiet --features cjk,emoji --lib "$t" -- --nocapture
+done
 """
