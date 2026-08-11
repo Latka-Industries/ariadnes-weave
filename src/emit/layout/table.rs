@@ -115,6 +115,8 @@ fn wrap_plain_text(
             ctx.glyph_sets,
             fill,
             false,
+            None,
+            0.0,
         )?;
         if current_width + w > max_width && !current.is_empty() {
             lines.push(LaidLine::wrapped(
@@ -137,6 +139,8 @@ fn wrap_plain_text(
                     ctx.glyph_sets,
                     fill,
                     false,
+                    None,
+                    0.0,
                 )?;
                 lines.push(LaidLine::wrapped(spans, leading, max_width));
             }

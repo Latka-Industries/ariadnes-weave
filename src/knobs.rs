@@ -47,6 +47,34 @@ impl LayoutKnobs {
         push_category(&mut lines, "page", &self.page);
         lines.join("\n")
     }
+
+    /// Tighten gaps / paddings / list gutter for `resume@0` emits.
+    ///
+    /// Profiles own page/type; this overlays optical density on host knobs
+    /// (pack fonts/colors still apply).
+    pub fn densify_resume(&mut self) {
+        // Match LaTeX `\fontsize{9.5pt}{11.5pt}` rhythm — not sub-em leading.
+        // (Earlier 1.02 crushed wrapped bullets: 9.5×1.02 < body size.)
+        self.prose.paragraph.gap_after = 2.0;
+        self.prose.heading.gap_after = 1.0;
+        self.prose.heading.leading_factor = 1.12;
+        self.prose.list.indent_per_depth = 12.0;
+        self.prose.list.item_leading_factor = 11.5 / 9.5;
+        // ~1.25 in — clears date column on one-column CVs.
+        self.prose.list.end_gutter = 90.0;
+        self.prose.code.gap_after = 2.0;
+        // LaTeX dark-blue links / icons (`rgb{0.15,0.15,0.4}` ≈ #262666).
+        self.prose.cite.color = Some(HexColor {
+            r: 0x26,
+            g: 0x26,
+            b: 0x66,
+        });
+        self.table.cell.pad = 1.0;
+        self.table.cell.leading_factor = 11.5 / 9.5;
+        self.table.block.gap_after = 2.0;
+        self.page.footer.enabled = false;
+        self.page.content.bottom_clearance = 2.0;
+    }
 }
 
 fn load_bundled() -> LayoutKnobs {
@@ -300,6 +328,11 @@ pub struct ProseListKnobs {
     pub indent_per_depth: f32,
     /// List item leading as a multiple of body size.
     pub item_leading_factor: f32,
+    /// Extra right-side gutter so list text clears a date/meta column (points).
+    ///
+    /// Bundled default `0.0`; resume densify sets ~`90` (1.25 in).
+    #[serde(default)]
+    pub end_gutter: f32,
 }
 
 /// Horizontal alignment for figure image + caption band (`[figure].align`).
@@ -984,6 +1017,13 @@ pub struct PageFooterKnobs {
     pub font_size: f32,
     /// Footer baseline as a factor of bottom margin.
     pub y_margin_factor: f32,
+    /// Draw centered `n / m` page numbers (bundled `true`; resume turns off).
+    #[serde(default = "default_footer_enabled")]
+    pub enabled: bool,
+}
+
+fn default_footer_enabled() -> bool {
+    true
 }
 
 /// `[content]` in `page.toml`.

@@ -171,8 +171,7 @@ fn layout_ord(text: &str, ctx: &mut MathCtx, font_size: f32) -> Result<MathBox, 
             .next()
             .filter(|_| is_big_op(trimmed))
             .and_then(display_op_char)
-            .map(|c| c.to_string())
-            .unwrap_or_else(|| trimmed.to_string())
+            .map_or_else(|| trimmed.to_string(), |c| c.to_string())
     } else {
         trimmed.to_string()
     };

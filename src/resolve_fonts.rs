@@ -66,6 +66,10 @@ mod hydrate {
             PrintBlock::Heading { runs, .. }
             | PrintBlock::Paragraph { runs }
             | PrintBlock::Quote { runs } => collect_run_faces(runs, out),
+            PrintBlock::Row { left, right } => {
+                collect_run_faces(left, out);
+                collect_run_faces(right, out);
+            }
             PrintBlock::List { items, .. } => {
                 for item in items {
                     collect_list_item_faces(item, out);

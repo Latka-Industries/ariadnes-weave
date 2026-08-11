@@ -38,6 +38,7 @@ fn hello_doc() -> PrintDocument {
                     text: "Hello, ariadnes-weave".into(),
                     style: InlineStyle::default(),
                     face: None,
+                    link_uri: None,
                 }],
                 break_before: BreakHint::None,
             },
@@ -311,6 +312,7 @@ fn category_cite_font_pin() {
                     ..InlineStyle::default()
                 },
                 face: None,
+                link_uri: None,
             }],
         }],
     };
@@ -469,6 +471,7 @@ fn styled_runs_embed_bold_font() {
                     ..InlineStyle::default()
                 },
                 face: None,
+                link_uri: None,
             },
         ],
     });
@@ -525,6 +528,54 @@ fn table_draws_grid_paths() {
     assert!(
         s.contains("0.6 w"),
         "expected table stroke width in content stream"
+    );
+}
+
+#[test]
+fn row_emits_without_table_grid() {
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "CV".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::resume_v0(),
+        blocks: vec![PrintBlock::Row {
+            left: vec![TextRun::plain("VerifyLocal LLC")],
+            right: vec![TextRun::plain("New York, NY")],
+        }],
+    };
+    let bytes = emit_pdf(&doc).expect("emit");
+    assert!(bytes.starts_with(b"%PDF-"));
+    let s = String::from_utf8_lossy(&bytes);
+    assert!(
+        !s.contains("0.6 w"),
+        "row should not draw a table stroke grid"
+    );
+}
+
+#[test]
+fn accepts_resume_v0_us_letter_mediabox() {
+    let mut doc = PrintDocument {
+        meta: PrintMeta {
+            title: "R".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::resume_v0(),
+        blocks: vec![PrintBlock::Paragraph {
+            runs: vec![TextRun::plain("Dense body.")],
+        }],
+    };
+    doc.profile = PrintProfileId::resume_v0();
+    let bytes = emit_pdf(&doc).expect("emit");
+    let s = String::from_utf8_lossy(&bytes);
+    // US Letter MediaBox
+    assert!(
+        s.contains("[0 0 612 792]") || s.contains("[0.0 0.0 612.0 792.0]"),
+        "expected Letter MediaBox in resume PDF"
     );
 }
 
@@ -595,6 +646,7 @@ fn manuscript_emphasis_uses_serif_italic() {
                         ..InlineStyle::default()
                     },
                     face: None,
+                    link_uri: None,
                 },
                 TextRun::plain(" "),
                 TextRun {
@@ -604,6 +656,7 @@ fn manuscript_emphasis_uses_serif_italic() {
                         ..InlineStyle::default()
                     },
                     face: None,
+                    link_uri: None,
                 },
             ],
         }],
@@ -691,6 +744,7 @@ fn aesthetic_colors_and_cite_underline_affect_emit() {
                         ..InlineStyle::default()
                     },
                     face: None,
+                    link_uri: None,
                 }],
             },
         ],
@@ -1028,6 +1082,7 @@ fn inline_style_underline_without_cite() {
                     ..InlineStyle::default()
                 },
                 face: None,
+                link_uri: None,
             }],
         }],
     };
@@ -1043,6 +1098,38 @@ fn inline_style_underline_without_cite() {
     assert!(
         under_s.contains(" re") || under_s.contains("\nS\n") || under_s.contains(" S\n"),
         "expected stroke ops from underline paint: {under_s}"
+    );
+}
+
+#[test]
+fn link_uri_emits_pdf_uri_annotation() {
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "Links".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::Paragraph {
+            runs: vec![
+                TextRun::plain("Write "),
+                TextRun::link("here", "https://example.com/path"),
+                TextRun::plain(" or "),
+                TextRun::link("mail", "mailto:a@b.c"),
+                TextRun::plain("."),
+            ],
+        }],
+    };
+    let pdf = emit_pdf(&doc).expect("linked pdf");
+    let hay = String::from_utf8_lossy(&pdf);
+    assert!(
+        hay.contains("/URI") && hay.contains("https://example.com/path"),
+        "expected URI annotation for https link"
+    );
+    assert!(
+        hay.contains("mailto:a@b.c"),
+        "expected URI annotation for mailto link"
     );
 }
 

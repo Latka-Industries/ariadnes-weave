@@ -3,6 +3,7 @@
 [footer]
 font_size = 9.0
 y_margin_factor = 0.45
+enabled = true
 
 [content]
 bottom_clearance = 18.0

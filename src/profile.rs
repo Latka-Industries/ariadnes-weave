@@ -13,6 +13,7 @@ use crate::ir::PrintProfileId;
 
 /// Layout metrics resolved from a [`PrintProfileId`].
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[allow(clippy::struct_excessive_bools)] // orthogonal profile policy flags; not a state machine
 pub struct ProfileMetrics {
     /// Page width in PDF points.
     pub page_w: f32,
@@ -32,6 +33,8 @@ pub struct ProfileMetrics {
     pub force_h1_page_break: bool,
     /// Deck/slide page geometry (landscape, larger type).
     pub is_deck: bool,
+    /// Dense heading scale (`resume@0`): smaller display sizes vs print.
+    pub dense_headings: bool,
 }
 
 impl ProfileMetrics {
@@ -80,6 +83,8 @@ enum DocMode {
     Manuscript,
     /// Slide deck — large type, one slide per page.
     Deck,
+    /// Resume / CV — dense sans, tight margins, Letter page.
+    Resume,
 }
 
 impl DocMode {
@@ -89,6 +94,8 @@ impl DocMode {
             Self::Print => 72.0,
             Self::Manuscript => 96.0,
             Self::Deck => 40.0,
+            // ~0.25 in — matches typical one-column CV margins.
+            Self::Resume => 18.0,
         }
     }
 
@@ -98,6 +105,8 @@ impl DocMode {
             Self::Print => (11.0, 1.4, 9.0, false, false, false),
             Self::Manuscript => (12.0, 2.0, 10.0, true, true, false),
             Self::Deck => (22.0, 1.35, 16.0, false, false, true),
+            // LaTeX CV: `\fontsize{9.5pt}{11.5pt}` → leading factor 11.5/9.5.
+            Self::Resume => (9.5, 11.5 / 9.5, 8.0, false, false, false),
         }
     }
 }
@@ -117,6 +126,7 @@ fn compose(mode: DocMode, page: PageSize, margin: f32) -> ProfileMetrics {
         serif_body,
         force_h1_page_break,
         is_deck,
+        dense_headings: matches!(mode, DocMode::Resume),
     }
 }
 
@@ -135,6 +145,7 @@ pub fn resolve_metrics(profile: &PrintProfileId) -> Result<ProfileMetrics, Weave
         ("print-letter", 0) => Ok(compose_default(DocMode::Print, PageSize::UsLetter)),
         ("manuscript", 0) => Ok(compose_default(DocMode::Manuscript, PageSize::UsLetter)),
         ("deck", 0) => Ok(compose_default(DocMode::Deck, PageSize::Widescreen16x9)),
+        ("resume", 0) => Ok(compose_default(DocMode::Resume, PageSize::UsLetter)),
         _ => Err(WeaveError::UnsupportedProfile {
             name: profile.name.clone(),
             version: profile.version,
@@ -145,11 +156,20 @@ pub fn resolve_metrics(profile: &PrintProfileId) -> Result<ProfileMetrics, Weave
 /// Heading size for a profile (shared scale; manuscript bumps body only).
 #[must_use]
 pub fn heading_size(level: u8, metrics: &ProfileMetrics) -> f32 {
-    let base: f32 = match level {
-        1 => 18.0,
-        2 => 14.0,
-        3 => 12.0,
-        _ => 11.0,
+    let base: f32 = if metrics.dense_headings {
+        match level {
+            1 => 18.0,
+            2 => 11.5,
+            3 => 10.0,
+            _ => 9.5,
+        }
+    } else {
+        match level {
+            1 => 18.0,
+            2 => 14.0,
+            3 => 12.0,
+            _ => 11.0,
+        }
     };
     // Manuscript keeps display sizes close to print but not smaller than body.
     base.max(metrics.body_size)
@@ -195,5 +215,21 @@ mod tests {
         assert_eq!((m.page_w, m.page_h), PageSize::UsLetter.dimensions());
         assert_eq!(m.body_size, 11.0);
         assert!(!m.force_h1_page_break);
+        assert!(!m.dense_headings);
+    }
+
+    #[test]
+    fn resume_v0_letter_tight_dense() {
+        let m = resolve_metrics(&PrintProfileId::resume_v0()).expect("resume@0");
+        assert_eq!((m.page_w, m.page_h), PageSize::UsLetter.dimensions());
+        assert_eq!(m.margin, 18.0);
+        assert_eq!(m.body_size, 9.5);
+        assert!((m.body_leading - 11.5).abs() < 0.01);
+        assert!(m.dense_headings);
+        assert!(!m.serif_body);
+        assert!(!m.force_h1_page_break);
+        assert!(!m.is_deck);
+        assert_eq!(heading_size(1, &m), 18.0);
+        assert_eq!(heading_size(2, &m), 11.5);
     }
 }

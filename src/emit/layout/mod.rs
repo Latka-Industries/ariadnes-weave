@@ -19,7 +19,7 @@ use super::types::{ForcedBreak, GlyphSets, LaidItem, LayoutDoc, LayoutSegment, P
 
 use figure::PushFigureArgs;
 use ops::layout_layout_ops;
-use prose::{layout_code, layout_heading, layout_quote, push_list_lines};
+use prose::{layout_code, layout_heading, layout_quote, push_list_lines, push_row};
 use runs::{body_layout, layout_ctx, push_styled_runs};
 use slide::layout_slide;
 use table::push_table;
@@ -108,6 +108,11 @@ fn layout_block(
             let seg = segments.last_mut().expect("segment");
             push_table(&mut seg.1, rows, &mut ctx)?;
         }
+        PrintBlock::Row { left, right } => {
+            let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
+            let seg = segments.last_mut().expect("segment");
+            push_row(&mut seg.1, left, right, &mut ctx)?;
+        }
         PrintBlock::Figure {
             image,
             alt,
@@ -165,6 +170,7 @@ fn block_name(block: &PrintBlock) -> &'static str {
         PrintBlock::Code { .. } => "code",
         PrintBlock::Quote { .. } => "quote",
         PrintBlock::Table { .. } => "table",
+        PrintBlock::Row { .. } => "row",
         PrintBlock::Figure { .. } => "figure",
         PrintBlock::Math { .. } => "math",
         PrintBlock::Slide { .. } => "slide",

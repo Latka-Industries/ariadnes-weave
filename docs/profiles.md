@@ -38,6 +38,27 @@ Default technical prose (A4 historical stub). Prefer `print-letter@0` for US Let
 
 US Letter technical prose — same mode, different page axis.
 
+## `resume@0`
+
+Dense one-column CV / resume layout (THI-324 dogfood).
+
+| | |
+| --- | --- |
+| Mode | resume |
+| Page | US Letter `612 × 792` pt |
+| Margin | `18` pt (~0.25 in) |
+| Body | `9.5` pt, leading `11.5` (`×11.5/9.5`), Liberation Sans |
+| Headings | dense scale (H1 `18`, H2 `11.5`, …) |
+| H1 page break | no |
+| Deck | no |
+
+Emit also applies [`LayoutKnobs::densify_resume`](../src/knobs.rs) (tighter
+paragraph/heading gaps, list `end_gutter` ≈ 1.25 in, smaller table pad,
+no page-number footer, dark-blue link fill).
+
+Use [`PrintBlock::Row`](../src/ir.rs) for left/right meta lines (`\hfill`
+stand-in) instead of two-column tables.
+
 ## `manuscript@0`
 
 Literary / beta-reader manuscript. See

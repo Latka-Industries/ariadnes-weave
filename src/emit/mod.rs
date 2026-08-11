@@ -57,7 +57,11 @@ pub fn emit_pdf_with(doc: &PrintDocument, opts: &EmitOptions) -> Result<Vec<u8>,
     let fonts = build_font_bag(doc, opts)?;
 
     let metrics = profile::resolve_metrics(&doc.profile)?;
-    let (segments, images, mut glyph_sets) = collect_layout(doc, &metrics, &fonts, &opts.layout)?;
+    let mut layout = opts.layout.clone();
+    if doc.profile.name == "resume" {
+        layout.densify_resume();
+    }
+    let (segments, images, mut glyph_sets) = collect_layout(doc, &metrics, &fonts, &layout)?;
     // Digits for page footers (`n / m`).
     let footer_face = FaceRef::Bundled(FaceId::SansRegular);
     collect_glyph_set(
@@ -67,7 +71,12 @@ pub fn emit_pdf_with(doc: &PrintDocument, opts: &EmitOptions) -> Result<Vec<u8>,
         glyph_sets.entry(footer_face).or_default(),
     );
 
-    let mut pages = paginate_items(&segments, metrics.content_height());
+    let footer_reserve = if layout.page.footer.enabled {
+        layout.page.content.bottom_clearance.max(18.0)
+    } else {
+        0.0
+    };
+    let mut pages = paginate_items(&segments, metrics.content_height(), footer_reserve);
     let subsets = prepare_subsets(&fonts, &glyph_sets)?;
     remap_pages(&mut pages, &subsets);
 
@@ -98,7 +107,8 @@ pub fn emit_pdf_with(doc: &PrintDocument, opts: &EmitOptions) -> Result<Vec<u8>,
         fonts: &fonts,
         image_refs: &image_refs,
         subsets: &subsets,
-        knobs: &opts.layout,
+        knobs: &layout,
+        next_id: &mut next_id,
     }
     .run()?;
 

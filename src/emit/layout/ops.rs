@@ -26,8 +26,14 @@ pub(super) fn layout_layout_ops(
         }
     }
     // Default gap between layout chunk and neighbors = normal paragraph gap.
+    // Resume: rule sits close to the following heading (`\spacedhrule` negative
+    // vspace), but leave a hair so the H2 doesn't collide with the stroke.
     if !ops.is_empty() {
-        let gap = ctx.knobs.prose.paragraph.gap_after;
+        let gap = if ctx.metrics.dense_headings {
+            1.0
+        } else {
+            ctx.knobs.prose.paragraph.gap_after
+        };
         if gap > 0.0 {
             seg.1.push(LaidItem::Text(LaidLine::gap(gap)));
         }
@@ -76,7 +82,12 @@ fn push_rule(
     let w = rule_width_points(width, measure, ctx.metrics.body_size)?;
     let thickness = (ctx.metrics.body_size * ctx.knobs.math.frac.rule_thickness_factor)
         .max(ctx.knobs.math.frac.rule_thickness_min);
-    let leading = (ctx.metrics.body_leading * 0.5).max(thickness + 2.0);
+    let leading = if ctx.metrics.dense_headings {
+        // LaTeX `\spacedhrule{0.3em}{-1em}` — tight band around the rule.
+        (thickness + 2.0).max(ctx.metrics.body_size * 0.35)
+    } else {
+        (ctx.metrics.body_leading * 0.5).max(thickness + 2.0)
+    };
     seg.1.push(LaidItem::Rule {
         width: w,
         thickness,

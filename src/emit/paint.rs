@@ -6,11 +6,49 @@ use pdf_writer::{Content, Name, Str};
 
 use crate::error::WeaveError;
 use crate::font::{FaceId, FaceRef, FontBag, encode_gids, shape_text, shaped_width};
-use crate::knobs::{LayoutKnobs, TextAlign};
+use crate::knobs::{FigureAlign, LayoutKnobs, TextAlign};
 use crate::profile::ProfileMetrics;
 
 use super::math::paint_math;
-use super::types::{LaidColumns, LaidItem, LaidSpan, LaidTable, SubsetMap};
+use super::types::{LaidColumns, LaidItem, LaidLine, LaidSpan, LaidTable, SubsetMap};
+
+/// Clickable URI box collected while painting a page (PDF user space).
+#[derive(Debug, Clone)]
+pub(super) struct PageLink {
+    pub uri: String,
+    pub x0: f32,
+    pub y0: f32,
+    pub x1: f32,
+    pub y1: f32,
+}
+
+fn link_rect_for_span(origin_x: f32, baseline_y: f32, span: &LaidSpan) -> Option<PageLink> {
+    let uri = span.link_uri.as_ref()?;
+    let width = shaped_width(&span.glyphs);
+    if width <= 0.0 || uri.is_empty() {
+        return None;
+    }
+    let y = baseline_y + span.baseline_shift;
+    // Ink box around the baseline (generous hit target for icons).
+    let pad = span.font_size * 0.15;
+    Some(PageLink {
+        uri: uri.clone(),
+        x0: origin_x - pad * 0.25,
+        y0: y - span.font_size * 0.25 - pad,
+        x1: origin_x + width + pad * 0.25,
+        y1: y + span.font_size * 0.85 + pad,
+    })
+}
+
+fn push_span_links(links: &mut Vec<PageLink>, spans: &[LaidSpan], origin_x: f32, baseline_y: f32) {
+    let mut x = origin_x;
+    for span in spans {
+        if let Some(hit) = link_rect_for_span(x, baseline_y, span) {
+            links.push(hit);
+        }
+        x += shaped_width(&span.glyphs);
+    }
+}
 
 fn paint_span_text(
     content: &mut Content,
@@ -18,13 +56,13 @@ fn paint_span_text(
     span: &LaidSpan,
     origin_x: f32,
     baseline_y: f32,
+    last_fill: &mut Option<[f32; 3]>,
 ) {
-    if let Some([red, green, blue]) = non_black_rgb(span.fill) {
-        content.set_fill_rgb(red, green, blue);
-    }
+    apply_fill_rgb(content, last_fill, span.fill);
     let face_name = fonts.resource_name(span.face);
     content.set_font(Name(&face_name), span.font_size);
-    content.set_text_matrix([1.0, 0.0, 0.0, 1.0, origin_x, baseline_y]);
+    let y = baseline_y + span.baseline_shift;
+    content.set_text_matrix([1.0, 0.0, 0.0, 1.0, origin_x, y]);
     content.show(Str(&encode_gids(&span.glyphs)));
 }
 
@@ -75,8 +113,9 @@ fn paint_laid_spans(
     }
     content.begin_text();
     let mut x = origin_x;
+    let mut last_fill = None;
     for span in spans {
-        paint_span_text(content, fonts, span, x, baseline_y);
+        paint_span_text(content, fonts, span, x, baseline_y, &mut last_fill);
         x += shaped_width(&span.glyphs);
     }
     content.end_text();
@@ -158,17 +197,16 @@ fn paint_justified_spans(
 
     content.begin_text();
     let mut x = origin_x;
+    let mut last_fill = None;
     for (si, span) in spans.iter().enumerate() {
-        if let Some([red, green, blue]) = non_black_rgb(span.fill) {
-            content.set_fill_rgb(red, green, blue);
-        }
+        apply_fill_rgb(content, &mut last_fill, span.fill);
         let face_name = fonts.resource_name(span.face);
         content.set_font(Name(&face_name), span.font_size);
         for (gi, glyph) in span.glyphs.iter().enumerate() {
             if plan.trailing.contains(&(si, gi)) {
                 continue;
             }
-            content.set_text_matrix([1.0, 0.0, 0.0, 1.0, x, baseline_y]);
+            content.set_text_matrix([1.0, 0.0, 0.0, 1.0, x, baseline_y + span.baseline_shift]);
             content.show(Str(&encode_gids(std::slice::from_ref(glyph))));
             x += glyph.advance;
             if let Some(&pad) = space_pads.get(&(si, gi)) {
@@ -245,10 +283,23 @@ fn paint_span_underlines_justified(
     }
 }
 
-/// `Some(rgb)` when fill is not engine black (omit ops to keep default PDFs byte-stable).
-fn non_black_rgb(fill: [f32; 3]) -> Option<[f32; 3]> {
-    let [red, green, blue] = fill;
-    (red != 0.0 || green != 0.0 || blue != 0.0).then_some(fill)
+/// Emit `/rg` only when fill changes. Default PDF fill is black, so the first
+/// black span stays silent (byte-stable fixtures); after a colored link we must
+/// explicitly restore black so following phone/location text is not tinted.
+fn apply_fill_rgb(content: &mut Content, last: &mut Option<[f32; 3]>, fill: [f32; 3]) {
+    let is_black = rgb_bits(fill) == rgb_bits([0.0, 0.0, 0.0]);
+    match *last {
+        None if is_black => {}
+        Some(prev) if rgb_bits(prev) == rgb_bits(fill) => {}
+        _ => {
+            content.set_fill_rgb(fill[0], fill[1], fill[2]);
+            *last = Some(fill);
+        }
+    }
+}
+
+fn rgb_bits(rgb: [f32; 3]) -> [u32; 3] {
+    [rgb[0].to_bits(), rgb[1].to_bits(), rgb[2].to_bits()]
 }
 
 /// Resource name bytes for image `XObject` `Im{idx}`.
@@ -257,6 +308,8 @@ pub(super) fn image_resource_name(idx: usize) -> Vec<u8> {
 }
 
 /// Paint one page's items top-down and append a centered page-number footer.
+///
+/// Returns content bytes plus URI link boxes for `/Annots`.
 ///
 /// # Errors
 ///
@@ -269,14 +322,16 @@ pub(super) fn build_page_content(
     fonts: &FontBag,
     subsets: &SubsetMap,
     knobs: &LayoutKnobs,
-) -> Result<Vec<u8>, WeaveError> {
+) -> Result<(Vec<u8>, Vec<PageLink>), WeaveError> {
     let mut content = Content::new();
+    let mut links = Vec::new();
     let mut y = metrics.page_h - metrics.margin;
     let bottom_limit = metrics.margin + knobs.page.content.bottom_clearance;
 
     for item in items {
         if !paint_page_item(
             &mut content,
+            &mut links,
             item,
             &mut y,
             bottom_limit,
@@ -288,21 +343,25 @@ pub(super) fn build_page_content(
         }
     }
 
-    paint_page_footer(
-        &mut content,
-        metrics,
-        page_no,
-        page_count,
-        fonts,
-        subsets,
-        knobs,
-    )?;
-    Ok(content.finish().into_vec())
+    if knobs.page.footer.enabled {
+        paint_page_footer(
+            &mut content,
+            metrics,
+            page_no,
+            page_count,
+            fonts,
+            subsets,
+            knobs,
+        )?;
+    }
+    Ok((content.finish().into_vec(), links))
 }
 
 /// Paint one laid item; returns `false` when the cursor is below `bottom_limit`.
+#[allow(clippy::too_many_arguments)]
 fn paint_page_item(
     content: &mut Content,
+    links: &mut Vec<PageLink>,
     item: &LaidItem,
     y: &mut f32,
     bottom_limit: f32,
@@ -312,30 +371,7 @@ fn paint_page_item(
 ) -> bool {
     match item {
         LaidItem::Text(line) => {
-            *y -= line.leading;
-            if *y < bottom_limit {
-                return false;
-            }
-            if !line.is_gap() {
-                let origin_x = metrics.margin + line.indent;
-                match line.text_align {
-                    TextAlign::Justify => {
-                        paint_justified_spans(
-                            content,
-                            fonts,
-                            &line.spans,
-                            origin_x,
-                            *y,
-                            line.measure.max(line.width()),
-                        );
-                    }
-                    align => {
-                        let x =
-                            origin_x + align.offset_x(line.measure.max(line.width()), line.width());
-                        paint_laid_spans(content, fonts, &line.spans, x, *y);
-                    }
-                }
-            }
+            paint_text_item(content, links, line, y, bottom_limit, metrics, fonts)
         }
         LaidItem::Image {
             img_idx,
@@ -344,34 +380,34 @@ fn paint_page_item(
             glue_after: _,
             gap_after,
             align,
-        } => {
-            *y -= *height;
-            if *y < bottom_limit {
-                return false;
-            }
-            let name = image_resource_name(*img_idx);
-            let x = metrics.margin + align.offset_x(metrics.content_width(), *width);
-            content.save_state();
-            content.transform([*width, 0.0, 0.0, *height, x, *y]);
-            content.x_object(Name(&name));
-            content.restore_state();
-            *y -= *gap_after;
-        }
+        } => paint_image_item(
+            content,
+            *img_idx,
+            *width,
+            *height,
+            *gap_after,
+            *align,
+            y,
+            bottom_limit,
+            metrics,
+        ),
         LaidItem::Table(table) => {
             let table_h = table.rows.iter().map(|r| r.height).sum::<f32>();
             if *y - table_h < bottom_limit {
                 return false;
             }
-            paint_table(content, table, metrics.margin, *y, fonts);
+            paint_table(content, links, table, metrics.margin, *y, fonts);
             *y -= table_h + table.gap_after;
+            true
         }
         LaidItem::Columns(cols) => {
             let h = cols.height() - cols.gap_after;
             if *y - h < bottom_limit {
                 return false;
             }
-            paint_columns(content, cols, metrics.margin, *y, fonts);
+            paint_columns(content, links, cols, metrics.margin, *y, fonts);
             *y -= cols.height();
+            true
         }
         LaidItem::Math(math) => {
             if *y - math.height < bottom_limit {
@@ -387,6 +423,7 @@ fn paint_page_item(
                 &knobs.page.chrome,
             );
             *y -= math.height + math.gap_after;
+            true
         }
         LaidItem::Rule {
             width,
@@ -407,8 +444,74 @@ fn paint_page_item(
                 knobs.page.chrome.stroke_gray,
             );
             *y -= *leading + *gap_after;
+            true
         }
     }
+}
+
+fn paint_text_item(
+    content: &mut Content,
+    links: &mut Vec<PageLink>,
+    line: &LaidLine,
+    y: &mut f32,
+    bottom_limit: f32,
+    metrics: &ProfileMetrics,
+    fonts: &FontBag,
+) -> bool {
+    *y -= line.leading;
+    if *y < bottom_limit {
+        return false;
+    }
+    if line.is_gap() {
+        return true;
+    }
+    let origin_x = metrics.margin + line.indent;
+    match line.text_align {
+        TextAlign::Justify => {
+            paint_justified_spans(
+                content,
+                fonts,
+                &line.spans,
+                origin_x,
+                *y,
+                line.measure.max(line.width()),
+            );
+            // Justify redistributes glyph advances; use natural boxes
+            // as a best-effort hit target (resume links are short).
+            push_span_links(links, &line.spans, origin_x, *y);
+        }
+        align => {
+            let x = origin_x + align.offset_x(line.measure.max(line.width()), line.width());
+            paint_laid_spans(content, fonts, &line.spans, x, *y);
+            push_span_links(links, &line.spans, x, *y);
+        }
+    }
+    true
+}
+
+#[allow(clippy::too_many_arguments)]
+fn paint_image_item(
+    content: &mut Content,
+    img_idx: usize,
+    width: f32,
+    height: f32,
+    gap_after: f32,
+    align: FigureAlign,
+    y: &mut f32,
+    bottom_limit: f32,
+    metrics: &ProfileMetrics,
+) -> bool {
+    *y -= height;
+    if *y < bottom_limit {
+        return false;
+    }
+    let name = image_resource_name(img_idx);
+    let x = metrics.margin + align.offset_x(metrics.content_width(), width);
+    content.save_state();
+    content.transform([width, 0.0, 0.0, height, x, *y]);
+    content.x_object(Name(&name));
+    content.restore_state();
+    *y -= gap_after;
     true
 }
 
@@ -464,17 +567,19 @@ fn paint_page_footer(
 /// Paint side-by-side columns; `top_y` is the top edge in PDF space.
 pub(super) fn paint_columns(
     content: &mut Content,
+    links: &mut Vec<PageLink>,
     cols: &LaidColumns,
     origin_x: f32,
     top_y: f32,
     fonts: &FontBag,
 ) {
-    let mut x = origin_x;
+    let mut x = origin_x + cols.indent;
     for (i, lines) in cols.columns.iter().enumerate() {
         let mut text_y = top_y;
         for line in lines {
             text_y -= line.leading;
             paint_laid_spans(content, fonts, &line.spans, x, text_y);
+            push_span_links(links, &line.spans, x, text_y);
         }
         let col_w = cols.col_widths.get(i).copied().unwrap_or(0.0);
         x += col_w + cols.gap;
@@ -484,6 +589,7 @@ pub(super) fn paint_columns(
 /// Stroke the table grid and draw cell text; `top_y` is the top edge in PDF space.
 pub(super) fn paint_table(
     content: &mut Content,
+    links: &mut Vec<PageLink>,
     table: &LaidTable,
     origin_x: f32,
     top_y: f32,
@@ -531,6 +637,7 @@ pub(super) fn paint_table(
             for line in cell_lines {
                 text_y -= line.leading;
                 paint_laid_spans(content, fonts, &line.spans, cell_x + table.pad, text_y);
+                push_span_links(links, &line.spans, cell_x + table.pad, text_y);
             }
             cell_x += col_w;
         }

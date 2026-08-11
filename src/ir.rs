@@ -75,6 +75,12 @@ impl PrintProfileId {
         Self::v0("deck")
     }
 
+    /// Construct `resume@0` (US Letter, tight margins, dense sans body).
+    #[must_use]
+    pub fn resume_v0() -> Self {
+        Self::v0("resume")
+    }
+
     /// Display as `name@version`.
     #[must_use]
     pub fn as_label(&self) -> String {
@@ -123,6 +129,13 @@ pub enum PrintBlock {
     Table {
         /// Row-major cells.
         rows: Vec<TableRow>,
+    },
+    /// Single-line left/right meta row (LaTeX `\hfill` stand-in; no grid).
+    Row {
+        /// Start-edge runs (role, org, title, …).
+        left: Vec<TextRun>,
+        /// End-edge runs (location, dates, …).
+        right: Vec<TextRun>,
     },
     /// Figure with image bytes + optional title + caption.
     Figure {
@@ -398,6 +411,13 @@ pub struct TextRun {
     /// mapping. Unknown ids fail emit with [`crate::WeaveError::Font`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub face: Option<String>,
+    /// External URI for clickable PDF link annotations (`http` / `https` / `mailto`).
+    ///
+    /// When set, emit paints with the cite/link color and writes a `/Link`
+    /// annotation over the run's ink box. Prefer setting [`InlineStyle::link`]
+    /// as well for hosts that only inspect style flags.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link_uri: Option<String>,
 }
 
 impl TextRun {
@@ -407,6 +427,7 @@ impl TextRun {
             text: text.into(),
             style: InlineStyle::default(),
             face: None,
+            link_uri: None,
         }
     }
 
@@ -419,6 +440,7 @@ impl TextRun {
                 ..InlineStyle::default()
             },
             face: None,
+            link_uri: None,
         }
     }
 
@@ -428,6 +450,20 @@ impl TextRun {
             text: text.into(),
             style: InlineStyle::default(),
             face: Some(face.into()),
+            link_uri: None,
+        }
+    }
+
+    /// Linked run (URI + `style.link`).
+    pub fn link(text: impl Into<String>, uri: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            style: InlineStyle {
+                link: true,
+                ..InlineStyle::default()
+            },
+            face: None,
+            link_uri: Some(uri.into()),
         }
     }
 }
@@ -445,7 +481,7 @@ pub struct InlineStyle {
     /// Inline code.
     #[serde(default)]
     pub code: bool,
-    /// Hyperlink (URL carried elsewhere later; flag only for MVP).
+    /// Hyperlink paint hint (URI lives on [`TextRun::link_uri`]).
     #[serde(default)]
     pub link: bool,
     /// Citation marker.

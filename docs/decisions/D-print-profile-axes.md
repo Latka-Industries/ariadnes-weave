@@ -27,6 +27,7 @@ the product name.
 | --- | --- | --- | --- |
 | `print@0` | print | A4 | 72 |
 | `print-letter@0` | print | US Letter | 72 |
+| `resume@0` | resume | US Letter | 18 |
 | `manuscript@0` | manuscript | US Letter | 96 |
 | `deck@0` | deck | 16:9 | 40 |
 
