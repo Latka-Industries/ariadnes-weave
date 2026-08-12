@@ -108,10 +108,10 @@ fn layout_block(
             let seg = segments.last_mut().expect("segment");
             push_table(&mut seg.1, rows, &mut ctx)?;
         }
-        PrintBlock::Row { left, right } => {
+        PrintBlock::Row { panes } => {
             let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
             let seg = segments.last_mut().expect("segment");
-            push_row(&mut seg.1, left, right, &mut ctx)?;
+            push_row(&mut seg.1, panes, &mut ctx)?;
         }
         PrintBlock::Figure {
             image,

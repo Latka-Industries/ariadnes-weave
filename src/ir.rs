@@ -130,12 +130,14 @@ pub enum PrintBlock {
         /// Row-major cells.
         rows: Vec<TableRow>,
     },
-    /// Single-line left/right meta row (LaTeX `\hfill` stand-in; no grid).
+    /// Meta row without a table grid (LaTeX `\hfill` stand-in).
+    ///
+    /// Pane count is `panes.len()` (≥1). Layout: the **last** pane is
+    /// natural-width and flush to the end edge; earlier panes share the
+    /// leftover measure equally. Two panes recover classic left/right CV rows.
     Row {
-        /// Start-edge runs (role, org, title, …).
-        left: Vec<TextRun>,
-        /// End-edge runs (location, dates, …).
-        right: Vec<TextRun>,
+        /// Ordered panes (Tessprek `\row{…}{…}…`).
+        panes: Vec<Vec<TextRun>>,
     },
     /// Figure with image bytes + optional title + caption.
     Figure {
@@ -201,6 +203,22 @@ pub enum LayoutOp {
         /// Rule width (`frac` and/or `em`, summed).
         width: RuleWidth,
     },
+}
+
+impl PrintBlock {
+    /// Two-pane meta row (classic left / right `\hfill`).
+    #[must_use]
+    pub fn row_two(left: Vec<TextRun>, right: Vec<TextRun>) -> Self {
+        Self::Row {
+            panes: vec![left, right],
+        }
+    }
+
+    /// N-pane meta row (`panes.len()` ≥ 1).
+    #[must_use]
+    pub fn row(panes: Vec<Vec<TextRun>>) -> Self {
+        Self::Row { panes }
+    }
 }
 
 /// Horizontal skip for [`LayoutOp::Place`].

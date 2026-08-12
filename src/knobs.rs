@@ -153,6 +153,9 @@ pub struct ProseKnobs {
     /// Citation marker paint policy.
     #[serde(default, skip_serializing_if = "ProseCiteKnobs::is_default")]
     pub cite: ProseCiteKnobs,
+    /// Hyperlink paint policy (`TextRun.link_uri`).
+    #[serde(default, skip_serializing_if = "ProseLinkKnobs::is_default")]
+    pub link: ProseLinkKnobs,
 }
 
 /// `#RGB` / `#RRGGBB` color for aesthetic knobs (0..=255 channels).
@@ -268,6 +271,22 @@ pub struct ProseCiteKnobs {
 impl ProseCiteKnobs {
     fn is_default(&self) -> bool {
         self.color.is_none() && !self.underline && self.font.is_none()
+    }
+}
+
+/// `[link]` in `prose.toml` — outbound URI run policy (`TextRun.link_uri`).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct ProseLinkKnobs {
+    /// Auto-underline text links (LaTeX hyperref-style). Default **false** —
+    /// underline only when `InlineStyle.underline` is set. Icon-only link runs
+    /// never auto-underline.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub underline: bool,
+}
+
+impl ProseLinkKnobs {
+    fn is_default(&self) -> bool {
+        !self.underline
     }
 }
 

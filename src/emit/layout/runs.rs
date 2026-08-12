@@ -333,46 +333,19 @@ fn append_styled_run(
         ctx.knobs,
         layout.paint,
     )?;
-    // FA glyphs ink large vs Lato caps — scale well under body size.
-    let is_fa = matches!(run.face.as_deref(), Some("fab" | "fas"));
-    let (font_size, baseline_shift) = if is_fa {
-        (layout.font_size * 0.72, layout.font_size * 0.02)
-    } else {
-        (layout.font_size, 0.0)
-    };
+    // Font Awesome (`fab`/`fas`): match LaTeX `fontawesome5` — `\faLinkedin` /
+    // `\faGlobe` at the current text size on the shared baseline (no scale,
+    // no raisebox, no invented gap). Author spaces in Tessprek like the .tex.
+    let font_size = layout.font_size;
+    let baseline_shift = 0.0_f32;
     let (fill, mut underline) = ctx.knobs.prose.run_paint_rgb01(
         run.style.cite || run.style.link || run.link_uri.is_some(),
         layout.paint,
         run.style.underline,
     );
-    // Text links get a hairline underline (LaTeX hyperref); icon-only pins do not.
-    if run.link_uri.is_some() && run.face.is_none() {
+    // Text links auto-underline only when `[link].underline` (default off).
+    if run.link_uri.is_some() && run.face.is_none() && ctx.knobs.prose.link.underline {
         underline = true;
-    }
-    // Word→icon: FA sidebearings eat space; keep a padded gap after trim.
-    if is_fa && !current_spans.is_empty() {
-        trim_trailing_whitespace_glyphs(current_spans, current_width);
-        let body_face = resolve_run_face(
-            &TextRun::plain(" "),
-            ctx.metrics,
-            layout.mode,
-            ctx.fonts,
-            ctx.knobs,
-            layout.paint,
-        )?;
-        let (gap_spans, gap_w) = shape_and_record_spans(
-            ctx.fonts,
-            body_face,
-            "  ", // two ASCII spaces — en-space often missing from body faces
-            layout.font_size,
-            ctx.glyph_sets,
-            fill,
-            false,
-            None,
-            0.0,
-        )?;
-        current_spans.extend(gap_spans);
-        *current_width += gap_w;
     }
     let link_uri = run.link_uri.as_deref();
     let mut remaining = run.text.as_str();
@@ -479,22 +452,6 @@ pub(super) fn hard_break_text(
         pieces.push(String::new());
     }
     Ok(pieces)
-}
-
-/// Drop trailing whitespace glyphs from the open line (word→icon gap control).
-fn trim_trailing_whitespace_glyphs(spans: &mut Vec<LaidSpan>, width: &mut f32) {
-    while let Some(span) = spans.last_mut() {
-        while span.glyphs.last().is_some_and(|g| g.is_whitespace) {
-            if let Some(g) = span.glyphs.pop() {
-                *width = (*width - g.advance).max(0.0);
-            }
-        }
-        if span.glyphs.is_empty() {
-            spans.pop();
-            continue;
-        }
-        break;
-    }
 }
 
 /// True when `chunk` should not start a new line (leading / orphan whitespace).

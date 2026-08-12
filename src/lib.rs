@@ -40,8 +40,8 @@ pub use ir::{
 pub use knobs::{
     CaptionBand, CaptionOverflow, DeckKnobs, FigureAlign, FigureTextAlign, FigureTitleAlign,
     HexColor, LayoutKnobs, MathKnobs, MathOpKnobs, MathParenStyle, PageKnobs, ProseCaptionKnobs,
-    ProseCiteKnobs, ProseFontCategory, ProseKnobs, ProsePaintCategory, ProseTextKnobs, TableKnobs,
-    TextAlign,
+    ProseCiteKnobs, ProseFontCategory, ProseKnobs, ProseLinkKnobs, ProsePaintCategory, ProseTextKnobs,
+    TableKnobs, TextAlign,
 };
 pub use options::{EmitOptions, FontResolveMode};
 pub use profile::{PageSize, ProfileMetrics, resolve_metrics};

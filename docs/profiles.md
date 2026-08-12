@@ -56,8 +56,9 @@ Emit also applies [`LayoutKnobs::densify_resume`](../src/knobs.rs) (tighter
 paragraph/heading gaps, list `end_gutter` ≈ 1.25 in, smaller table pad,
 no page-number footer, dark-blue link fill).
 
-Use [`PrintBlock::Row`](../src/ir.rs) for left/right meta lines (`\hfill`
-stand-in) instead of two-column tables.
+Use [`PrintBlock::Row`](../src/ir.rs) (`panes`) for meta lines (`\hfill`
+stand-in) instead of two-column tables. Two panes = classic left/right; three
+or more share leftover measure among leading panes and flush the last.
 
 ## `manuscript@0`
 

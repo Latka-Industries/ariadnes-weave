@@ -541,10 +541,10 @@ fn row_emits_without_table_grid() {
             source_doc_id: None,
         },
         profile: PrintProfileId::resume_v0(),
-        blocks: vec![PrintBlock::Row {
-            left: vec![TextRun::plain("VerifyLocal LLC")],
-            right: vec![TextRun::plain("New York, NY")],
-        }],
+        blocks: vec![PrintBlock::row_two(
+            vec![TextRun::plain("VerifyLocal LLC")],
+            vec![TextRun::plain("New York, NY")],
+        )],
     };
     let bytes = emit_pdf(&doc).expect("emit");
     assert!(bytes.starts_with(b"%PDF-"));
@@ -553,6 +553,26 @@ fn row_emits_without_table_grid() {
         !s.contains("0.6 w"),
         "row should not draw a table stroke grid"
     );
+}
+
+#[test]
+fn row_three_panes_emits() {
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "CV3".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::resume_v0(),
+        blocks: vec![PrintBlock::row(vec![
+            vec![TextRun::plain("Org")],
+            vec![TextRun::plain("City")],
+            vec![TextRun::plain("2026")],
+        ])],
+    };
+    let bytes = emit_pdf(&doc).expect("emit");
+    assert!(bytes.starts_with(b"%PDF-"));
 }
 
 #[test]
@@ -1130,6 +1150,30 @@ fn link_uri_emits_pdf_uri_annotation() {
     assert!(
         hay.contains("mailto:a@b.c"),
         "expected URI annotation for mailto link"
+    );
+}
+
+#[test]
+fn link_auto_underline_is_opt_in() {
+    let linked = PrintDocument {
+        meta: PrintMeta {
+            title: "L".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::Paragraph {
+            runs: vec![TextRun::link("here", "https://example.com/")],
+        }],
+    };
+    let plain = emit_pdf(&linked).expect("default link");
+    let mut opts = crate::EmitOptions::default();
+    opts.layout.prose.link.underline = true;
+    let under = crate::emit_pdf_with(&linked, &opts).expect("underlined link");
+    assert_ne!(
+        plain, under,
+        "[link].underline should change emit vs default (no auto-underline)"
     );
 }
 
