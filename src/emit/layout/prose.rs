@@ -410,8 +410,7 @@ fn layout_row_columns(
     #[allow(clippy::cast_precision_loss)]
     let flex_n_f = flex_n as f32;
     let gaps_w = geom.gap * flex_n_f;
-    let flex_budget =
-        (geom.measure - geom.row_indent - last_w - gaps_w).max(geom.min_w * flex_n_f);
+    let flex_budget = (geom.measure - geom.row_indent - last_w - gaps_w).max(geom.min_w * flex_n_f);
     let each_flex = flex_budget / flex_n_f;
 
     let mut col_widths = Vec::with_capacity(n);
@@ -447,12 +446,7 @@ fn layout_row_columns(
     })
 }
 
-fn push_indented_lines(
-    out: &mut Vec<LaidItem>,
-    lines: Vec<LaidLine>,
-    indent: f32,
-    gap_after: f32,
-) {
+fn push_indented_lines(out: &mut Vec<LaidItem>, lines: Vec<LaidLine>, indent: f32, gap_after: f32) {
     for mut line in lines {
         line.indent = indent;
         out.push(LaidItem::Text(line));

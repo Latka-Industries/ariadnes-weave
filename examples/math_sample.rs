@@ -35,8 +35,8 @@ fn h2(text: &str) -> PrintBlock {
 fn note(text: &str) -> PrintBlock {
     PrintBlock::Paragraph {
         runs: vec![TextRun::plain(text)],
-            indent: 0,
-        }
+        indent: 0,
+    }
 }
 
 fn math(latex: &str) -> PrintBlock {

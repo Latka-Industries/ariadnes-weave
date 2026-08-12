@@ -25,8 +25,8 @@ fn hello_doc() -> PrintDocument {
                 runs: vec![TextRun::plain(
                     "Owned print IR to PDF with Liberation Sans and rustybuzz shaping — unicode ok.",
                 )],
-            indent: 0,
-        },
+                indent: 0,
+            },
         ],
     }
 }
@@ -91,8 +91,8 @@ fn layout_place_flush_doc() -> PrintDocument {
         blocks: vec![
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain("Before layout chunk.")],
-            indent: 0,
-        },
+                indent: 0,
+            },
             PrintBlock::Layout {
                 ops: vec![
                     LayoutOp::Place {
@@ -111,8 +111,8 @@ fn layout_place_flush_doc() -> PrintDocument {
             },
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain("After layout chunk.")],
-            indent: 0,
-        },
+                indent: 0,
+            },
         ],
     }
 }
@@ -138,8 +138,8 @@ fn manuscript_two_chapters() -> PrintDocument {
             },
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain("Body of chapter one.")],
-            indent: 0,
-        },
+                indent: 0,
+            },
             PrintBlock::Heading {
                 level: 1,
                 runs: vec![TextRun::plain("Chapter Two")],
@@ -147,8 +147,8 @@ fn manuscript_two_chapters() -> PrintDocument {
             },
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain("Body of chapter two.")],
-            indent: 0,
-        },
+                indent: 0,
+            },
         ],
     }
 }

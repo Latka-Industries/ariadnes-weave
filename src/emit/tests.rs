@@ -46,8 +46,8 @@ fn hello_doc() -> PrintDocument {
                 runs: vec![TextRun::plain(
                     "Owned print IR to PDF with Liberation Sans + rustybuzz.",
                 )],
-            indent: 0,
-        },
+                indent: 0,
+            },
         ],
     }
 }
@@ -483,8 +483,8 @@ fn styled_runs_embed_bold_font() {
                 link_uri: None,
             },
         ],
-            indent: 0,
-        });
+        indent: 0,
+    });
     let bytes = emit_pdf(&doc).expect("emit");
     let s = String::from_utf8_lossy(&bytes);
     assert!(s.contains("LiberationSans-Bold"));
@@ -624,8 +624,8 @@ fn slide_emits_own_page() {
         blocks: vec![
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain("Before slides.")],
-            indent: 0,
-        },
+                indent: 0,
+            },
             PrintBlock::Slide {
                 layout_id: "title-body".into(),
                 regions: vec![
@@ -648,8 +648,8 @@ fn slide_emits_own_page() {
             },
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain("After slides.")],
-            indent: 0,
-        },
+                indent: 0,
+            },
         ],
     };
     let bytes = emit_pdf(&doc).expect("emit");
@@ -767,8 +767,8 @@ fn aesthetic_colors_and_cite_underline_affect_emit() {
         blocks: vec![
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain("Body text.")],
-            indent: 0,
-        },
+                indent: 0,
+            },
             PrintBlock::Quote {
                 runs: vec![TextRun::plain("Quoted.")],
             },
@@ -782,8 +782,8 @@ fn aesthetic_colors_and_cite_underline_affect_emit() {
                     face: None,
                     link_uri: None,
                 }],
-            indent: 0,
-        },
+                indent: 0,
+            },
         ],
     };
 
@@ -1513,8 +1513,8 @@ fn float_near_figure_emits() {
         blocks: vec![
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain("See the figure nearby.")],
-            indent: 0,
-        },
+                indent: 0,
+            },
             figure_with_caption("Caption.", FigurePlacement::FloatNear),
         ],
     };

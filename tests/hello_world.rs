@@ -24,8 +24,8 @@ fn heading_and_paragraph_emit_pdf_magic() {
                 runs: vec![TextRun::plain(
                     "Owned print IR to PDF with Liberation Sans and rustybuzz shaping — unicode ok.",
                 )],
-            indent: 0,
-        },
+                indent: 0,
+            },
         ],
     };
 
