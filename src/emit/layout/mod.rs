@@ -19,7 +19,7 @@ use super::types::{ForcedBreak, GlyphSets, LaidItem, LayoutDoc, LayoutSegment, P
 
 use figure::PushFigureArgs;
 use ops::layout_layout_ops;
-use prose::{layout_code, layout_heading, layout_quote, push_list_lines};
+use prose::{layout_code, layout_heading, layout_quote, push_list_lines, push_row};
 use runs::{body_layout, layout_ctx, push_styled_runs};
 use slide::layout_slide;
 use table::push_table;
@@ -80,14 +80,15 @@ fn layout_block(
             let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
             layout_heading(*level, runs, *break_before, &mut ctx, segments)?;
         }
-        PrintBlock::Paragraph { runs } => {
+        PrintBlock::Paragraph { runs, indent } => {
             let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
             let seg = segments.last_mut().expect("segment");
+            let band = knobs.prose.indent.pts(*indent);
             push_styled_runs(
                 &mut seg.1,
                 runs,
                 &mut ctx,
-                body_layout(metrics, knobs, 0.0, PaintCategory::Text),
+                body_layout(metrics, knobs, band, PaintCategory::Text),
             )?;
         }
         PrintBlock::Quote { runs } => {
@@ -98,15 +99,24 @@ fn layout_block(
             let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
             layout_code(text, &mut ctx, segments)?;
         }
-        PrintBlock::List { ordered, items } => {
+        PrintBlock::List {
+            ordered,
+            items,
+            indent,
+        } => {
             let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
             let seg = segments.last_mut().expect("segment");
-            push_list_lines(&mut seg.1, *ordered, items, 0, &mut ctx)?;
+            push_list_lines(&mut seg.1, *ordered, items, *indent, 0, &mut ctx)?;
         }
         PrintBlock::Table { rows } => {
             let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
             let seg = segments.last_mut().expect("segment");
             push_table(&mut seg.1, rows, &mut ctx)?;
+        }
+        PrintBlock::Row { panes, indent } => {
+            let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
+            let seg = segments.last_mut().expect("segment");
+            push_row(&mut seg.1, panes, *indent, &mut ctx)?;
         }
         PrintBlock::Figure {
             image,
@@ -165,6 +175,7 @@ fn block_name(block: &PrintBlock) -> &'static str {
         PrintBlock::Code { .. } => "code",
         PrintBlock::Quote { .. } => "quote",
         PrintBlock::Table { .. } => "table",
+        PrintBlock::Row { .. } => "row",
         PrintBlock::Figure { .. } => "figure",
         PrintBlock::Math { .. } => "math",
         PrintBlock::Slide { .. } => "slide",

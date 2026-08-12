@@ -177,31 +177,75 @@ pub(super) fn resolve_run_face(
     knobs: &LayoutKnobs,
     paint: PaintCategory,
 ) -> Result<FaceRef, WeaveError> {
+    // Headings default to bold (same as bundled `resolve_face`).
+    let mut style = run.style;
+    if matches!(mode, FaceMode::Heading) && !style.code && !style.strong && !style.emphasis {
+        style.strong = true;
+    }
+
+    // Explicit `\font{id}{…}` / TextRun.face wins: never substitute Liberation when
+    // a bold/italic variant of the pin is missing (icon packs are regular-only).
+    if let Some(id) = run.face.as_deref() {
+        return resolve_named_pin(
+            id, style, metrics, mode, fonts, /*allow_liberation*/ false,
+        );
+    }
+
     let category_pin = knobs
         .prose
-        .category_font_pin(run.style.cite, font_category(mode, paint));
-    let effective = run.face.as_deref().or(category_pin);
-    if let Some(id) = effective {
-        #[cfg(feature = "os-fonts")]
-        let os_key = crate::os_fonts::os_pin_key(id, run.style);
-        #[cfg(feature = "os-fonts")]
-        if let Some(face) = fonts.resolve_pin(&os_key) {
-            return Ok(face);
-        }
-        if let Some(face) = fonts.resolve_pin(id) {
-            return Ok(face);
-        }
-        return match fonts.resolve_mode() {
-            crate::options::FontResolveMode::BundledOnly => {
-                Err(WeaveError::Font(format!("unknown pinned face `{id}`")))
-            }
-            crate::options::FontResolveMode::OsWithFallback => {
-                // Missing OS face → sealed Liberation for this run's style.
-                Ok(resolve_face(run.style, metrics, mode))
-            }
-        };
+        .category_font_pin(style.cite, font_category(mode, paint));
+    if let Some(id) = category_pin {
+        return resolve_named_pin(
+            id, style, metrics, mode, fonts, /*allow_liberation*/ true,
+        );
     }
-    Ok(resolve_face(run.style, metrics, mode))
+    Ok(resolve_face(style, metrics, mode))
+}
+
+fn resolve_named_pin(
+    id: &str,
+    style: InlineStyle,
+    metrics: &ProfileMetrics,
+    mode: FaceMode,
+    fonts: &FontBag,
+    allow_liberation_style_fallback: bool,
+) -> Result<FaceRef, WeaveError> {
+    #[cfg(feature = "os-fonts")]
+    let os_key = crate::os_fonts::os_pin_key(id, style);
+    #[cfg(feature = "os-fonts")]
+    if let Some(face) = fonts.resolve_pin(&os_key) {
+        return Ok(face);
+    }
+    for candidate in style_aware_pin_ids(id, style) {
+        if let Some(face) = fonts.resolve_pin(&candidate) {
+            return Ok(face);
+        }
+    }
+    if allow_liberation_style_fallback && (style.code || style.strong || style.emphasis) {
+        return Ok(resolve_face(style, metrics, mode));
+    }
+    if let Some(face) = fonts.resolve_pin(id) {
+        return Ok(face);
+    }
+    match fonts.resolve_mode() {
+        crate::options::FontResolveMode::BundledOnly => {
+            Err(WeaveError::Font(format!("unknown pinned face `{id}`")))
+        }
+        crate::options::FontResolveMode::OsWithFallback => Ok(resolve_face(style, metrics, mode)),
+    }
+}
+
+/// Pin id candidates for a base family + style (`lato-bold`, `lato-italic`, …).
+fn style_aware_pin_ids(base: &str, style: InlineStyle) -> Vec<String> {
+    if style.code {
+        return Vec::new();
+    }
+    match (style.strong, style.emphasis) {
+        (true, true) => vec![format!("{base}-bolditalic"), format!("{base}-bold-italic")],
+        (true, false) => vec![format!("{base}-bold")],
+        (false, true) => vec![format!("{base}-italic")],
+        (false, false) => Vec::new(),
+    }
 }
 
 /// Wrap styled runs into lines, then apply widow/orphan glue and optional gap.
@@ -225,92 +269,135 @@ pub(super) fn push_styled_runs(
     let mut current_spans: Vec<LaidSpan> = Vec::new();
     let mut current_width = 0.0_f32;
 
-    let flush_line = |spans: &mut Vec<LaidSpan>, dest: &mut Vec<LaidItem>, last: bool| {
-        if spans.is_empty() {
-            return;
-        }
-        // Last soft-wrapped line of a justified block stays flush-left.
-        let text_align = match layout.text_align {
-            TextAlign::Justify if last => TextAlign::Left,
-            other => other,
-        };
-        dest.push(LaidItem::Text(LaidLine {
-            spans: std::mem::take(spans),
-            leading: layout.leading,
-            glue_after: last && layout.glue_last_content,
-            indent: layout.indent,
-            measure: max_width,
-            text_align,
-        }));
-    };
-
     for run in runs {
-        let face = resolve_run_face(
+        append_styled_run(
+            out,
+            &mut current_spans,
+            &mut current_width,
             run,
-            ctx.metrics,
-            layout.mode,
-            ctx.fonts,
-            ctx.knobs,
-            layout.paint,
+            ctx,
+            layout,
+            max_width,
         )?;
-        let (fill, underline) =
-            ctx.knobs
-                .prose
-                .run_paint_rgb01(run.style.cite, layout.paint, run.style.underline);
-        let mut remaining = run.text.as_str();
-        while !remaining.is_empty() {
-            let (chunk, rest) = next_wrap_chunk(remaining);
-            remaining = rest;
-            // Keep trailing spaces so inter-word advances are shaped; drop
-            // whitespace-only chunks at the start of a line.
-            if current_spans.is_empty() && skip_wrap_chunk_at_line_start(chunk) {
-                continue;
-            }
-            let (spans, w) = shape_and_record_spans(
-                ctx.fonts,
-                face,
-                chunk,
-                layout.font_size,
-                ctx.glyph_sets,
-                fill,
-                underline,
-            )?;
-            if current_width + w > max_width && !current_spans.is_empty() {
-                flush_line(&mut current_spans, out, false);
-                current_width = 0.0;
-                if skip_wrap_chunk_at_line_start(chunk) {
-                    continue;
-                }
-            }
-            if w > max_width && current_spans.is_empty() && layout.hard_break_overflow {
-                // Hard-break tokens wider than the content box (URLs, long code).
-                for piece in hard_break_text(ctx.fonts, face, chunk, layout.font_size, max_width)? {
-                    let (spans, _) = shape_and_record_spans(
-                        ctx.fonts,
-                        face,
-                        &piece,
-                        layout.font_size,
-                        ctx.glyph_sets,
-                        fill,
-                        underline,
-                    )?;
-                    current_spans.extend(spans);
-                    flush_line(&mut current_spans, out, false);
-                    current_width = 0.0;
-                }
-                continue;
-            }
-            // soft_only: place an overlong token and let it stick out.
-            current_spans.extend(spans);
-            current_width += w;
-        }
     }
 
-    flush_line(&mut current_spans, out, true);
+    flush_styled_line(&mut current_spans, out, layout, max_width, true);
     let content_end = out.len();
     apply_widow_orphan(&mut out[start..content_end]);
     if layout.gap_after > 0.0 {
         out.push(LaidItem::Text(LaidLine::gap(layout.gap_after)));
+    }
+    Ok(())
+}
+
+fn flush_styled_line(
+    spans: &mut Vec<LaidSpan>,
+    dest: &mut Vec<LaidItem>,
+    layout: RunLayout,
+    max_width: f32,
+    last: bool,
+) {
+    if spans.is_empty() {
+        return;
+    }
+    // Last soft-wrapped line of a justified block stays flush-left.
+    let text_align = match layout.text_align {
+        TextAlign::Justify if last => TextAlign::Left,
+        other => other,
+    };
+    dest.push(LaidItem::Text(LaidLine {
+        spans: std::mem::take(spans),
+        leading: layout.leading,
+        glue_after: last && layout.glue_last_content,
+        indent: layout.indent,
+        measure: max_width,
+        text_align,
+    }));
+}
+
+#[allow(clippy::too_many_arguments)]
+fn append_styled_run(
+    out: &mut Vec<LaidItem>,
+    current_spans: &mut Vec<LaidSpan>,
+    current_width: &mut f32,
+    run: &TextRun,
+    ctx: &mut LayoutCtx,
+    layout: RunLayout,
+    max_width: f32,
+) -> Result<(), WeaveError> {
+    let face = resolve_run_face(
+        run,
+        ctx.metrics,
+        layout.mode,
+        ctx.fonts,
+        ctx.knobs,
+        layout.paint,
+    )?;
+    // Font Awesome (`fab`/`fas`): match LaTeX `fontawesome5` — `\faLinkedin` /
+    // `\faGlobe` at the current text size on the shared baseline (no scale,
+    // no raisebox, no invented gap). Author spaces in Tessprek like the .tex.
+    let font_size = layout.font_size;
+    let baseline_shift = 0.0_f32;
+    let (fill, mut underline) = ctx.knobs.prose.run_paint_rgb01(
+        run.style.cite || run.style.link || run.link_uri.is_some(),
+        layout.paint,
+        run.style.underline,
+    );
+    // Text links auto-underline only when `[link].underline` (default off).
+    if run.link_uri.is_some() && run.face.is_none() && ctx.knobs.prose.link.underline {
+        underline = true;
+    }
+    let link_uri = run.link_uri.as_deref();
+    let mut remaining = run.text.as_str();
+    while !remaining.is_empty() {
+        let (chunk, rest) = next_wrap_chunk(remaining);
+        remaining = rest;
+        // Keep trailing spaces so inter-word advances are shaped; drop
+        // whitespace-only chunks at the start of a line.
+        if current_spans.is_empty() && skip_wrap_chunk_at_line_start(chunk) {
+            continue;
+        }
+        let (spans, w) = shape_and_record_spans(
+            ctx.fonts,
+            face,
+            chunk,
+            font_size,
+            ctx.glyph_sets,
+            fill,
+            underline,
+            link_uri,
+            baseline_shift,
+        )?;
+        if *current_width + w > max_width && !current_spans.is_empty() {
+            flush_styled_line(current_spans, out, layout, max_width, false);
+            *current_width = 0.0;
+            if skip_wrap_chunk_at_line_start(chunk) {
+                continue;
+            }
+        }
+        if w > max_width && current_spans.is_empty() && layout.hard_break_overflow {
+            // Hard-break tokens wider than the content box (URLs, long code).
+            for piece in hard_break_text(ctx.fonts, face, chunk, font_size, max_width)? {
+                let (spans, _) = shape_and_record_spans(
+                    ctx.fonts,
+                    face,
+                    &piece,
+                    font_size,
+                    ctx.glyph_sets,
+                    fill,
+                    underline,
+                    link_uri,
+                    baseline_shift,
+                )?;
+                current_spans.extend(spans);
+                flush_styled_line(current_spans, out, layout, max_width, false);
+                *current_width = 0.0;
+            }
+            continue;
+        }
+        // soft_only: place an overlong token and let it stick out.
+        current_spans.extend(spans);
+        *current_width += w;
     }
     Ok(())
 }

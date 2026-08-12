@@ -50,6 +50,7 @@ fn doc() -> PrintDocument {
                 runs: vec![TextRun::plain(
                     "Body copy for size contrast — ordinary paragraph before the figure.",
                 )],
+                indent: 0,
             },
             PrintBlock::Figure {
                 image: PrintImage {
@@ -68,6 +69,7 @@ fn doc() -> PrintDocument {
             },
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain("Body after the figure.")],
+                indent: 0,
             },
         ],
     }

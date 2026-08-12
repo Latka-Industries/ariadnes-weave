@@ -170,6 +170,7 @@ fn layout_slide_two_column(
         } else {
             ctx.knobs.deck.columns.gap_after_non_deck
         },
+        indent: 0.0,
     }));
     Ok(())
 }
@@ -324,6 +325,7 @@ fn slide_run(text: impl Into<String>, style: InlineStyle) -> TextRun {
         text: text.into(),
         style,
         face: None,
+        link_uri: None,
     }
 }
 

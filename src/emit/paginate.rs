@@ -4,14 +4,15 @@ use super::types::{ForcedBreak, LaidItem};
 
 /// Pack layout segments into pages that fit within `max_y_span` (content height).
 ///
-/// Reserves space for the page footer. Items marked [`LaidItem::glue_after`]
-/// are peeled back with the next item when a break would otherwise orphan them.
+/// `footer_reserve` leaves room for the centered page-number footer (0 when
+/// footers are disabled). Items marked [`LaidItem::glue_after`] are peeled back
+/// with the next item when a break would otherwise orphan them.
 pub(super) fn paginate_items(
     segments: &[(ForcedBreak, Vec<LaidItem>)],
     max_y_span: f32,
+    footer_reserve: f32,
 ) -> Vec<Vec<LaidItem>> {
-    // Leave room for the centered `n / m` footer.
-    let max_y_span = (max_y_span - 18.0).max(72.0);
+    let max_y_span = (max_y_span - footer_reserve.max(0.0)).max(72.0);
     let mut pages: Vec<Vec<LaidItem>> = Vec::new();
     let mut current: Vec<LaidItem> = Vec::new();
     let mut used = 0.0_f32;

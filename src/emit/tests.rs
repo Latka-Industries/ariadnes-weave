@@ -38,6 +38,7 @@ fn hello_doc() -> PrintDocument {
                     text: "Hello, ariadnes-weave".into(),
                     style: InlineStyle::default(),
                     face: None,
+                    link_uri: None,
                 }],
                 break_before: BreakHint::None,
             },
@@ -45,6 +46,7 @@ fn hello_doc() -> PrintDocument {
                 runs: vec![TextRun::plain(
                     "Owned print IR to PDF with Liberation Sans + rustybuzz.",
                 )],
+                indent: 0,
             },
         ],
     }
@@ -141,6 +143,7 @@ fn prose_word_spacing_is_wider_than_glued_words() {
         profile: PrintProfileId::print_v0(),
         blocks: vec![PrintBlock::Paragraph {
             runs: vec![TextRun::plain("Hello world from weave")],
+            indent: 0,
         }],
     };
     let bytes = emit_pdf(&doc).expect("emit");
@@ -171,6 +174,7 @@ fn pinned_face_from_emit_options() {
         profile: PrintProfileId::print_v0(),
         blocks: vec![PrintBlock::Paragraph {
             runs: vec![TextRun::pinned("Pinned mono run", "mono")],
+            indent: 0,
         }],
     };
     let bytes = emit_pdf_with(&doc, &opts).expect("emit pinned");
@@ -191,6 +195,7 @@ fn unknown_pinned_face_errors() {
         profile: PrintProfileId::print_v0(),
         blocks: vec![PrintBlock::Paragraph {
             runs: vec![TextRun::pinned("x", "no-such-face")],
+            indent: 0,
         }],
     };
     let err = emit_pdf_with(&doc, &EmitOptions::default()).expect_err("unknown pin");
@@ -311,7 +316,9 @@ fn category_cite_font_pin() {
                     ..InlineStyle::default()
                 },
                 face: None,
+                link_uri: None,
             }],
+            indent: 0,
         }],
     };
     let bytes = emit_pdf_with(&doc, &opts).expect("cite category font");
@@ -332,6 +339,7 @@ fn unknown_category_font_errors() {
         profile: PrintProfileId::print_v0(),
         blocks: vec![PrintBlock::Paragraph {
             runs: vec![TextRun::plain("x")],
+            indent: 0,
         }],
     };
     let err = emit_pdf_with(&doc, &EmitOptions::bundled_only().with_layout(layout))
@@ -354,6 +362,7 @@ fn os_with_fallback_requires_feature() {
         profile: PrintProfileId::print_v0(),
         blocks: vec![PrintBlock::Paragraph {
             runs: vec![TextRun::plain("hi")],
+            indent: 0,
         }],
     };
     let err = emit_pdf_with(&doc, &EmitOptions::os_with_fallback());
@@ -387,6 +396,7 @@ fn os_missing_family_falls_back_to_liberation() {
                 "still emits",
                 "DefinitelyNotARealFontFamily_ariadnes_weave_311",
             )],
+            indent: 0,
         }],
     };
     let bytes = emit_pdf_with(&doc, &EmitOptions::os_with_fallback()).expect("fallback emit");
@@ -417,6 +427,7 @@ fn hard_breaks_overlong_token() {
         profile: PrintProfileId::print_v0(),
         blocks: vec![PrintBlock::Paragraph {
             runs: vec![TextRun::plain(long)],
+            indent: 0,
         }],
     };
     let bytes = emit_pdf(&doc).expect("emit overlong");
@@ -469,8 +480,10 @@ fn styled_runs_embed_bold_font() {
                     ..InlineStyle::default()
                 },
                 face: None,
+                link_uri: None,
             },
         ],
+        indent: 0,
     });
     let bytes = emit_pdf(&doc).expect("emit");
     let s = String::from_utf8_lossy(&bytes);
@@ -490,6 +503,7 @@ fn emits_unicode_em_dash() {
         profile: PrintProfileId::print_v0(),
         blocks: vec![PrintBlock::Paragraph {
             runs: vec![TextRun::plain("alpha — omega")],
+            indent: 0,
         }],
     };
     let bytes = emit_pdf(&doc).expect("emit unicode");
@@ -529,6 +543,75 @@ fn table_draws_grid_paths() {
 }
 
 #[test]
+fn row_emits_without_table_grid() {
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "CV".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::resume_v0(),
+        blocks: vec![PrintBlock::row_two(
+            vec![TextRun::plain("VerifyLocal LLC")],
+            vec![TextRun::plain("New York, NY")],
+        )],
+    };
+    let bytes = emit_pdf(&doc).expect("emit");
+    assert!(bytes.starts_with(b"%PDF-"));
+    let s = String::from_utf8_lossy(&bytes);
+    assert!(
+        !s.contains("0.6 w"),
+        "row should not draw a table stroke grid"
+    );
+}
+
+#[test]
+fn row_three_panes_emits() {
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "CV3".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::resume_v0(),
+        blocks: vec![PrintBlock::row(vec![
+            vec![TextRun::plain("Org")],
+            vec![TextRun::plain("City")],
+            vec![TextRun::plain("2026")],
+        ])],
+    };
+    let bytes = emit_pdf(&doc).expect("emit");
+    assert!(bytes.starts_with(b"%PDF-"));
+}
+
+#[test]
+fn accepts_resume_v0_us_letter_mediabox() {
+    let mut doc = PrintDocument {
+        meta: PrintMeta {
+            title: "R".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::resume_v0(),
+        blocks: vec![PrintBlock::Paragraph {
+            runs: vec![TextRun::plain("Dense body.")],
+            indent: 0,
+        }],
+    };
+    doc.profile = PrintProfileId::resume_v0();
+    let bytes = emit_pdf(&doc).expect("emit");
+    let s = String::from_utf8_lossy(&bytes);
+    // US Letter MediaBox
+    assert!(
+        s.contains("[0 0 612 792]") || s.contains("[0.0 0.0 612.0 792.0]"),
+        "expected Letter MediaBox in resume PDF"
+    );
+}
+
+#[test]
 fn slide_emits_own_page() {
     let doc = PrintDocument {
         meta: PrintMeta {
@@ -541,6 +624,7 @@ fn slide_emits_own_page() {
         blocks: vec![
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain("Before slides.")],
+                indent: 0,
             },
             PrintBlock::Slide {
                 layout_id: "title-body".into(),
@@ -564,6 +648,7 @@ fn slide_emits_own_page() {
             },
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain("After slides.")],
+                indent: 0,
             },
         ],
     };
@@ -595,6 +680,7 @@ fn manuscript_emphasis_uses_serif_italic() {
                         ..InlineStyle::default()
                     },
                     face: None,
+                    link_uri: None,
                 },
                 TextRun::plain(" "),
                 TextRun {
@@ -604,8 +690,10 @@ fn manuscript_emphasis_uses_serif_italic() {
                         ..InlineStyle::default()
                     },
                     face: None,
+                    link_uri: None,
                 },
             ],
+            indent: 0,
         }],
     };
     let bytes = emit_pdf(&doc).expect("emit");
@@ -679,6 +767,7 @@ fn aesthetic_colors_and_cite_underline_affect_emit() {
         blocks: vec![
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain("Body text.")],
+                indent: 0,
             },
             PrintBlock::Quote {
                 runs: vec![TextRun::plain("Quoted.")],
@@ -691,7 +780,9 @@ fn aesthetic_colors_and_cite_underline_affect_emit() {
                         ..InlineStyle::default()
                     },
                     face: None,
+                    link_uri: None,
                 }],
+                indent: 0,
             },
         ],
     };
@@ -949,6 +1040,7 @@ fn paragraph_text_align_affects_emit() {
         "Paragraph align",
         vec![PrintBlock::Paragraph {
             runs: vec![TextRun::plain(lorem)],
+            indent: 0,
         }],
     );
 
@@ -1015,6 +1107,7 @@ fn inline_style_underline_without_cite() {
         profile: PrintProfileId::print_v0(),
         blocks: vec![PrintBlock::Paragraph {
             runs: vec![TextRun::plain("No underline.")],
+            indent: 0,
         }],
     };
     let underlined = PrintDocument {
@@ -1028,7 +1121,9 @@ fn inline_style_underline_without_cite() {
                     ..InlineStyle::default()
                 },
                 face: None,
+                link_uri: None,
             }],
+            indent: 0,
         }],
     };
 
@@ -1043,6 +1138,64 @@ fn inline_style_underline_without_cite() {
     assert!(
         under_s.contains(" re") || under_s.contains("\nS\n") || under_s.contains(" S\n"),
         "expected stroke ops from underline paint: {under_s}"
+    );
+}
+
+#[test]
+fn link_uri_emits_pdf_uri_annotation() {
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "Links".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::Paragraph {
+            runs: vec![
+                TextRun::plain("Write "),
+                TextRun::link("here", "https://example.com/path"),
+                TextRun::plain(" or "),
+                TextRun::link("mail", "mailto:a@b.c"),
+                TextRun::plain("."),
+            ],
+            indent: 0,
+        }],
+    };
+    let pdf = emit_pdf(&doc).expect("linked pdf");
+    let hay = String::from_utf8_lossy(&pdf);
+    assert!(
+        hay.contains("/URI") && hay.contains("https://example.com/path"),
+        "expected URI annotation for https link"
+    );
+    assert!(
+        hay.contains("mailto:a@b.c"),
+        "expected URI annotation for mailto link"
+    );
+}
+
+#[test]
+fn link_auto_underline_is_opt_in() {
+    let linked = PrintDocument {
+        meta: PrintMeta {
+            title: "L".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::Paragraph {
+            runs: vec![TextRun::link("here", "https://example.com/")],
+            indent: 0,
+        }],
+    };
+    let plain = emit_pdf(&linked).expect("default link");
+    let mut opts = crate::EmitOptions::default();
+    opts.layout.prose.link.underline = true;
+    let under = crate::emit_pdf_with(&linked, &opts).expect("underlined link");
+    assert_ne!(
+        plain, under,
+        "[link].underline should change emit vs default (no auto-underline)"
     );
 }
 
@@ -1360,6 +1513,7 @@ fn float_near_figure_emits() {
         blocks: vec![
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain("See the figure nearby.")],
+                indent: 0,
             },
             figure_with_caption("Caption.", FigurePlacement::FloatNear),
         ],
@@ -1380,6 +1534,7 @@ fn sealed_cjk_fallback_embeds_in_pdf() {
         profile: PrintProfileId::print_v0(),
         blocks: vec![PrintBlock::Paragraph {
             runs: vec![TextRun::plain("Hello 中文测试")],
+            indent: 0,
         }],
     };
     let bytes = emit_pdf(&doc).expect("emit cjk");
@@ -1405,6 +1560,7 @@ fn sealed_emoji_fallback_embeds_in_pdf() {
         profile: PrintProfileId::print_v0(),
         blocks: vec![PrintBlock::Paragraph {
             runs: vec![TextRun::plain("Hello 😀🔥")],
+            indent: 0,
         }],
     };
     let bytes = emit_pdf(&doc).expect("emit emoji");

@@ -44,6 +44,8 @@ pub(super) fn spans_from_shaped_runs(
     runs: Vec<(FaceRef, Vec<ShapedGlyph>)>,
     fill: [f32; 3],
     underline: bool,
+    link_uri: Option<&str>,
+    baseline_shift: f32,
 ) -> Vec<LaidSpan> {
     runs.into_iter()
         .map(|(face, glyphs)| LaidSpan {
@@ -52,11 +54,14 @@ pub(super) fn spans_from_shaped_runs(
             glyphs,
             fill,
             underline,
+            link_uri: link_uri.map(str::to_owned),
+            baseline_shift,
         })
         .collect()
 }
 
 /// Shape with sealed script fallback, record glyphs, return spans + width.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn shape_and_record_spans(
     fonts: &FontBag,
     face: FaceRef,
@@ -65,12 +70,14 @@ pub(super) fn shape_and_record_spans(
     glyph_sets: &mut GlyphSets,
     fill: [f32; 3],
     underline: bool,
+    link_uri: Option<&str>,
+    baseline_shift: f32,
 ) -> Result<(Vec<LaidSpan>, f32), WeaveError> {
     let runs = shape_text_with_fallback(fonts, face, text, font_size)?;
     let width = shaped_runs_width(&runs);
     record_shaped_chunk(fonts, face, text, &runs, glyph_sets);
     Ok((
-        spans_from_shaped_runs(font_size, runs, fill, underline),
+        spans_from_shaped_runs(font_size, runs, fill, underline, link_uri, baseline_shift),
         width,
     ))
 }
@@ -90,6 +97,10 @@ pub(super) struct LaidSpan {
     pub fill: [f32; 3],
     /// Stroke an underline under this span (`InlineStyle.underline` or cite policy).
     pub underline: bool,
+    /// Optional external URI → PDF `/Link` annotation over this span's ink box.
+    pub link_uri: Option<String>,
+    /// Raise baseline by this many points (FA icon optical alignment).
+    pub baseline_shift: f32,
 }
 
 /// One horizontal line of text (or an empty gap).
@@ -155,8 +166,9 @@ impl LaidLine {
         glyph_sets: &mut GlyphSets,
         fill: [f32; 3],
     ) -> Result<Self, WeaveError> {
-        let (spans, _) =
-            shape_and_record_spans(fonts, face, text, font_size, glyph_sets, fill, false)?;
+        let (spans, _) = shape_and_record_spans(
+            fonts, face, text, font_size, glyph_sets, fill, false, None, 0.0,
+        )?;
         Ok(Self {
             spans,
             leading,
@@ -206,6 +218,8 @@ pub(super) struct LaidColumns {
     /// Gap between columns (points).
     pub gap: f32,
     pub gap_after: f32,
+    /// Extra left offset of the whole band inside the content box (points).
+    pub indent: f32,
 }
 
 impl LaidColumns {

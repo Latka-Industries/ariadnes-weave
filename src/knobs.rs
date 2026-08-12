@@ -47,6 +47,36 @@ impl LayoutKnobs {
         push_category(&mut lines, "page", &self.page);
         lines.join("\n")
     }
+
+    /// Tighten gaps / paddings / list gutter for `resume@0` emits.
+    ///
+    /// Profiles own page/type; this overlays optical density on host knobs
+    /// (pack fonts/colors still apply).
+    pub fn densify_resume(&mut self) {
+        // Match LaTeX `\fontsize{9.5pt}{11.5pt}` rhythm — not sub-em leading.
+        // (Earlier 1.02 crushed wrapped bullets: 9.5×1.02 < body size.)
+        self.prose.paragraph.gap_after = 2.0;
+        self.prose.heading.gap_after = 1.0;
+        self.prose.heading.leading_factor = 1.12;
+        self.prose.list.indent_per_depth = 12.0;
+        self.prose.list.item_leading_factor = 11.5 / 9.5;
+        // ~1.25 in — clears date column on one-column CVs.
+        self.prose.list.end_gutter = 90.0;
+        // LaTeX `\parindent` band: org=1 → 14pt, role/bullets=2 → 28pt.
+        self.prose.indent.step = 14.0;
+        self.prose.code.gap_after = 2.0;
+        // LaTeX dark-blue links / icons (`rgb{0.15,0.15,0.4}` ≈ #262666).
+        self.prose.cite.color = Some(HexColor {
+            r: 0x26,
+            g: 0x26,
+            b: 0x66,
+        });
+        self.table.cell.pad = 1.0;
+        self.table.cell.leading_factor = 11.5 / 9.5;
+        self.table.block.gap_after = 2.0;
+        self.page.footer.enabled = false;
+        self.page.content.bottom_clearance = 2.0;
+    }
 }
 
 fn load_bundled() -> LayoutKnobs {
@@ -113,6 +143,9 @@ pub struct ProseKnobs {
     pub code: ProseCodeKnobs,
     /// List indent / leading.
     pub list: ProseListKnobs,
+    /// Chunk band indent (`indent` level × step → points).
+    #[serde(default, skip_serializing_if = "ProseIndentKnobs::is_default")]
+    pub indent: ProseIndentKnobs,
     /// Figure trailing gaps.
     pub figure: ProseFigureKnobs,
     /// Figure caption size / italic / optional color.
@@ -125,6 +158,9 @@ pub struct ProseKnobs {
     /// Citation marker paint policy.
     #[serde(default, skip_serializing_if = "ProseCiteKnobs::is_default")]
     pub cite: ProseCiteKnobs,
+    /// Hyperlink paint policy (`TextRun.link_uri`).
+    #[serde(default, skip_serializing_if = "ProseLinkKnobs::is_default")]
+    pub link: ProseLinkKnobs,
 }
 
 /// `#RGB` / `#RRGGBB` color for aesthetic knobs (0..=255 channels).
@@ -243,6 +279,22 @@ impl ProseCiteKnobs {
     }
 }
 
+/// `[link]` in `prose.toml` — outbound URI run policy (`TextRun.link_uri`).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct ProseLinkKnobs {
+    /// Auto-underline text links (LaTeX hyperref-style). Default **false** —
+    /// underline only when `InlineStyle.underline` is set. Icon-only link runs
+    /// never auto-underline.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub underline: bool,
+}
+
+impl ProseLinkKnobs {
+    fn is_default(&self) -> bool {
+        !self.underline
+    }
+}
+
 /// `[paragraph]` in `prose.toml`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProseParagraphKnobs {
@@ -300,6 +352,42 @@ pub struct ProseListKnobs {
     pub indent_per_depth: f32,
     /// List item leading as a multiple of body size.
     pub item_leading_factor: f32,
+    /// Extra right-side gutter so list text clears a date/meta column (points).
+    ///
+    /// Bundled default `0.0`; resume densify sets ~`90` (1.25 in).
+    #[serde(default)]
+    pub end_gutter: f32,
+}
+
+/// `[indent]` in `prose.toml` — sealed chunk band levels → points.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProseIndentKnobs {
+    /// Points per sealed `indent` level (0 = no band shift).
+    ///
+    /// Resume densify sets `14` (≈ LaTeX `\parindent`).
+    #[serde(default)]
+    pub step: f32,
+}
+
+impl Default for ProseIndentKnobs {
+    fn default() -> Self {
+        Self { step: 0.0 }
+    }
+}
+
+impl ProseIndentKnobs {
+    fn is_default(&self) -> bool {
+        self.step == 0.0
+    }
+
+    /// Convert a sealed indent level to points.
+    #[must_use]
+    pub fn pts(&self, level: u32) -> f32 {
+        #[allow(clippy::cast_precision_loss)]
+        {
+            self.step * level as f32
+        }
+    }
 }
 
 /// Horizontal alignment for figure image + caption band (`[figure].align`).
@@ -984,6 +1072,13 @@ pub struct PageFooterKnobs {
     pub font_size: f32,
     /// Footer baseline as a factor of bottom margin.
     pub y_margin_factor: f32,
+    /// Draw centered `n / m` page numbers (bundled `true`; resume turns off).
+    #[serde(default = "default_footer_enabled")]
+    pub enabled: bool,
+}
+
+fn default_footer_enabled() -> bool {
+    true
 }
 
 /// `[content]` in `page.toml`.

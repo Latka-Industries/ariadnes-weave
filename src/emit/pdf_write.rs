@@ -2,7 +2,8 @@
 
 use std::collections::BTreeMap;
 
-use pdf_writer::{Name, Pdf, Rect, Ref};
+use pdf_writer::types::{ActionType, AnnotationType, BorderType};
+use pdf_writer::{Finish, Name, Pdf, Rect, Ref, Str};
 
 use crate::error::WeaveError;
 use crate::font::{FaceRef, FontBag, FontObjIds, prepare_subset, write_embedded_font};
@@ -10,7 +11,7 @@ use crate::image_prep::PreparedImage;
 use crate::knobs::LayoutKnobs;
 use crate::profile::ProfileMetrics;
 
-use super::paint::{build_page_content, image_resource_name};
+use super::paint::{PageLink, build_page_content, image_resource_name};
 use super::types::{GlyphSets, LaidItem, LaidLine, SubsetMap};
 
 /// Subset each face that contributed glyphs during layout.
@@ -121,10 +122,11 @@ pub(super) struct WritePagesArgs<'a> {
     pub image_refs: &'a [(Ref, Option<Ref>)],
     pub subsets: &'a SubsetMap,
     pub knobs: &'a LayoutKnobs,
+    pub next_id: &'a mut i32,
 }
 
 impl WritePagesArgs<'_> {
-    /// Write each page dict + painted content stream.
+    /// Write each page dict + painted content stream + URI link annotations.
     pub(super) fn run(self) -> Result<(), WeaveError> {
         let Self {
             pdf,
@@ -138,6 +140,7 @@ impl WritePagesArgs<'_> {
             image_refs,
             subsets,
             knobs,
+            next_id,
         } = self;
         let page_count = pages.len().max(1);
         for (page_idx, ((page_id, content_id), page_items)) in page_ids
@@ -147,6 +150,20 @@ impl WritePagesArgs<'_> {
             .zip(pages.iter())
             .enumerate()
         {
+            let (content_bytes, page_links) = build_page_content(
+                page_items,
+                metrics,
+                page_idx + 1,
+                page_count,
+                fonts,
+                subsets,
+                knobs,
+            )?;
+            let mut annot_ids = Vec::with_capacity(page_links.len());
+            for _ in &page_links {
+                annot_ids.push(Ref::new(*next_id));
+                *next_id += 1;
+            }
             WritePageDictArgs {
                 pdf,
                 page_id,
@@ -157,21 +174,32 @@ impl WritePagesArgs<'_> {
                 fonts,
                 image_refs,
                 page_items,
+                annot_ids: &annot_ids,
             }
             .run();
-            let content_bytes = build_page_content(
-                page_items,
-                metrics,
-                page_idx + 1,
-                page_count,
-                fonts,
-                subsets,
-                knobs,
-            )?;
+            for (annot_id, link) in annot_ids.iter().copied().zip(page_links.iter()) {
+                write_uri_link(pdf, annot_id, link);
+            }
             pdf.stream(content_id, &content_bytes);
         }
         Ok(())
     }
+}
+
+fn write_uri_link(pdf: &mut Pdf, annot_id: Ref, link: &PageLink) {
+    let mut annotation = pdf.annotation(annot_id);
+    annotation.subtype(AnnotationType::Link);
+    annotation.rect(Rect::new(link.x0, link.y0, link.x1, link.y1));
+    annotation
+        .action()
+        .action_type(ActionType::Uri)
+        .uri(Str(link.uri.as_bytes()));
+    // Invisible border — color comes from the painted text/icons.
+    annotation
+        .border_style()
+        .width(0.0)
+        .style(BorderType::Solid);
+    annotation.finish();
 }
 
 /// Arguments for one page dictionary (media box, resources, contents).
@@ -185,6 +213,7 @@ pub(super) struct WritePageDictArgs<'a> {
     pub fonts: &'a FontBag,
     pub image_refs: &'a [(Ref, Option<Ref>)],
     pub page_items: &'a [LaidItem],
+    pub annot_ids: &'a [Ref],
 }
 
 impl WritePageDictArgs<'_> {
@@ -200,6 +229,7 @@ impl WritePageDictArgs<'_> {
             fonts,
             image_refs,
             page_items,
+            annot_ids,
         } = self;
         let used_images: Vec<usize> = page_items
             .iter()
@@ -217,6 +247,9 @@ impl WritePageDictArgs<'_> {
         page.media_box(Rect::new(0.0, 0.0, metrics.page_w, metrics.page_h));
         page.parent(page_tree_id);
         page.contents(content_id);
+        if !annot_ids.is_empty() {
+            page.annotations(annot_ids.iter().copied());
+        }
         let mut resources = page.resources();
         {
             let mut font_res = resources.fonts();

@@ -44,7 +44,8 @@ crates.io. Local suite work can still path-dep when cutting paired releases.
   `[paragraph].text_align`; optional
   `#RGB`/`#RRGGBB`
   fills for `[text]` / `[quote]` / `[caption]` / `[cite]` plus
-  `[cite].underline` and per-run `InlineStyle.underline`; optional category
+  `[cite].underline`, `[link].underline` (default off), and per-run
+  `InlineStyle.underline`; optional category
   `font` pin ids (same namespace as `TextRun.face`); dump with
   `cargo run --example dump_knobs` — see
   [`docs/layout-knobs.md`](docs/layout-knobs.md)
@@ -129,6 +130,7 @@ let doc = PrintDocument {
         },
         PrintBlock::Paragraph {
             runs: vec![TextRun::plain("Body.")],
+            indent: 0,
         },
         PrintBlock::List {
             ordered: false,
@@ -136,6 +138,7 @@ let doc = PrintDocument {
                 runs: vec![TextRun::plain("Item")],
                 children: vec![],
             }],
+            indent: 0,
         },
     ],
 };

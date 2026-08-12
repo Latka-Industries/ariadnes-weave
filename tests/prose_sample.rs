@@ -30,6 +30,7 @@ fn prose_doc() -> PrintDocument {
                             ..InlineStyle::default()
                         },
                         face: None,
+                        link_uri: None,
                     },
                     TextRun::plain(" and "),
                     TextRun {
@@ -39,9 +40,11 @@ fn prose_doc() -> PrintDocument {
                             ..InlineStyle::default()
                         },
                         face: None,
+                        link_uri: None,
                     },
                     TextRun::plain(" before a list, a quote, and a code block."),
                 ],
+                indent: 0,
             },
             PrintBlock::List {
                 ordered: false,
@@ -58,6 +61,7 @@ fn prose_doc() -> PrintDocument {
                                 runs: vec![TextRun::plain("Nested numbered")],
                                 children: vec![],
                             }],
+                            indent: 0,
                         }],
                     },
                     ListItem {
@@ -65,6 +69,7 @@ fn prose_doc() -> PrintDocument {
                         children: vec![],
                     },
                 ],
+                indent: 0,
             },
             PrintBlock::Quote {
                 runs: vec![TextRun::plain("Quoted line for the MVP path.")],
@@ -81,6 +86,7 @@ fn prose_doc() -> PrintDocument {
             },
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain("Second page after an explicit break.")],
+                indent: 0,
             },
         ],
     }
