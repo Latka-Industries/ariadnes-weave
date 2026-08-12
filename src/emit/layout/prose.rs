@@ -270,14 +270,88 @@ pub(super) fn push_row(
     if panes.is_empty() {
         return Ok(());
     }
-    let measure = ctx.metrics.content_width();
-    let body = ctx.metrics.body_size;
-    let leading = ctx.metrics.body_leading;
-    let min_w = ctx.knobs.prose.wrap.min_width;
-    let gap = 6.0_f32;
-    // LaTeX `indentsection` / nested role: org ~14pt, role/degree ~30pt (2×parindent).
-    // Indent from the first pane's styles (Tessera THI-387 will make this authored).
-    let first = panes[0].as_slice();
+    let (row_indent, gap_after) = row_indent_and_gap(panes[0].as_slice(), ctx);
+    let geom = RowGeom {
+        measure: ctx.metrics.content_width(),
+        body: ctx.metrics.body_size,
+        leading: ctx.metrics.body_leading,
+        min_w: ctx.knobs.prose.wrap.min_width,
+        gap: 6.0,
+        row_indent,
+        gap_after,
+    };
+
+    if panes.len() == 1 {
+        return push_single_pane_row(out, &panes[0], ctx, &geom);
+    }
+
+    let laid = layout_row_columns(panes, ctx, &geom)?;
+    if laid.columns.iter().all(Vec::is_empty) {
+        return Ok(());
+    }
+
+    let flex_n = panes.len() - 1;
+    // Flush-right only (all leading panes empty).
+    if laid.columns[..flex_n].iter().all(Vec::is_empty) {
+        let mut columns = laid.columns;
+        push_flush_right_lines(
+            out,
+            columns.pop().unwrap_or_default(),
+            geom.measure,
+            geom.gap_after,
+        );
+        return Ok(());
+    }
+
+    let LaidRowColumns {
+        mut columns,
+        mut col_widths,
+        last_w,
+    } = laid;
+    // Leading panes only (empty last): drop the empty trailing column.
+    if columns[panes.len() - 1].is_empty() && last_w == 0.0 {
+        columns.pop();
+        col_widths.pop();
+        if columns.len() == 1 {
+            push_indented_lines(
+                out,
+                columns.pop().unwrap_or_default(),
+                geom.row_indent,
+                geom.gap_after,
+            );
+            return Ok(());
+        }
+    }
+
+    out.push(LaidItem::Columns(LaidColumns {
+        columns,
+        col_widths,
+        gap: geom.gap,
+        gap_after: geom.gap_after,
+        indent: geom.row_indent,
+    }));
+    Ok(())
+}
+
+struct RowGeom {
+    measure: f32,
+    body: f32,
+    leading: f32,
+    min_w: f32,
+    gap: f32,
+    row_indent: f32,
+    gap_after: f32,
+}
+
+struct LaidRowColumns {
+    columns: Vec<Vec<LaidLine>>,
+    col_widths: Vec<f32>,
+    last_w: f32,
+}
+
+/// LaTeX `indentsection` stand-in until Tessera THI-387 authors indent.
+/// Org ~14pt; role/degree (emph, not strong) ~30pt. Dense rows keep a tight trailer.
+fn row_indent_and_gap(first: &[TextRun], ctx: &LayoutCtx) -> (f32, f32) {
     let row_indent = if ctx.metrics.dense_headings {
         let emph = first.iter().any(|r| r.style.emphasis);
         let strong = first.iter().any(|r| r.style.strong);
@@ -289,45 +363,60 @@ pub(super) fn push_row(
     } else {
         0.0
     };
-
-    // Dense CV rows: stay on the 11.5pt baseline grid (LaTeX itemize/indentsection
-    // have ~0 extra between org→role→bullets). Entry separation is the list trailer.
     let gap_after = if ctx.metrics.dense_headings {
         0.5
     } else {
         (ctx.knobs.prose.paragraph.gap_after * 0.5).max(2.0)
     };
+    (row_indent, gap_after)
+}
 
-    let n = panes.len();
-    if n == 1 {
-        let mut items = Vec::new();
-        if !panes[0].is_empty() {
-            push_styled_runs(
-                &mut items,
-                &panes[0],
-                ctx,
-                row_pane_layout(body, leading, row_indent, (measure - row_indent).max(min_w)),
-            )?;
-        }
-        for mut line in take_content_lines(items) {
-            line.indent = row_indent;
-            out.push(LaidItem::Text(line));
-        }
-        out.push(LaidItem::Text(LaidLine::gap(gap_after)));
-        return Ok(());
+fn push_single_pane_row(
+    out: &mut Vec<LaidItem>,
+    pane: &[TextRun],
+    ctx: &mut LayoutCtx,
+    geom: &RowGeom,
+) -> Result<(), WeaveError> {
+    let mut items = Vec::new();
+    if !pane.is_empty() {
+        let max_w = (geom.measure - geom.row_indent).max(geom.min_w);
+        push_styled_runs(
+            &mut items,
+            pane,
+            ctx,
+            row_pane_layout(geom.body, geom.leading, geom.row_indent, max_w),
+        )?;
     }
+    push_indented_lines(
+        out,
+        take_content_lines(items),
+        geom.row_indent,
+        geom.gap_after,
+    );
+    Ok(())
+}
 
+fn layout_row_columns(
+    panes: &[Vec<TextRun>],
+    ctx: &mut LayoutCtx,
+    geom: &RowGeom,
+) -> Result<LaidRowColumns, WeaveError> {
+    let n = panes.len();
     let last = panes[n - 1].as_slice();
     let last_w = if last.is_empty() {
         0.0
     } else {
         // Slack so italic loc/dates don't soft-wrap from float rounding.
-        measure_runs_natural_width(last, ctx, body)? + 3.0
+        measure_runs_natural_width(last, ctx, geom.body)? + 3.0
     };
     let flex_n = n - 1;
-    let gaps_w = gap * flex_n as f32;
-    let flex_budget = (measure - row_indent - last_w - gaps_w).max(min_w * flex_n as f32);
-    let each_flex = flex_budget / flex_n as f32;
+    // Pane counts are tiny; f32 is exact for these values.
+    #[allow(clippy::cast_precision_loss)]
+    let flex_n_f = flex_n as f32;
+    let gaps_w = geom.gap * flex_n_f;
+    let flex_budget =
+        (geom.measure - geom.row_indent - last_w - gaps_w).max(geom.min_w * flex_n_f);
+    let each_flex = flex_budget / flex_n_f;
 
     let mut col_widths = Vec::with_capacity(n);
     let mut columns = Vec::with_capacity(n);
@@ -337,10 +426,10 @@ pub(super) fn push_row(
             if pane.is_empty() {
                 0.0
             } else {
-                last_w.max(min_w)
+                last_w.max(geom.min_w)
             }
         } else {
-            each_flex.max(min_w)
+            each_flex.max(geom.min_w)
         };
         let mut items = Vec::new();
         if !pane.is_empty() {
@@ -349,49 +438,43 @@ pub(super) fn push_row(
                 &mut items,
                 pane,
                 ctx,
-                row_pane_layout(body, leading, 0.0, col_w.max(min_w)),
+                row_pane_layout(geom.body, geom.leading, 0.0, col_w.max(geom.min_w)),
             )?;
         }
         col_widths.push(col_w);
         columns.push(take_content_lines(items));
     }
-
-    if columns.iter().all(Vec::is_empty) {
-        return Ok(());
-    }
-
-    // Flush-right only (all leading panes empty).
-    if columns[..flex_n].iter().all(Vec::is_empty) {
-        for mut line in columns.pop().unwrap_or_default() {
-            line.indent = (measure - line.width()).max(0.0);
-            out.push(LaidItem::Text(line));
-        }
-        out.push(LaidItem::Text(LaidLine::gap(gap_after)));
-        return Ok(());
-    }
-
-    // Leading panes only (empty last): drop the empty trailing column.
-    if columns[n - 1].is_empty() && last_w == 0.0 {
-        columns.pop();
-        col_widths.pop();
-        if columns.len() == 1 {
-            for mut line in columns.pop().unwrap_or_default() {
-                line.indent = row_indent;
-                out.push(LaidItem::Text(line));
-            }
-            out.push(LaidItem::Text(LaidLine::gap(gap_after)));
-            return Ok(());
-        }
-    }
-
-    out.push(LaidItem::Columns(LaidColumns {
+    Ok(LaidRowColumns {
         columns,
         col_widths,
-        gap,
-        gap_after,
-        indent: row_indent,
-    }));
-    Ok(())
+        last_w,
+    })
+}
+
+fn push_indented_lines(
+    out: &mut Vec<LaidItem>,
+    lines: Vec<LaidLine>,
+    indent: f32,
+    gap_after: f32,
+) {
+    for mut line in lines {
+        line.indent = indent;
+        out.push(LaidItem::Text(line));
+    }
+    out.push(LaidItem::Text(LaidLine::gap(gap_after)));
+}
+
+fn push_flush_right_lines(
+    out: &mut Vec<LaidItem>,
+    lines: Vec<LaidLine>,
+    measure: f32,
+    gap_after: f32,
+) {
+    for mut line in lines {
+        line.indent = (measure - line.width()).max(0.0);
+        out.push(LaidItem::Text(line));
+    }
+    out.push(LaidItem::Text(LaidLine::gap(gap_after)));
 }
 
 fn take_content_lines(items: Vec<LaidItem>) -> Vec<LaidLine> {
