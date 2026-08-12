@@ -21,6 +21,9 @@ indent_per_depth = 18.0
 item_leading_factor = 1.35
 end_gutter = 0.0
 
+[indent]
+step = 0.0
+
 [figure]
 gap_after = 6.0
 alt_gap_after = 10.0

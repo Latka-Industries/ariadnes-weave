@@ -62,6 +62,8 @@ impl LayoutKnobs {
         self.prose.list.item_leading_factor = 11.5 / 9.5;
         // ~1.25 in — clears date column on one-column CVs.
         self.prose.list.end_gutter = 90.0;
+        // LaTeX `\parindent` band: org=1 → 14pt, role/bullets=2 → 28pt.
+        self.prose.indent.step = 14.0;
         self.prose.code.gap_after = 2.0;
         // LaTeX dark-blue links / icons (`rgb{0.15,0.15,0.4}` ≈ #262666).
         self.prose.cite.color = Some(HexColor {
@@ -141,6 +143,9 @@ pub struct ProseKnobs {
     pub code: ProseCodeKnobs,
     /// List indent / leading.
     pub list: ProseListKnobs,
+    /// Chunk band indent (`indent` level × step → points).
+    #[serde(default, skip_serializing_if = "ProseIndentKnobs::is_default")]
+    pub indent: ProseIndentKnobs,
     /// Figure trailing gaps.
     pub figure: ProseFigureKnobs,
     /// Figure caption size / italic / optional color.
@@ -352,6 +357,37 @@ pub struct ProseListKnobs {
     /// Bundled default `0.0`; resume densify sets ~`90` (1.25 in).
     #[serde(default)]
     pub end_gutter: f32,
+}
+
+/// `[indent]` in `prose.toml` — sealed chunk band levels → points.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProseIndentKnobs {
+    /// Points per sealed `indent` level (0 = no band shift).
+    ///
+    /// Resume densify sets `14` (≈ LaTeX `\parindent`).
+    #[serde(default)]
+    pub step: f32,
+}
+
+impl Default for ProseIndentKnobs {
+    fn default() -> Self {
+        Self { step: 0.0 }
+    }
+}
+
+impl ProseIndentKnobs {
+    fn is_default(&self) -> bool {
+        self.step == 0.0
+    }
+
+    /// Convert a sealed indent level to points.
+    #[must_use]
+    pub fn pts(&self, level: u32) -> f32 {
+        #[allow(clippy::cast_precision_loss)]
+        {
+            self.step * level as f32
+        }
+    }
 }
 
 /// Horizontal alignment for figure image + caption band (`[figure].align`).

@@ -64,9 +64,9 @@ mod hydrate {
     fn collect_block_faces<'a>(block: &'a PrintBlock, out: &mut Vec<(&'a str, InlineStyle)>) {
         match block {
             PrintBlock::Heading { runs, .. }
-            | PrintBlock::Paragraph { runs }
+            | PrintBlock::Paragraph { runs, .. }
             | PrintBlock::Quote { runs } => collect_run_faces(runs, out),
-            PrintBlock::Row { panes } => {
+            PrintBlock::Row { panes, .. } => {
                 for pane in panes {
                     collect_run_faces(pane, out);
                 }

@@ -130,6 +130,7 @@ let doc = PrintDocument {
         },
         PrintBlock::Paragraph {
             runs: vec![TextRun::plain("Body.")],
+            indent: 0,
         },
         PrintBlock::List {
             ordered: false,
@@ -137,6 +138,7 @@ let doc = PrintDocument {
                 runs: vec![TextRun::plain("Item")],
                 children: vec![],
             }],
+            indent: 0,
         },
     ],
 };

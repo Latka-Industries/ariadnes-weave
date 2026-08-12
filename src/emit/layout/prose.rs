@@ -116,11 +116,12 @@ pub(super) fn push_list_lines(
     out: &mut Vec<LaidItem>,
     ordered: bool,
     items: &[crate::ir::ListItem],
+    band_indent: u32,
     depth: usize,
     ctx: &mut LayoutCtx,
 ) -> Result<(), WeaveError> {
     for (i, item) in items.iter().enumerate() {
-        push_one_list_item(out, ordered, item, i, depth, ctx)?;
+        push_one_list_item(out, ordered, item, i, band_indent, depth, ctx)?;
     }
     // Only top-level lists trail into the next CV entry; nested trailers
     // were stacking a fat gap after every sub-bullet group.
@@ -137,6 +138,7 @@ fn push_one_list_item(
     ordered: bool,
     item: &crate::ir::ListItem,
     index: usize,
+    band_indent: u32,
     depth: usize,
     ctx: &mut LayoutCtx,
 ) -> Result<(), WeaveError> {
@@ -145,12 +147,9 @@ fn push_one_list_item(
     } else {
         "• ".into()
     };
-    let base_indent = if ctx.metrics.dense_headings {
-        // Match nested LaTeX `indentsection`: roles @ ~30pt, bullets flush with roles.
-        30.0 + ctx.knobs.prose.list.indent_per_depth * depth as f32
-    } else {
-        ctx.knobs.prose.list.indent_per_depth * depth as f32
-    };
+    #[allow(clippy::cast_precision_loss)]
+    let nest = ctx.knobs.prose.list.indent_per_depth * depth as f32;
+    let base_indent = ctx.knobs.prose.indent.pts(band_indent) + nest;
     let font_size = ctx.metrics.body_size;
     let leading = if ctx.metrics.dense_headings {
         // Keep list wraps on the same baseline grid as body prose.
@@ -227,7 +226,16 @@ fn push_one_list_item(
             PrintBlock::List {
                 ordered: child_ordered,
                 items: child_items,
-            } => push_list_lines(out, *child_ordered, child_items, depth + 1, ctx)?,
+                indent: child_indent,
+            } => {
+                // Nested lists keep the parent's band unless explicitly set.
+                let band = if *child_indent > 0 {
+                    *child_indent
+                } else {
+                    band_indent
+                };
+                push_list_lines(out, *child_ordered, child_items, band, depth + 1, ctx)?;
+            }
             other => return Err(WeaveError::UnsupportedBlock(block_name(other))),
         }
     }
@@ -265,19 +273,20 @@ fn prepend_list_marker(
 pub(super) fn push_row(
     out: &mut Vec<LaidItem>,
     panes: &[Vec<TextRun>],
+    indent_level: u32,
     ctx: &mut LayoutCtx,
 ) -> Result<(), WeaveError> {
     if panes.is_empty() {
         return Ok(());
     }
-    let (row_indent, gap_after) = row_indent_and_gap(panes[0].as_slice(), ctx);
+    let gap_after = row_gap_after(ctx);
     let geom = RowGeom {
         measure: ctx.metrics.content_width(),
         body: ctx.metrics.body_size,
         leading: ctx.metrics.body_leading,
         min_w: ctx.knobs.prose.wrap.min_width,
         gap: 6.0,
-        row_indent,
+        row_indent: ctx.knobs.prose.indent.pts(indent_level),
         gap_after,
     };
 
@@ -349,26 +358,13 @@ struct LaidRowColumns {
     last_w: f32,
 }
 
-/// LaTeX `indentsection` stand-in until Tessera THI-387 authors indent.
-/// Org ~14pt; role/degree (emph, not strong) ~30pt. Dense rows keep a tight trailer.
-fn row_indent_and_gap(first: &[TextRun], ctx: &LayoutCtx) -> (f32, f32) {
-    let row_indent = if ctx.metrics.dense_headings {
-        let emph = first.iter().any(|r| r.style.emphasis);
-        let strong = first.iter().any(|r| r.style.strong);
-        if emph && !strong {
-            30.0
-        } else {
-            14.0
-        }
-    } else {
-        0.0
-    };
-    let gap_after = if ctx.metrics.dense_headings {
+/// Dense CV rows stay on the baseline grid; entry separation is the list trailer.
+fn row_gap_after(ctx: &LayoutCtx) -> f32 {
+    if ctx.metrics.dense_headings {
         0.5
     } else {
         (ctx.knobs.prose.paragraph.gap_after * 0.5).max(2.0)
-    };
-    (row_indent, gap_after)
+    }
 }
 
 fn push_single_pane_row(

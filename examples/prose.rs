@@ -48,13 +48,16 @@ fn doc() -> PrintDocument {
                      paragraph below is for eyeballing [paragraph].text_align \
                      (left / center / right / justify).",
                 )],
-            },
+            indent: 0,
+        },
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain(LOREM)],
-            },
+            indent: 0,
+        },
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain(LOREM)],
-            },
+            indent: 0,
+        },
             PrintBlock::List {
                 ordered: true,
                 items: vec![
@@ -71,7 +74,8 @@ fn doc() -> PrintDocument {
                         children: vec![],
                     },
                 ],
-            },
+            indent: 0,
+        },
             PrintBlock::Quote {
                 runs: vec![TextRun::plain("Print IR is the PDF source of truth.")],
             },

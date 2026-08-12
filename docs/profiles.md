@@ -53,8 +53,10 @@ Dense one-column CV / resume layout (THI-324 dogfood).
 | Deck | no |
 
 Emit also applies [`LayoutKnobs::densify_resume`](../src/knobs.rs) (tighter
-paragraph/heading gaps, list `end_gutter` ≈ 1.25 in, smaller table pad,
-no page-number footer, dark-blue link fill).
+paragraph/heading gaps, list `end_gutter` ≈ 1.25 in, `prose.indent.step = 14`
+for sealed band levels, smaller table pad, no page-number footer, dark-blue
+link fill). Band geometry comes from authored `PrintBlock::{Paragraph,List,Row}.indent`
+(`level × step`); style heuristics no longer invent org/role indent.
 
 Use [`PrintBlock::Row`](../src/ir.rs) (`panes`) for meta lines (`\hfill`
 stand-in) instead of two-column tables. Two panes = classic left/right; three

@@ -105,6 +105,9 @@ pub enum PrintBlock {
     Paragraph {
         /// Inline runs.
         runs: Vec<TextRun>,
+        /// Band indent level (0 = content margin). Points = `level × indent_step`.
+        #[serde(default, skip_serializing_if = "u32_is_zero")]
+        indent: u32,
     },
     /// Ordered or bullet list (items already coalesced from Tessera chunks).
     List {
@@ -112,6 +115,9 @@ pub enum PrintBlock {
         ordered: bool,
         /// Top-level items (nested lists via [`ListItem::children`]).
         items: Vec<ListItem>,
+        /// Band indent level (0 = content margin). Nesting uses `list_depth` / depth.
+        #[serde(default, skip_serializing_if = "u32_is_zero")]
+        indent: u32,
     },
     /// Fenced / indented code block.
     Code {
@@ -138,6 +144,9 @@ pub enum PrintBlock {
     Row {
         /// Ordered panes (Tessprek `\row{…}{…}…`).
         panes: Vec<Vec<TextRun>>,
+        /// Band indent level (0 = content margin). Points = `level × indent_step`.
+        #[serde(default, skip_serializing_if = "u32_is_zero")]
+        indent: u32,
     },
     /// Figure with image bytes + optional title + caption.
     Figure {
@@ -205,19 +214,42 @@ pub enum LayoutOp {
     },
 }
 
+fn u32_is_zero(v: &u32) -> bool {
+    *v == 0
+}
+
 impl PrintBlock {
+    /// Body paragraph at indent level 0.
+    #[must_use]
+    pub fn paragraph(runs: Vec<TextRun>) -> Self {
+        Self::Paragraph { runs, indent: 0 }
+    }
+
+    /// Body paragraph at an explicit band indent level.
+    #[must_use]
+    pub fn paragraph_indent(runs: Vec<TextRun>, indent: u32) -> Self {
+        Self::Paragraph { runs, indent }
+    }
+
     /// Two-pane meta row (classic left / right `\hfill`).
     #[must_use]
     pub fn row_two(left: Vec<TextRun>, right: Vec<TextRun>) -> Self {
         Self::Row {
             panes: vec![left, right],
+            indent: 0,
         }
     }
 
     /// N-pane meta row (`panes.len()` ≥ 1).
     #[must_use]
     pub fn row(panes: Vec<Vec<TextRun>>) -> Self {
-        Self::Row { panes }
+        Self::Row { panes, indent: 0 }
+    }
+
+    /// N-pane meta row at an explicit band indent level.
+    #[must_use]
+    pub fn row_indent(panes: Vec<Vec<TextRun>>, indent: u32) -> Self {
+        Self::Row { panes, indent }
     }
 }
 
