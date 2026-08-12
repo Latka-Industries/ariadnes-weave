@@ -214,6 +214,8 @@ pub enum LayoutOp {
     },
 }
 
+// serde `skip_serializing_if` requires `fn(&T) -> bool`.
+#[allow(clippy::trivially_copy_pass_by_ref)]
 fn u32_is_zero(v: &u32) -> bool {
     *v == 0
 }
