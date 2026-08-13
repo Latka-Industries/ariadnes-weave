@@ -21,6 +21,7 @@ fn h1(text: &str) -> PrintBlock {
         level: 1,
         runs: vec![TextRun::plain(text)],
         break_before: BreakHint::None,
+        dest_id: None,
     }
 }
 
@@ -29,6 +30,7 @@ fn h2(text: &str) -> PrintBlock {
         level: 2,
         runs: vec![TextRun::plain(text)],
         break_before: BreakHint::None,
+        dest_id: None,
     }
 }
 

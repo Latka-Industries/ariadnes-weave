@@ -45,6 +45,7 @@ pub(super) fn spans_from_shaped_runs(
     fill: [f32; 3],
     underline: bool,
     link_uri: Option<&str>,
+    link_dest: Option<&str>,
     baseline_shift: f32,
 ) -> Vec<LaidSpan> {
     runs.into_iter()
@@ -55,31 +56,52 @@ pub(super) fn spans_from_shaped_runs(
             fill,
             underline,
             link_uri: link_uri.map(str::to_owned),
+            link_dest: link_dest.map(str::to_owned),
             baseline_shift,
         })
         .collect()
 }
 
+/// Inputs for [`ShapeSpans::run`].
+pub(super) struct ShapeSpans<'a> {
+    pub fonts: &'a FontBag,
+    pub face: FaceRef,
+    pub text: &'a str,
+    pub font_size: f32,
+    pub glyph_sets: &'a mut GlyphSets,
+    pub fill: [f32; 3],
+    pub underline: bool,
+    pub link_uri: Option<&'a str>,
+    pub link_dest: Option<&'a str>,
+    pub baseline_shift: f32,
+}
+
+impl ShapeSpans<'_> {
+    /// Shape with sealed script fallback, record glyphs, return spans + width.
+    pub(super) fn run(self) -> Result<(Vec<LaidSpan>, f32), WeaveError> {
+        let runs = shape_text_with_fallback(self.fonts, self.face, self.text, self.font_size)?;
+        let width = shaped_runs_width(&runs);
+        record_shaped_chunk(self.fonts, self.face, self.text, &runs, self.glyph_sets);
+        Ok((
+            spans_from_shaped_runs(
+                self.font_size,
+                runs,
+                self.fill,
+                self.underline,
+                self.link_uri,
+                self.link_dest,
+                self.baseline_shift,
+            ),
+            width,
+        ))
+    }
+}
+
 /// Shape with sealed script fallback, record glyphs, return spans + width.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn shape_and_record_spans(
-    fonts: &FontBag,
-    face: FaceRef,
-    text: &str,
-    font_size: f32,
-    glyph_sets: &mut GlyphSets,
-    fill: [f32; 3],
-    underline: bool,
-    link_uri: Option<&str>,
-    baseline_shift: f32,
+    args: ShapeSpans<'_>,
 ) -> Result<(Vec<LaidSpan>, f32), WeaveError> {
-    let runs = shape_text_with_fallback(fonts, face, text, font_size)?;
-    let width = shaped_runs_width(&runs);
-    record_shaped_chunk(fonts, face, text, &runs, glyph_sets);
-    Ok((
-        spans_from_shaped_runs(font_size, runs, fill, underline, link_uri, baseline_shift),
-        width,
-    ))
+    args.run()
 }
 
 /// One forced-break boundary plus the items that follow until the next segment.
@@ -99,6 +121,8 @@ pub(super) struct LaidSpan {
     pub underline: bool,
     /// Optional external URI → PDF `/Link` annotation over this span's ink box.
     pub link_uri: Option<String>,
+    /// Optional internal `GoTo` destination id (TOC / outline).
+    pub link_dest: Option<String>,
     /// Raise baseline by this many points (FA icon optical alignment).
     pub baseline_shift: f32,
 }
@@ -117,6 +141,8 @@ pub(super) struct LaidLine {
     pub measure: f32,
     /// In-band text alignment within [`Self::measure`].
     pub text_align: TextAlign,
+    /// Optional internal destination id registered on this line (heading `GoTo` target).
+    pub dest_id: Option<String>,
 }
 
 impl LaidLine {
@@ -134,6 +160,7 @@ impl LaidLine {
             indent: 0.0,
             measure: 0.0,
             text_align: TextAlign::Left,
+            dest_id: None,
         }
     }
 
@@ -146,6 +173,7 @@ impl LaidLine {
             indent: 0.0,
             measure,
             text_align: TextAlign::Left,
+            dest_id: None,
         }
     }
 
@@ -166,9 +194,18 @@ impl LaidLine {
         glyph_sets: &mut GlyphSets,
         fill: [f32; 3],
     ) -> Result<Self, WeaveError> {
-        let (spans, _) = shape_and_record_spans(
-            fonts, face, text, font_size, glyph_sets, fill, false, None, 0.0,
-        )?;
+        let (spans, _) = shape_and_record_spans(ShapeSpans {
+            fonts,
+            face,
+            text,
+            font_size,
+            glyph_sets,
+            fill,
+            underline: false,
+            link_uri: None,
+            link_dest: None,
+            baseline_shift: 0.0,
+        })?;
         Ok(Self {
             spans,
             leading,
@@ -176,6 +213,7 @@ impl LaidLine {
             indent: 0.0,
             measure: 0.0,
             text_align: TextAlign::Left,
+            dest_id: None,
         })
     }
 

@@ -100,6 +100,9 @@ pub enum PrintBlock {
         runs: Vec<TextRun>,
         /// Break preference before this heading.
         break_before: BreakHint,
+        /// Optional internal destination id (TOC / outline `GoTo`; THI-390/393).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dest_id: Option<String>,
     },
     /// Body paragraph.
     Paragraph {
@@ -135,6 +138,9 @@ pub enum PrintBlock {
     Table {
         /// Row-major cells.
         rows: Vec<TableRow>,
+        /// Optional internal destination id (list-of-tables `GoTo`; THI-395).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dest_id: Option<String>,
     },
     /// Meta row without a table grid (LaTeX `\hfill` stand-in).
     ///
@@ -147,6 +153,29 @@ pub enum PrintBlock {
         /// Band indent level (0 = content margin). Points = `level × indent_step`.
         #[serde(default, skip_serializing_if = "u32_is_zero")]
         indent: u32,
+    },
+    /// Table-of-contents line: title (+ optional section prefix in runs),
+    /// optional dotted leaders, optional page digits, optional `GoTo` dest (THI-390).
+    ///
+    /// When [`Self::TocEntry::page_label`] is `None` and `dest_id` is set, emit
+    /// resolves the page number after a layout pass. Page digits are flush-right
+    /// in a reserved slot so multi-digit pages share one column edge.
+    TocEntry {
+        /// Title runs (may include section number prefix).
+        title: Vec<TextRun>,
+        /// Page digits when known; `None` → resolve from `dest_id` when possible.
+        /// `Some("")` omits the page column.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        page_label: Option<String>,
+        /// Internal destination matching a heading / figure / table `dest_id`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dest_id: Option<String>,
+        /// Band indent level (0 = content margin). Nesting ≈ heading depth − 1.
+        #[serde(default, skip_serializing_if = "u32_is_zero")]
+        indent: u32,
+        /// Fill the gap between title and page with `.` leaders (default true).
+        #[serde(default = "default_true", skip_serializing_if = "is_true")]
+        leaders: bool,
     },
     /// Figure with image bytes + optional title + caption.
     Figure {
@@ -162,6 +191,9 @@ pub enum PrintBlock {
         caption: Vec<TextRun>,
         /// Placement hint.
         placement: FigurePlacement,
+        /// Optional internal destination id (list-of-figures `GoTo`; THI-395).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dest_id: Option<String>,
     },
     /// Math (LaTeX source; structured layout for `\frac` / scripts / display
     /// ∑∏ limits / matrices).
@@ -185,6 +217,21 @@ pub enum PrintBlock {
     Layout {
         /// Ordered layout ops in reading order.
         ops: Vec<LayoutOp>,
+    },
+    /// Continuous multi-column body flow (newspaper/article; THI-391).
+    ///
+    /// Distinct from [`Self::Row`] (meta hfill panes) and slide `two-column`.
+    /// Children flow down column 1, then 2… then the next page. Headings,
+    /// figures, tables, math, slides, layout ops, breaks, rows, TOC lines, and
+    /// nested columns **span** full measure (flush the current column band).
+    Columns {
+        /// Column count (clamped to 2..=6 at layout).
+        count: u8,
+        /// Gap between columns in points; `None` → knobs `[body_columns].gap`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        gap: Option<u16>,
+        /// Nested body blocks in reading order.
+        children: Vec<PrintBlock>,
     },
     /// Explicit author/export break (e.g. chapter boundary).
     Break(BreakHint),
@@ -220,6 +267,15 @@ fn u32_is_zero(v: &u32) -> bool {
     *v == 0
 }
 
+fn default_true() -> bool {
+    true
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_true(v: &bool) -> bool {
+    *v
+}
+
 impl PrintBlock {
     /// Body paragraph at indent level 0.
     #[must_use]
@@ -252,6 +308,129 @@ impl PrintBlock {
     #[must_use]
     pub fn row_indent(panes: Vec<Vec<TextRun>>, indent: u32) -> Self {
         Self::Row { panes, indent }
+    }
+
+    /// TOC line with optional page label, leaders, and internal dest.
+    #[must_use]
+    pub fn toc_entry(
+        title: Vec<TextRun>,
+        page_label: Option<String>,
+        dest_id: Option<String>,
+        indent: u32,
+    ) -> Self {
+        Self::toc_entry_leaders(title, page_label, dest_id, indent, true)
+    }
+
+    /// TOC line with explicit leaders on/off.
+    #[must_use]
+    pub fn toc_entry_leaders(
+        title: Vec<TextRun>,
+        page_label: Option<String>,
+        dest_id: Option<String>,
+        indent: u32,
+        leaders: bool,
+    ) -> Self {
+        Self::TocEntry {
+            title,
+            page_label,
+            dest_id,
+            indent,
+            leaders,
+        }
+    }
+
+    /// Heading with optional internal destination id.
+    #[must_use]
+    pub fn heading(level: u8, runs: Vec<TextRun>, break_before: BreakHint) -> Self {
+        Self::Heading {
+            level,
+            runs,
+            break_before,
+            dest_id: None,
+        }
+    }
+
+    /// Heading that registers an internal destination for TOC / outline.
+    #[must_use]
+    pub fn heading_dest(
+        level: u8,
+        runs: Vec<TextRun>,
+        break_before: BreakHint,
+        dest_id: impl Into<String>,
+    ) -> Self {
+        Self::Heading {
+            level,
+            runs,
+            break_before,
+            dest_id: Some(dest_id.into()),
+        }
+    }
+
+    /// Table without an internal destination.
+    #[must_use]
+    pub fn table(rows: Vec<TableRow>) -> Self {
+        Self::Table {
+            rows,
+            dest_id: None,
+        }
+    }
+
+    /// Table that registers an internal destination for list-of-tables.
+    #[must_use]
+    pub fn table_dest(rows: Vec<TableRow>, dest_id: impl Into<String>) -> Self {
+        Self::Table {
+            rows,
+            dest_id: Some(dest_id.into()),
+        }
+    }
+
+    /// Figure without an internal destination.
+    #[must_use]
+    pub fn figure(
+        image: PrintImage,
+        alt: impl Into<String>,
+        title: Vec<TextRun>,
+        caption: Vec<TextRun>,
+        placement: FigurePlacement,
+    ) -> Self {
+        Self::Figure {
+            image,
+            alt: alt.into(),
+            title,
+            caption,
+            placement,
+            dest_id: None,
+        }
+    }
+
+    /// Figure that registers an internal destination for list-of-figures.
+    #[must_use]
+    pub fn figure_dest(
+        image: PrintImage,
+        alt: impl Into<String>,
+        title: Vec<TextRun>,
+        caption: Vec<TextRun>,
+        placement: FigurePlacement,
+        dest_id: impl Into<String>,
+    ) -> Self {
+        Self::Figure {
+            image,
+            alt: alt.into(),
+            title,
+            caption,
+            placement,
+            dest_id: Some(dest_id.into()),
+        }
+    }
+
+    /// Multi-column body region (THI-391).
+    #[must_use]
+    pub fn columns(count: u8, gap: Option<u16>, children: Vec<Self>) -> Self {
+        Self::Columns {
+            count,
+            gap,
+            children,
+        }
     }
 }
 

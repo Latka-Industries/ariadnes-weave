@@ -1,6 +1,8 @@
 //! Turn print IR blocks into laid segments, images, and glyph sets.
 
+mod columns;
 mod figure;
+mod hyphen;
 mod ops;
 mod prose;
 mod runs;
@@ -17,9 +19,13 @@ use crate::profile::ProfileMetrics;
 use super::math::layout_math;
 use super::types::{ForcedBreak, GlyphSets, LaidItem, LayoutDoc, LayoutSegment, PaintCategory};
 
+use columns::{LayoutColumnsArgs, layout_columns};
 use figure::PushFigureArgs;
 use ops::layout_layout_ops;
-use prose::{layout_code, layout_heading, layout_quote, push_list_lines, push_row};
+use prose::{
+    TocEntryParts, layout_code, layout_heading, layout_quote, push_list_lines, push_row,
+    push_toc_entry,
+};
 use runs::{body_layout, layout_ctx, push_styled_runs};
 use slide::layout_slide;
 use table::push_table;
@@ -76,10 +82,37 @@ fn layout_block(
             level,
             runs,
             break_before,
+            dest_id,
         } => {
             let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
-            layout_heading(*level, runs, *break_before, &mut ctx, segments)?;
+            layout_heading(
+                *level,
+                runs,
+                *break_before,
+                dest_id.as_deref(),
+                &mut ctx,
+                segments,
+            )?;
         }
+        PrintBlock::TocEntry {
+            title,
+            page_label,
+            dest_id,
+            indent,
+            leaders,
+        } => PushTocEntryArgs {
+            title,
+            page_label: page_label.as_deref(),
+            dest_id: dest_id.as_deref(),
+            indent: *indent,
+            leaders: *leaders,
+            metrics,
+            fonts,
+            knobs,
+            segments,
+            glyph_sets,
+        }
+        .run()?,
         PrintBlock::Paragraph { runs, indent } => {
             let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
             let seg = segments.last_mut().expect("segment");
@@ -108,10 +141,27 @@ fn layout_block(
             let seg = segments.last_mut().expect("segment");
             push_list_lines(&mut seg.1, *ordered, items, *indent, 0, &mut ctx)?;
         }
-        PrintBlock::Table { rows } => {
+        other => {
+            layout_structure_block(other, metrics, fonts, knobs, segments, images, glyph_sets)?
+        }
+    }
+    Ok(())
+}
+
+fn layout_structure_block(
+    block: &PrintBlock,
+    metrics: &ProfileMetrics,
+    fonts: &FontBag,
+    knobs: &LayoutKnobs,
+    segments: &mut Vec<LayoutSegment>,
+    images: &mut Vec<PreparedImage>,
+    glyph_sets: &mut GlyphSets,
+) -> Result<(), WeaveError> {
+    match block {
+        PrintBlock::Table { rows, dest_id } => {
             let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
             let seg = segments.last_mut().expect("segment");
-            push_table(&mut seg.1, rows, &mut ctx)?;
+            push_table(&mut seg.1, rows, dest_id.as_deref(), &mut ctx)?;
         }
         PrintBlock::Row { panes, indent } => {
             let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
@@ -124,22 +174,22 @@ fn layout_block(
             title,
             caption,
             placement,
-        } => {
-            PushFigureArgs {
-                segments,
-                images,
-                image,
-                alt,
-                title,
-                caption,
-                placement: *placement,
-                metrics,
-                fonts,
-                knobs,
-                glyph_sets,
-            }
-            .run()?;
+            dest_id,
+        } => PushFigureArgs {
+            segments,
+            images,
+            image,
+            alt,
+            title,
+            caption,
+            placement: *placement,
+            dest_id: dest_id.as_deref(),
+            metrics,
+            fonts,
+            knobs,
+            glyph_sets,
         }
+        .run()?,
         PrintBlock::Math { display, latex } => {
             layout_math(
                 *display,
@@ -159,8 +209,56 @@ fn layout_block(
             let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
             layout_layout_ops(ops, &mut ctx, segments)?;
         }
+        PrintBlock::Columns {
+            count,
+            gap,
+            children,
+        } => layout_columns(LayoutColumnsArgs {
+            count: *count,
+            gap: *gap,
+            children,
+            metrics,
+            fonts,
+            knobs,
+            segments,
+            images,
+            glyph_sets,
+        })?,
+        _ => unreachable!("text-like blocks handled in layout_block"),
     }
     Ok(())
+}
+
+/// Inputs for laying out a [`PrintBlock::TocEntry`].
+struct PushTocEntryArgs<'a> {
+    title: &'a [crate::ir::TextRun],
+    page_label: Option<&'a str>,
+    dest_id: Option<&'a str>,
+    indent: u32,
+    leaders: bool,
+    metrics: &'a ProfileMetrics,
+    fonts: &'a FontBag,
+    knobs: &'a LayoutKnobs,
+    segments: &'a mut [LayoutSegment],
+    glyph_sets: &'a mut GlyphSets,
+}
+
+impl PushTocEntryArgs<'_> {
+    fn run(self) -> Result<(), WeaveError> {
+        let mut ctx = layout_ctx(self.metrics, self.fonts, self.knobs, self.glyph_sets);
+        let seg = self.segments.last_mut().expect("segment");
+        push_toc_entry(
+            &mut seg.1,
+            TocEntryParts {
+                title: self.title,
+                page_label: self.page_label,
+                dest_id: self.dest_id,
+                indent: self.indent,
+                leaders: self.leaders,
+            },
+            &mut ctx,
+        )
+    }
 }
 
 fn segment_has_content(segments: &[LayoutSegment]) -> bool {
@@ -176,10 +274,12 @@ fn block_name(block: &PrintBlock) -> &'static str {
         PrintBlock::Quote { .. } => "quote",
         PrintBlock::Table { .. } => "table",
         PrintBlock::Row { .. } => "row",
+        PrintBlock::TocEntry { .. } => "toc_entry",
         PrintBlock::Figure { .. } => "figure",
         PrintBlock::Math { .. } => "math",
         PrintBlock::Slide { .. } => "slide",
         PrintBlock::Layout { .. } => "layout",
+        PrintBlock::Columns { .. } => "columns",
         PrintBlock::Break(_) => "break",
     }
 }

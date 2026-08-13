@@ -8,7 +8,7 @@ Emit uses named optical defaults from per-category TOML files under `defaults/`:
 | `table.toml` | table | Cell padding, leading, and block gap |
 | `deck.toml` | deck | Slide title/subtitle/body scales and column gaps |
 | `math.toml` | math | Fractions, scripts, big-op limits, matrices, arrows, display gaps |
-| `page.toml` | page | Footer size/position, bottom clearance, math stroke gray |
+| `page.toml` | page | Footer/header format+align, clearance, math stroke gray |
 
 Profiles (`print@0`, `deck@0`, …) still own page size, margins, and body font size. Knobs are the hard-coded paddings, gaps, and scale factors inside emit.
 
@@ -112,6 +112,41 @@ Omit these keys to keep Liberation style mapping (bundled `defaults/prose.toml` 
 **Precedence:** explicit `TextRun.face` wins. When `face` is unset, cite pin wins if `InlineStyle.cite`; else the mutually exclusive layout category (`heading` / `quote` / `caption` / `text`). Unknown ids use the same `unknown pinned face` error as an explicit pin. Category pins do not inherit across sections (unlike colors).
 
 First cut defers table / code / math / deck and per-level `heading.1` / `heading.2`.
+
+## Soft wrap (`[wrap]` in `defaults/prose.toml`)
+
+| Key | Meaning |
+|-----|---------|
+| `body_leading_factor` | Leading factor for generic body runs (deck slides, etc.) |
+| `min_width` | Floor on wrap measure (points) |
+| `hyphenate` | Soft-hyphenate pure ASCII letter words when they do not fit (`true` bundled; `resume@0` densify forces off) |
+| `orphan_lines` | Min content lines kept together at paragraph start (bundled `2`; values below 1 → `1`) |
+| `widow_lines` | Min content lines kept together at paragraph end (bundled `2`; values below 1 → `1`) |
+
+Hyphenation is conservative ASCII-first (no dictionary crate): words shorter than 5 letters, URLs / paths (`://`, `/`, `:`, `@`, `.`), digits, and non-ASCII letters are skipped. Valid splits keep ≥2 letters before the hyphen and ≥3 after; the engine picks the longest `prefix-` that fits the remaining measure.
+
+## Page chrome (`defaults/page.toml`)
+
+Optional running header + page-number footer (THI-392). Tokens in `format`:
+
+| Token | Meaning |
+|-------|---------|
+| `{page}` | 1-based page index |
+| `{pages}` | total page count |
+| `{title}` | `PrintMeta.title` (empty if unset) |
+
+`{heading}` / live section titles are deferred (need layout tracking).
+
+| Key | Meaning |
+|-----|---------|
+| `[footer].enabled` | Draw footer (bundled `true`; `resume@0` densify forces off) |
+| `[footer].format` | Template (bundled `"{page} / {pages}"`) |
+| `[footer].align` | `left` / `center` / `right` (bundled `center`) |
+| `[footer].font_size` / `y_margin_factor` | Size + baseline as a fraction of bottom margin |
+| `[header].*` | Same shape; bundled `enabled = false`, `align = left`, `format = "{title}"` |
+| `[content].bottom_clearance` | Reserve above bottom margin when footer is on |
+| `[content].top_clearance` | Reserve below top margin when header is on |
+| `[chrome].stroke_gray` / `fill_gray` | Rules + math chrome gray |
 
 ## Defaults and overrides
 

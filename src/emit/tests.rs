@@ -41,6 +41,7 @@ fn hello_doc() -> PrintDocument {
                     link_uri: None,
                 }],
                 break_before: BreakHint::None,
+                dest_id: None,
             },
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain(
@@ -95,13 +96,13 @@ fn figure_block(
     caption: impl Into<String>,
     placement: FigurePlacement,
 ) -> PrintBlock {
-    PrintBlock::Figure {
+    PrintBlock::figure(
         image,
-        alt: "swatch".into(),
-        title: Vec::new(),
-        caption: vec![TextRun::plain(caption)],
+        "swatch",
+        Vec::new(),
+        vec![TextRun::plain(caption)],
         placement,
-    }
+    )
 }
 
 fn figure_with_caption(caption: impl Into<String>, placement: FigurePlacement) -> PrintBlock {
@@ -119,6 +120,70 @@ fn emits_pdf_magic() {
     let bytes = emit_pdf(&hello_doc()).expect("emit");
     assert!(bytes.starts_with(b"%PDF-"));
     assert!(bytes.windows(5).any(|w| w == b"%%EOF"));
+}
+
+#[test]
+fn page_chrome_format_and_header_affect_emit() {
+    let doc = hello_doc();
+    let baseline = emit_pdf(&doc).expect("baseline");
+    let custom = emit_with_layout_tweak(&doc, |layout| {
+        layout.page.footer.format = "p.{page}".into();
+        layout.page.header.enabled = true;
+        layout.page.header.format = "{title}".into();
+        layout.page.content.top_clearance = 18.0;
+    });
+    assert!(custom.starts_with(b"%PDF-"));
+    assert_ne!(baseline, custom);
+    write_tmp_sample("page_chrome.pdf", &custom);
+}
+
+#[test]
+fn resume_densify_disables_page_chrome() {
+    let mut doc = hello_doc();
+    doc.profile = PrintProfileId::resume_v0();
+    let with_chrome_request = emit_with_layout_tweak(&doc, |layout| {
+        layout.page.footer.enabled = true;
+        layout.page.header.enabled = true;
+        layout.page.header.format = "{title}".into();
+    });
+    let muted = emit_with_layout_tweak(&doc, |layout| {
+        layout.page.footer.enabled = false;
+        layout.page.header.enabled = false;
+    });
+    // densify_resume wins over pack-enabled chrome.
+    assert_eq!(with_chrome_request, muted);
+}
+
+#[test]
+fn hyphenate_changes_narrow_emit() {
+    let long = "internationalization decentralization telecommunications \
+         supercalifragilisticexpialidocious electroencephalographically";
+    let doc = note_doc(
+        "Hyphen",
+        vec![PrintBlock::Paragraph {
+            runs: vec![TextRun::plain(long)],
+            indent: 6,
+        }],
+    );
+    let on = emit_with_layout_tweak(&doc, |layout| {
+        layout.prose.indent.step = 50.0;
+        layout.prose.wrap.hyphenate = true;
+    });
+    let off = emit_with_layout_tweak(&doc, |layout| {
+        layout.prose.indent.step = 50.0;
+        layout.prose.wrap.hyphenate = false;
+    });
+    assert_ne!(on, off);
+    write_tmp_sample("hyphen_on.pdf", &on);
+    write_tmp_sample("hyphen_off.pdf", &off);
+}
+
+#[test]
+fn densify_resume_disables_hyphenate() {
+    let mut layout = LayoutKnobs::bundled();
+    assert!(layout.prose.wrap.hyphenate);
+    layout.densify_resume();
+    assert!(!layout.prose.wrap.hyphenate);
 }
 
 #[test]
@@ -225,6 +290,7 @@ fn category_heading_font_pin_without_run_face() {
             level: 1,
             runs: vec![TextRun::plain("Display heading")],
             break_before: BreakHint::None,
+            dest_id: None,
         }],
     };
     let bytes = emit_pdf_with(&doc, &opts).expect("emit category heading font");
@@ -257,6 +323,7 @@ fn explicit_run_face_wins_over_category_font() {
             level: 1,
             runs: vec![TextRun::pinned("Explicit other", "other")],
             break_before: BreakHint::None,
+            dest_id: None,
         }],
     };
     let category_only = {
@@ -280,6 +347,7 @@ fn explicit_run_face_wins_over_category_font() {
                 level: 1,
                 runs: vec![TextRun::plain("Explicit other")],
                 break_before: BreakHint::None,
+                dest_id: None,
             }],
         };
         emit_pdf_with(&doc, &opts).expect("category only")
@@ -529,6 +597,7 @@ fn table_draws_grid_paths() {
                     cells: vec!["alpha".into(), "1".into()],
                 },
             ],
+            dest_id: None,
         }],
     };
     let bytes = emit_pdf(&doc).expect("emit");
@@ -907,6 +976,7 @@ fn figure_gap_after_title_affects_emit() {
             title: vec![TextRun::plain("Title")],
             caption: vec![TextRun::plain("Cap")],
             placement: FigurePlacement::Flow,
+            dest_id: None,
         }],
     );
     let tight = emit_with_layout_tweak(&doc, |l| l.prose.figure.gap_after_title = 0.0);
@@ -932,6 +1002,7 @@ fn figure_title_align_and_caption_band_affect_emit() {
                 "Caption under a mid-width image for band checks.",
             )],
             placement: FigurePlacement::Flow,
+            dest_id: None,
         }],
     );
 
@@ -1010,6 +1081,7 @@ fn caption_and_title_justify_affect_emit() {
                  stretch inter-word gaps under justify while the last line stays left.",
             )],
             placement: FigurePlacement::Flow,
+            dest_id: None,
         }],
     );
 
@@ -1078,15 +1150,19 @@ fn caption_overflow_soft_only_differs_from_hard_break() {
             title: Vec::new(),
             caption: vec![TextRun::plain(long)],
             placement: FigurePlacement::Flow,
+            dest_id: None,
         }],
     );
 
     let hard = emit_with_layout_tweak(&doc, |layout| {
         layout.prose.figure.max_width_factor = 0.2;
+        // Isolate overflow policy from soft hyphenation (THI-394).
+        layout.prose.wrap.hyphenate = false;
         layout.prose.caption.overflow = CaptionOverflow::HardBreak;
     });
     let soft = emit_with_layout_tweak(&doc, |layout| {
         layout.prose.figure.max_width_factor = 0.2;
+        layout.prose.wrap.hyphenate = false;
         layout.prose.caption.overflow = CaptionOverflow::SoftOnly;
     });
     assert_ne!(
@@ -1214,6 +1290,7 @@ fn figure_png_embeds_xobject() {
                 level: 1,
                 runs: vec![TextRun::plain("With figure")],
                 break_before: BreakHint::None,
+                dest_id: None,
             },
             figure_with_caption("A tiny PNG.", FigurePlacement::Flow),
         ],
@@ -1697,6 +1774,180 @@ fn layout_empty_rule_width_errors() {
     };
     let err = emit_pdf(&doc).expect_err("empty rule");
     assert!(matches!(err, WeaveError::EmptyRuleWidth));
+}
+
+#[test]
+fn toc_entry_emits_goto_annotation() {
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "TOC".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![
+            PrintBlock::toc_entry(
+                vec![TextRun::plain("1. Intro")],
+                None,
+                Some("sec-intro".into()),
+                0,
+            ),
+            PrintBlock::Break(BreakHint::PageAlways),
+            PrintBlock::heading_dest(
+                1,
+                vec![TextRun::plain("Intro")],
+                BreakHint::None,
+                "sec-intro",
+            ),
+            PrintBlock::Paragraph {
+                runs: vec![TextRun::plain("Body after the heading.")],
+                indent: 0,
+            },
+        ],
+    };
+    let pdf = emit_pdf(&doc).expect("toc pdf");
+    let hay = String::from_utf8_lossy(&pdf);
+    assert!(
+        hay.contains("/GoTo") || hay.contains("/S /GoTo"),
+        "expected GoTo action for TocEntry dest: {hay}"
+    );
+    // Resolved page label should appear as digit "2" (heading after page break).
+    assert!(pdf.starts_with(b"%PDF-"));
+}
+
+#[test]
+fn headings_emit_pdf_outline_bookmarks() {
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "Outline".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![
+            PrintBlock::heading_dest(
+                1,
+                vec![TextRun::plain("Chapter One")],
+                BreakHint::None,
+                "ch1",
+            ),
+            PrintBlock::Paragraph {
+                runs: vec![TextRun::plain("Intro body.")],
+                indent: 0,
+            },
+            PrintBlock::heading_dest(
+                2,
+                vec![TextRun::plain("Section A")],
+                BreakHint::None,
+                "ch1a",
+            ),
+            PrintBlock::Break(BreakHint::PageAlways),
+            PrintBlock::heading_dest(
+                1,
+                vec![TextRun::plain("Chapter Two")],
+                BreakHint::None,
+                "ch2",
+            ),
+            PrintBlock::Paragraph {
+                runs: vec![TextRun::plain("More body.")],
+                indent: 0,
+            },
+        ],
+    };
+    let pdf = emit_pdf(&doc).expect("outline pdf");
+    let hay = String::from_utf8_lossy(&pdf);
+    assert!(
+        hay.contains("/Outlines"),
+        "catalog should link Outlines: {hay}"
+    );
+    assert!(hay.contains("/Title"), "outline items need titles");
+    assert!(
+        hay.contains("Chapter One") && hay.contains("Section A") && hay.contains("Chapter Two"),
+        "outline titles missing: {hay}"
+    );
+    assert!(pdf.starts_with(b"%PDF-"));
+}
+
+#[test]
+fn body_columns_flow_emits_pdf() {
+    let para = |s: &str| PrintBlock::paragraph(vec![TextRun::plain(s)]);
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "Columns".into(),
+            doc_kind: "document".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![
+            PrintBlock::heading(1, vec![TextRun::plain("Lead")], BreakHint::None),
+            PrintBlock::columns(
+                2,
+                Some(14),
+                vec![
+                    para(
+                        "Alpha column flow paragraph with enough words to wrap inside a narrow measure for newspaper style layout.",
+                    ),
+                    para(
+                        "Bravo continues the article body so the second column receives text after the first column fills.",
+                    ),
+                    para(
+                        "Charlie adds still more prose to force a taller column band on the page.",
+                    ),
+                ],
+            ),
+            PrintBlock::heading(2, vec![TextRun::plain("Spanning")], BreakHint::None),
+            PrintBlock::columns(
+                2,
+                None,
+                vec![para(
+                    "Delta resumes two-column flow after a full-width heading span.",
+                )],
+            ),
+        ],
+    };
+    let pdf = emit_pdf(&doc).expect("columns pdf");
+    assert!(pdf.starts_with(b"%PDF-"));
+    assert!(pdf.len() > 2_000, "expected non-trivial PDF");
+}
+
+#[test]
+fn body_columns_justify_paint_differs_from_left() {
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "Justify cols".into(),
+            doc_kind: "document".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::columns(
+            2,
+            Some(12),
+            vec![
+                PrintBlock::paragraph(vec![TextRun::plain(
+                    "Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor \
+                     incididunt ut labore et dolore magna aliqua ut enim ad minim veniam quis nostrud.",
+                )]),
+                PrintBlock::paragraph(vec![TextRun::plain(
+                    "Curabitur pretium tincidunt lacus nulla gravida orci a odio nullam varius turpis \
+                     et commodo pharetra est eros bibendum elit nec luctus magna felis sollicitudin.",
+                )]),
+            ],
+        )],
+    };
+    let left = emit_with_layout_tweak(&doc, |layout| {
+        layout.prose.paragraph.text_align = TextAlign::Left;
+    });
+    let justify = emit_with_layout_tweak(&doc, |layout| {
+        layout.prose.paragraph.text_align = TextAlign::Justify;
+    });
+    assert_ne!(
+        left, justify,
+        "column paint must word-justify when paragraph text_align is justify"
+    );
 }
 
 #[test]

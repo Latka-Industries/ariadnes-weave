@@ -47,13 +47,13 @@ fn para(text: &str) -> PrintBlock {
 }
 
 fn figure(title: &str, caption: &str, placement: FigurePlacement) -> PrintBlock {
-    PrintBlock::Figure {
-        image: shared_image(),
-        alt: "swatch".into(),
-        title: vec![TextRun::strong(title)],
-        caption: vec![TextRun::plain(caption)],
+    PrintBlock::figure(
+        shared_image(),
+        "swatch",
+        vec![TextRun::strong(title)],
+        vec![TextRun::plain(caption)],
         placement,
-    }
+    )
 }
 
 fn filler(n: usize) -> PrintBlock {

@@ -20,6 +20,7 @@ fn hello_doc() -> PrintDocument {
                 level: 1,
                 runs: vec![TextRun::plain("Hello, ariadnes-weave")],
                 break_before: BreakHint::None,
+                dest_id: None,
             },
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain(
@@ -45,6 +46,7 @@ fn quadratic_formula_doc() -> PrintDocument {
                 level: 1,
                 runs: vec![TextRun::plain("Quadratic formula")],
                 break_before: BreakHint::None,
+                dest_id: None,
             },
             PrintBlock::Math {
                 display: true,
@@ -69,6 +71,7 @@ fn sum_limits_doc() -> PrintDocument {
                 level: 1,
                 runs: vec![TextRun::plain("Sum with limits")],
                 break_before: BreakHint::None,
+                dest_id: None,
             },
             PrintBlock::Math {
                 display: true,
@@ -135,6 +138,7 @@ fn manuscript_two_chapters() -> PrintDocument {
                 level: 1,
                 runs: vec![TextRun::plain("Chapter One")],
                 break_before: BreakHint::None,
+                dest_id: None,
             },
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain("Body of chapter one.")],
@@ -144,6 +148,7 @@ fn manuscript_two_chapters() -> PrintDocument {
                 level: 1,
                 runs: vec![TextRun::plain("Chapter Two")],
                 break_before: BreakHint::None,
+                dest_id: None,
             },
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain("Body of chapter two.")],
@@ -190,22 +195,22 @@ fn page_dict_count(pdf: &[u8]) -> usize {
 
 /// Pin: bump intentionally when emit layout/fonts/version (PDF Producer) change.
 const HELLO_PRINT_V0_SHA256: &str =
-    "5710f83f14539a5d099c77d8e166850aeee8e3566e480ba8a334922beb7ed34e";
+    "ec4a2e22c41100485035ef9831fffc3ef9a0d7c70973ff31922fa11510b571fc";
 
 /// Pin: bump intentionally when manuscript literary layout/fonts/version change.
 const MANUSCRIPT_TWO_CHAPTER_SHA256: &str =
-    "d479cfeb4ef8e6753cfe42efa593453d759285a999c7668b838aeb7a2928821d";
+    "5dfcae3276c1703b63e05c23278b88d7f04fd468b8464258b2a773643ea7d7d7";
 
 /// Pin: bump intentionally when math box layout/version change.
 const QUADRATIC_FORMULA_SHA256: &str =
-    "4c621654267a69f2082376441ae5ff6c8940b93168f87a149b1c3fc5fa6dac9b";
+    "7a6a3ea4f9a890a900d3056116f7ed84cd64735f1cc2160a6c641b3ac4037a0e";
 
 /// Pin: bump intentionally when display ∑/∏ under/over limit layout changes.
-const SUM_LIMITS_SHA256: &str = "63edd63eae602226f63355419d0532ae573986bc7dfa46f047feace0d8883c47";
+const SUM_LIMITS_SHA256: &str = "0ca7f6527e021d628c06de813c4fd4f46f84855fbacd7d3c160ab9b22eeb9290";
 
 /// Pin: bump intentionally when layout place/vspace/rule paint changes.
 const LAYOUT_PLACE_FLUSH_SHA256: &str =
-    "ae3483303ee66b3d9e2de5f406322d776795dc0a7abda4707b260188ebdc327b";
+    "08c2bc6a1f8d62266daa6638e8dd9381f59041d3c5106ca98bc4ce3f09ab527b";
 
 #[test]
 fn emit_is_byte_identical_across_runs() {

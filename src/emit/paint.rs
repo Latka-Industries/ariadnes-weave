@@ -6,33 +6,54 @@ use pdf_writer::{Content, Name, Str};
 
 use crate::error::WeaveError;
 use crate::font::{FaceId, FaceRef, FontBag, encode_gids, shape_text, shaped_width};
-use crate::knobs::{FigureAlign, LayoutKnobs, TextAlign};
+use crate::knobs::{FigureAlign, LayoutKnobs, PageChromeBand, TextAlign};
 use crate::profile::ProfileMetrics;
 
 use super::math::paint_math;
 use super::types::{LaidColumns, LaidItem, LaidLine, LaidSpan, LaidTable, SubsetMap};
 
-/// Clickable URI box collected while painting a page (PDF user space).
+/// Clickable box collected while painting a page (PDF user space).
 #[derive(Debug, Clone)]
 pub(super) struct PageLink {
-    pub uri: String,
+    pub target: PageLinkTarget,
     pub x0: f32,
     pub y0: f32,
     pub x1: f32,
     pub y1: f32,
 }
 
+/// URI external link or internal `GoTo` destination id.
+#[derive(Debug, Clone)]
+pub(super) enum PageLinkTarget {
+    Uri(String),
+    Dest { id: String },
+}
+
 fn link_rect_for_span(origin_x: f32, baseline_y: f32, span: &LaidSpan) -> Option<PageLink> {
-    let uri = span.link_uri.as_ref()?;
+    let target = if let Some(uri) = span.link_uri.as_ref() {
+        if uri.is_empty() {
+            None
+        } else {
+            Some(PageLinkTarget::Uri(uri.clone()))
+        }
+    } else if let Some(id) = span.link_dest.as_ref() {
+        if id.is_empty() {
+            None
+        } else {
+            Some(PageLinkTarget::Dest { id: id.clone() })
+        }
+    } else {
+        None
+    }?;
     let width = shaped_width(&span.glyphs);
-    if width <= 0.0 || uri.is_empty() {
+    if width <= 0.0 {
         return None;
     }
     let y = baseline_y + span.baseline_shift;
     // Ink box around the baseline (generous hit target for icons).
     let pad = span.font_size * 0.15;
     Some(PageLink {
-        uri: uri.clone(),
+        target,
         x0: origin_x - pad * 0.25,
         y0: y - span.font_size * 0.25 - pad,
         x1: origin_x + width + pad * 0.25,
@@ -307,144 +328,200 @@ pub(super) fn image_resource_name(idx: usize) -> Vec<u8> {
     format!("Im{idx}").into_bytes()
 }
 
-/// Paint one page's items top-down and append a centered page-number footer.
+/// Paint one page's items top-down and append optional header/footer chrome.
 ///
 /// Returns content bytes plus URI link boxes for `/Annots`.
 ///
 /// # Errors
 ///
-/// Returns [`WeaveError::Font`] if footer shaping fails.
-pub(super) fn build_page_content(
-    items: &[LaidItem],
-    metrics: &ProfileMetrics,
-    page_no: usize,
-    page_count: usize,
-    fonts: &FontBag,
-    subsets: &SubsetMap,
-    knobs: &LayoutKnobs,
-) -> Result<(Vec<u8>, Vec<PageLink>), WeaveError> {
-    let mut content = Content::new();
-    let mut links = Vec::new();
-    let mut y = metrics.page_h - metrics.margin;
-    let bottom_limit = metrics.margin + knobs.page.content.bottom_clearance;
-
-    for item in items {
-        if !paint_page_item(
-            &mut content,
-            &mut links,
-            item,
-            &mut y,
-            bottom_limit,
-            metrics,
-            fonts,
-            knobs,
-        ) {
-            break;
-        }
-    }
-
-    if knobs.page.footer.enabled {
-        paint_page_footer(
-            &mut content,
-            metrics,
-            page_no,
-            page_count,
-            fonts,
-            subsets,
-            knobs,
-        )?;
-    }
-    Ok((content.finish().into_vec(), links))
+/// Returns [`WeaveError::Font`] if chrome shaping fails.
+pub(super) struct BuildPageContent<'a> {
+    pub items: &'a [LaidItem],
+    pub metrics: &'a ProfileMetrics,
+    pub page_no: usize,
+    pub page_count: usize,
+    pub title: &'a str,
+    pub fonts: &'a FontBag,
+    pub subsets: &'a SubsetMap,
+    pub knobs: &'a LayoutKnobs,
 }
 
-/// Paint one laid item; returns `false` when the cursor is below `bottom_limit`.
-#[allow(clippy::too_many_arguments)]
-fn paint_page_item(
-    content: &mut Content,
-    links: &mut Vec<PageLink>,
-    item: &LaidItem,
-    y: &mut f32,
-    bottom_limit: f32,
-    metrics: &ProfileMetrics,
-    fonts: &FontBag,
-    knobs: &LayoutKnobs,
-) -> bool {
-    match item {
-        LaidItem::Text(line) => {
-            paint_text_item(content, links, line, y, bottom_limit, metrics, fonts)
-        }
-        LaidItem::Image {
-            img_idx,
-            width,
-            height,
-            glue_after: _,
-            gap_after,
-            align,
-        } => paint_image_item(
-            content,
-            *img_idx,
-            *width,
-            *height,
-            *gap_after,
-            *align,
-            y,
+impl BuildPageContent<'_> {
+    pub(super) fn run(self) -> Result<(Vec<u8>, Vec<PageLink>), WeaveError> {
+        let mut content = Content::new();
+        let mut links = Vec::new();
+        let header_drop = self.knobs.page.header_reserve();
+        let mut y = self.metrics.page_h - self.metrics.margin - header_drop;
+        let bottom_limit = self.metrics.margin + self.knobs.page.content.bottom_clearance;
+
+        paint_page_chrome_band(PaintChromeBand {
+            content: &mut content,
+            metrics: self.metrics,
+            page_no: self.page_no,
+            page_count: self.page_count,
+            title: self.title,
+            fonts: self.fonts,
+            subsets: self.subsets,
+            band: &self.knobs.page.header,
+            baseline_y: self.metrics.page_h
+                - self.metrics.margin * self.knobs.page.header.y_margin_factor(),
+        })?;
+
+        let mut cursor = PageCursor {
+            content: &mut content,
+            links: &mut links,
+            y: &mut y,
             bottom_limit,
-            metrics,
-        ),
-        LaidItem::Table(table) => {
-            let table_h = table.rows.iter().map(|r| r.height).sum::<f32>();
-            if *y - table_h < bottom_limit {
-                return false;
+            metrics: self.metrics,
+            fonts: self.fonts,
+            knobs: self.knobs,
+        };
+        for item in self.items {
+            if !cursor.paint_item(item) {
+                break;
             }
-            paint_table(content, links, table, metrics.margin, *y, fonts);
-            *y -= table_h + table.gap_after;
-            true
         }
-        LaidItem::Columns(cols) => {
-            let h = cols.height() - cols.gap_after;
-            if *y - h < bottom_limit {
-                return false;
+
+        paint_page_chrome_band(PaintChromeBand {
+            content: &mut content,
+            metrics: self.metrics,
+            page_no: self.page_no,
+            page_count: self.page_count,
+            title: self.title,
+            fonts: self.fonts,
+            subsets: self.subsets,
+            band: &self.knobs.page.footer,
+            baseline_y: self.metrics.margin * self.knobs.page.footer.y_margin_factor(),
+        })?;
+        Ok((content.finish().into_vec(), links))
+    }
+}
+
+/// Paint one page's items top-down and append optional header/footer chrome.
+///
+/// Returns content bytes plus URI link boxes for `/Annots`.
+///
+/// # Errors
+///
+/// Returns [`WeaveError::Font`] if chrome shaping fails.
+pub(super) fn build_page_content(
+    args: BuildPageContent<'_>,
+) -> Result<(Vec<u8>, Vec<PageLink>), WeaveError> {
+    args.run()
+}
+
+struct PageCursor<'a> {
+    content: &'a mut Content,
+    links: &'a mut Vec<PageLink>,
+    y: &'a mut f32,
+    bottom_limit: f32,
+    metrics: &'a ProfileMetrics,
+    fonts: &'a FontBag,
+    knobs: &'a LayoutKnobs,
+}
+
+impl PageCursor<'_> {
+    /// Paint one laid item; returns `false` when the cursor is below `bottom_limit`.
+    fn paint_item(&mut self, item: &LaidItem) -> bool {
+        match item {
+            LaidItem::Text(line) => paint_text_item(
+                self.content,
+                self.links,
+                line,
+                self.y,
+                self.bottom_limit,
+                self.metrics,
+                self.fonts,
+            ),
+            LaidItem::Image {
+                img_idx,
+                width,
+                height,
+                glue_after: _,
+                gap_after,
+                align,
+            } => paint_image_item(
+                self.content,
+                ImagePaint {
+                    img_idx: *img_idx,
+                    width: *width,
+                    height: *height,
+                    gap_after: *gap_after,
+                    align: *align,
+                },
+                self.y,
+                self.bottom_limit,
+                self.metrics,
+            ),
+            LaidItem::Table(table) => {
+                let table_h = table.rows.iter().map(|r| r.height).sum::<f32>();
+                if *self.y - table_h < self.bottom_limit {
+                    return false;
+                }
+                paint_table(
+                    self.content,
+                    self.links,
+                    table,
+                    self.metrics.margin,
+                    *self.y,
+                    self.fonts,
+                );
+                *self.y -= table_h + table.gap_after;
+                true
             }
-            paint_columns(content, links, cols, metrics.margin, *y, fonts);
-            *y -= cols.height();
-            true
-        }
-        LaidItem::Math(math) => {
-            if *y - math.height < bottom_limit {
-                return false;
+            LaidItem::Columns(cols) => {
+                let h = cols.height() - cols.gap_after;
+                if *self.y - h < self.bottom_limit {
+                    return false;
+                }
+                paint_columns(
+                    self.content,
+                    self.links,
+                    cols,
+                    self.metrics.margin,
+                    *self.y,
+                    self.fonts,
+                );
+                *self.y -= cols.height();
+                true
             }
-            paint_math(
-                content,
-                math,
-                metrics.margin,
-                *y,
-                metrics.content_width(),
-                fonts,
-                &knobs.page.chrome,
-            );
-            *y -= math.height + math.gap_after;
-            true
-        }
-        LaidItem::Rule {
-            width,
-            thickness,
-            leading,
-            gap_after,
-        } => {
-            if *y - *leading < bottom_limit {
-                return false;
+            LaidItem::Math(math) => {
+                if *self.y - math.height < self.bottom_limit {
+                    return false;
+                }
+                paint_math(
+                    self.content,
+                    math,
+                    self.metrics.margin,
+                    *self.y,
+                    self.metrics.content_width(),
+                    self.fonts,
+                    &self.knobs.page.chrome,
+                );
+                *self.y -= math.height + math.gap_after;
+                true
             }
-            paint_layout_rule(
-                content,
-                metrics.margin,
-                *y,
-                *width,
-                *thickness,
-                *leading,
-                knobs.page.chrome.stroke_gray,
-            );
-            *y -= *leading + *gap_after;
-            true
+            LaidItem::Rule {
+                width,
+                thickness,
+                leading,
+                gap_after,
+            } => {
+                if *self.y - *leading < self.bottom_limit {
+                    return false;
+                }
+                paint_layout_rule(
+                    self.content,
+                    self.metrics.margin,
+                    *self.y,
+                    *width,
+                    *thickness,
+                    *leading,
+                    self.knobs.page.chrome.stroke_gray,
+                );
+                *self.y -= *leading + *gap_after;
+                true
+            }
         }
     }
 }
@@ -466,6 +543,21 @@ fn paint_text_item(
         return true;
     }
     let origin_x = metrics.margin + line.indent;
+    let measure = line.measure.max(line.width());
+    paint_aligned_line(content, links, line, origin_x, *y, measure, fonts);
+    true
+}
+
+/// Paint one laid line at `origin_x` / `baseline_y` honoring [`LaidLine::text_align`].
+fn paint_aligned_line(
+    content: &mut Content,
+    links: &mut Vec<PageLink>,
+    line: &LaidLine,
+    origin_x: f32,
+    baseline_y: f32,
+    measure: f32,
+    fonts: &FontBag,
+) {
     match line.text_align {
         TextAlign::Justify => {
             paint_justified_spans(
@@ -473,45 +565,47 @@ fn paint_text_item(
                 fonts,
                 &line.spans,
                 origin_x,
-                *y,
-                line.measure.max(line.width()),
+                baseline_y,
+                measure.max(line.width()),
             );
             // Justify redistributes glyph advances; use natural boxes
             // as a best-effort hit target (resume links are short).
-            push_span_links(links, &line.spans, origin_x, *y);
+            push_span_links(links, &line.spans, origin_x, baseline_y);
         }
         align => {
-            let x = origin_x + align.offset_x(line.measure.max(line.width()), line.width());
-            paint_laid_spans(content, fonts, &line.spans, x, *y);
-            push_span_links(links, &line.spans, x, *y);
+            let x = origin_x + align.offset_x(measure.max(line.width()), line.width());
+            paint_laid_spans(content, fonts, &line.spans, x, baseline_y);
+            push_span_links(links, &line.spans, x, baseline_y);
         }
     }
-    true
 }
 
-#[allow(clippy::too_many_arguments)]
-fn paint_image_item(
-    content: &mut Content,
+struct ImagePaint {
     img_idx: usize,
     width: f32,
     height: f32,
     gap_after: f32,
     align: FigureAlign,
+}
+
+fn paint_image_item(
+    content: &mut Content,
+    image: ImagePaint,
     y: &mut f32,
     bottom_limit: f32,
     metrics: &ProfileMetrics,
 ) -> bool {
-    *y -= height;
+    *y -= image.height;
     if *y < bottom_limit {
         return false;
     }
-    let name = image_resource_name(img_idx);
-    let x = metrics.margin + align.offset_x(metrics.content_width(), width);
+    let name = image_resource_name(image.img_idx);
+    let x = metrics.margin + image.align.offset_x(metrics.content_width(), image.width);
     content.save_state();
-    content.transform([width, 0.0, 0.0, height, x, *y]);
+    content.transform([image.width, 0.0, 0.0, image.height, x, *y]);
     content.x_object(Name(&name));
     content.restore_state();
-    *y -= gap_after;
+    *y -= image.gap_after;
     true
 }
 
@@ -534,32 +628,54 @@ fn paint_layout_rule(
     content.restore_state();
 }
 
-fn paint_page_footer(
-    content: &mut Content,
-    metrics: &ProfileMetrics,
+struct PaintChromeBand<'a, B: PageChromeBand + ?Sized> {
+    content: &'a mut Content,
+    metrics: &'a ProfileMetrics,
     page_no: usize,
     page_count: usize,
-    fonts: &FontBag,
-    subsets: &SubsetMap,
-    knobs: &LayoutKnobs,
+    title: &'a str,
+    fonts: &'a FontBag,
+    subsets: &'a SubsetMap,
+    band: &'a B,
+    baseline_y: f32,
+}
+
+fn paint_page_chrome_band<B: PageChromeBand + ?Sized>(
+    args: PaintChromeBand<'_, B>,
 ) -> Result<(), WeaveError> {
-    let footer = format!("{page_no} / {page_count}");
-    let footer_face = FaceRef::Bundled(FaceId::SansRegular);
-    let footer_size = knobs.page.footer.font_size;
-    let mut footer_glyphs = shape_text(fonts, footer_face, &footer, footer_size)?;
-    if let Some(subset) = subsets.get(&footer_face) {
-        for g in &mut footer_glyphs {
+    let PaintChromeBand {
+        content,
+        metrics,
+        page_no,
+        page_count,
+        title,
+        fonts,
+        subsets,
+        band,
+        baseline_y,
+    } = args;
+    if !band.enabled() {
+        return Ok(());
+    }
+    let text = crate::knobs::expand_chrome_format(band.format(), page_no, page_count, title);
+    if text.is_empty() {
+        return Ok(());
+    }
+    let face = FaceRef::Bundled(FaceId::SansRegular);
+    let mut glyphs = shape_text(fonts, face, &text, band.font_size())?;
+    if let Some(subset) = subsets.get(&face) {
+        for g in &mut glyphs {
             *g = subset.remap_glyph(*g);
         }
     }
-    let footer_w = shaped_width(&footer_glyphs);
-    let footer_y = metrics.margin * knobs.page.footer.y_margin_factor;
-    let footer_x = (metrics.page_w - footer_w) / 2.0;
-    let footer_name = fonts.resource_name(footer_face);
+    let text_w = shaped_width(&glyphs);
+    let measure = metrics.content_width();
+    let x = metrics.margin + band.align().offset_x(measure, text_w);
+    let name = fonts.resource_name(face);
     content.begin_text();
-    content.set_font(Name(&footer_name), footer_size);
-    content.set_text_matrix([1.0, 0.0, 0.0, 1.0, footer_x, footer_y]);
-    content.show(Str(&encode_gids(&footer_glyphs)));
+    content.set_font(Name(&name), band.font_size());
+    content.set_text_matrix([1.0, 0.0, 0.0, 1.0, x, baseline_y]);
+    content.show(Str(&encode_gids(&glyphs)));
     content.end_text();
     Ok(())
 }
@@ -575,13 +691,28 @@ pub(super) fn paint_columns(
 ) {
     let mut x = origin_x + cols.indent;
     for (i, lines) in cols.columns.iter().enumerate() {
+        let col_w = cols.col_widths.get(i).copied().unwrap_or(0.0);
         let mut text_y = top_y;
         for line in lines {
             text_y -= line.leading;
-            paint_laid_spans(content, fonts, &line.spans, x, text_y);
-            push_span_links(links, &line.spans, x, text_y);
+            if line.is_gap() {
+                continue;
+            }
+            let measure = if line.measure > 0.0 {
+                line.measure
+            } else {
+                col_w
+            };
+            paint_aligned_line(
+                content,
+                links,
+                line,
+                x + line.indent,
+                text_y,
+                measure,
+                fonts,
+            );
         }
-        let col_w = cols.col_widths.get(i).copied().unwrap_or(0.0);
         x += col_w + cols.gap;
     }
 }

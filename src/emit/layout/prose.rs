@@ -8,7 +8,7 @@ use crate::profile;
 
 use super::super::types::{
     FaceMode, ForcedBreak, LaidColumns, LaidItem, LaidLine, LaidSpan, LayoutSegment, PaintCategory,
-    RunLayout, shape_and_record_spans,
+    RunLayout, ShapeSpans, shape_and_record_spans,
 };
 use super::LayoutCtx;
 use super::block_name;
@@ -21,6 +21,7 @@ pub(super) fn layout_heading(
     level: u8,
     runs: &[TextRun],
     break_before: BreakHint,
+    dest_id: Option<&str>,
     ctx: &mut LayoutCtx,
     segments: &mut Vec<LayoutSegment>,
 ) -> Result<(), WeaveError> {
@@ -32,6 +33,7 @@ pub(super) fn layout_heading(
     let font_size = profile::heading_size(level, ctx.metrics);
     let glue = matches!(break_before, BreakHint::KeepWithNext) || level <= 2;
     let seg = segments.last_mut().expect("segment");
+    let start = seg.1.len();
     push_styled_runs(
         &mut seg.1,
         runs,
@@ -48,7 +50,225 @@ pub(super) fn layout_heading(
             hard_break_overflow: true,
             text_align: TextAlign::Left,
         },
-    )
+    )?;
+    if let Some(id) = dest_id {
+        // Tag the first content line so pagination can map dest → page.
+        for item in &mut seg.1[start..] {
+            if let LaidItem::Text(line) = item
+                && !line.is_gap()
+            {
+                line.dest_id = Some(id.to_owned());
+                break;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// TOC line: nested title + optional dotted leaders; page digits flush-right.
+///
+/// Nesting uses list `indent_per_depth` (not `[indent].step`, often `0`) on the
+/// **title** only. The page column stays on the content right edge for every
+/// level (classic TOC).
+pub(super) struct TocEntryParts<'a> {
+    pub title: &'a [TextRun],
+    pub page_label: Option<&'a str>,
+    pub dest_id: Option<&'a str>,
+    pub indent: u32,
+    pub leaders: bool,
+}
+
+pub(super) fn push_toc_entry(
+    out: &mut Vec<LaidItem>,
+    parts: TocEntryParts<'_>,
+    ctx: &mut LayoutCtx,
+) -> Result<(), WeaveError> {
+    let TocEntryParts {
+        title,
+        page_label,
+        dest_id,
+        indent,
+        leaders,
+    } = parts;
+    let nest_step = ctx.knobs.prose.list.indent_per_depth.max(12.0);
+    #[allow(clippy::cast_precision_loss)]
+    let nest = nest_step * indent as f32;
+    let leading = ctx.metrics.body_leading;
+    let content_w = ctx.metrics.content_width();
+    let font_size = ctx.metrics.body_size;
+    let fill = ctx.knobs.prose.text_fill_rgb01();
+    let col_gap = 6.0_f32;
+    let mut shape = TocShape {
+        ctx,
+        face: FaceRef::Bundled(FaceId::SansRegular),
+        font_size,
+        fill,
+    };
+
+    let (title_spans, title_w) = shape.shape_title(title, dest_id)?;
+    let (page_spans, page_slot) = shape.shape_page_column(page_label, dest_id)?;
+
+    let left_w = if page_slot > 0.0 {
+        (content_w - col_gap - page_slot).max(shape.ctx.knobs.prose.wrap.min_width)
+    } else {
+        content_w
+    };
+    let title_measure = (left_w - nest).max(shape.ctx.knobs.prose.wrap.min_width);
+    let left_spans = shape.extend_leaders(title_spans, title_w, title_measure, leaders)?;
+
+    let left_line = LaidLine {
+        spans: left_spans,
+        leading,
+        glue_after: false,
+        indent: nest,
+        measure: title_measure,
+        text_align: TextAlign::Left,
+        dest_id: None,
+    };
+
+    if page_slot <= 0.0 {
+        out.push(LaidItem::Text(left_line));
+        out.push(LaidItem::Text(LaidLine::gap(
+            shape.ctx.knobs.prose.paragraph.gap_after,
+        )));
+        return Ok(());
+    }
+
+    let right_line = LaidLine {
+        spans: page_spans,
+        leading,
+        glue_after: false,
+        indent: 0.0,
+        measure: page_slot,
+        text_align: TextAlign::Right,
+        dest_id: None,
+    };
+
+    out.push(LaidItem::Columns(LaidColumns {
+        columns: vec![vec![left_line], vec![right_line]],
+        col_widths: vec![left_w, page_slot],
+        gap: col_gap,
+        gap_after: shape.ctx.knobs.prose.paragraph.gap_after,
+        indent: 0.0,
+    }));
+    Ok(())
+}
+
+struct TocShape<'a, 'ctx> {
+    ctx: &'a mut LayoutCtx<'ctx>,
+    face: FaceRef,
+    font_size: f32,
+    fill: [f32; 3],
+}
+
+impl TocShape<'_, '_> {
+    fn shape_title(
+        &mut self,
+        title: &[TextRun],
+        link_dest: Option<&str>,
+    ) -> Result<(Vec<LaidSpan>, f32), WeaveError> {
+        let mut title_spans: Vec<LaidSpan> = Vec::new();
+        let mut title_w = 0.0_f32;
+        for run in title {
+            let run_face = resolve_run_face(
+                run,
+                self.ctx.metrics,
+                FaceMode::Body,
+                self.ctx.fonts,
+                self.ctx.knobs,
+                PaintCategory::Text,
+            )?;
+            let (run_spans, w) = shape_and_record_spans(ShapeSpans {
+                fonts: self.ctx.fonts,
+                face: run_face,
+                text: &run.text,
+                font_size: self.font_size,
+                glyph_sets: self.ctx.glyph_sets,
+                fill: self.fill,
+                underline: false,
+                link_uri: None,
+                link_dest,
+                baseline_shift: 0.0,
+            })?;
+            title_spans.extend(run_spans);
+            title_w += w;
+        }
+        Ok((title_spans, title_w))
+    }
+
+    /// Page label spans + fixed column width (≥ two digits), or empty / 0 when none.
+    fn shape_page_column(
+        &mut self,
+        page_label: Option<&str>,
+        dest_id: Option<&str>,
+    ) -> Result<(Vec<LaidSpan>, f32), WeaveError> {
+        // Known label, or "0" placeholder when dest will resolve after a layout pass.
+        let page_text = page_label
+            .map(str::to_owned)
+            .or_else(|| dest_id.map(|_| "0".into()))
+            .unwrap_or_default();
+        if page_text.is_empty() {
+            return Ok((Vec::new(), 0.0));
+        }
+        let (page_spans, page_w) = shape_and_record_spans(ShapeSpans {
+            fonts: self.ctx.fonts,
+            face: self.face,
+            text: &page_text,
+            font_size: self.font_size,
+            glyph_sets: self.ctx.glyph_sets,
+            fill: self.fill,
+            underline: false,
+            link_uri: None,
+            link_dest: dest_id,
+            baseline_shift: 0.0,
+        })?;
+        let (_, two_w) = shape_and_record_spans(ShapeSpans {
+            fonts: self.ctx.fonts,
+            face: self.face,
+            text: "88",
+            font_size: self.font_size,
+            glyph_sets: self.ctx.glyph_sets,
+            fill: self.fill,
+            underline: false,
+            link_uri: None,
+            link_dest: None,
+            baseline_shift: 0.0,
+        })?;
+        Ok((page_spans, page_w.max(two_w)))
+    }
+
+    fn extend_leaders(
+        &mut self,
+        mut left_spans: Vec<LaidSpan>,
+        title_w: f32,
+        title_measure: f32,
+        leaders: bool,
+    ) -> Result<Vec<LaidSpan>, WeaveError> {
+        let gap = (title_measure - title_w).max(0.0);
+        if gap <= 0.0 {
+            return Ok(left_spans);
+        }
+        let fill_char = if leaders { "." } else { " " };
+        let (unit_spans, unit_w) = shape_and_record_spans(ShapeSpans {
+            fonts: self.ctx.fonts,
+            face: self.face,
+            text: fill_char,
+            font_size: self.font_size,
+            glyph_sets: self.ctx.glyph_sets,
+            fill: self.fill,
+            underline: false,
+            link_uri: None,
+            link_dest: None,
+            baseline_shift: 0.0,
+        })?;
+        if unit_w > 0.0 {
+            let n = (gap / unit_w).floor() as usize;
+            for _ in 0..n {
+                left_spans.extend(unit_spans.iter().cloned());
+            }
+        }
+        Ok(left_spans)
+    }
 }
 
 pub(super) fn layout_quote(
@@ -170,17 +390,18 @@ fn push_one_list_item(
         .knobs
         .prose
         .run_paint_rgb01(false, PaintCategory::Text, false);
-    let (marker_spans, marker_w) = shape_and_record_spans(
-        ctx.fonts,
+    let (marker_spans, marker_w) = shape_and_record_spans(ShapeSpans {
+        fonts: ctx.fonts,
         face,
-        &marker,
+        text: &marker,
         font_size,
-        ctx.glyph_sets,
+        glyph_sets: ctx.glyph_sets,
         fill,
         underline,
-        None,
-        0.0,
-    )?;
+        link_uri: None,
+        link_dest: None,
+        baseline_shift: 0.0,
+    })?;
     // Hanging width = real shaped marker (no inflated floor — that pushed wraps
     // right of the first-line text after a narrower bullet).
     let body_indent = base_indent + marker_w;

@@ -5,16 +5,20 @@ use crate::font::{FaceId, FaceRef};
 use crate::ir::TableRow;
 
 use super::super::types::{
-    LaidItem, LaidLine, LaidSpan, LaidTable, LaidTableRow, shape_and_record_spans,
+    LaidItem, LaidLine, LaidSpan, LaidTable, LaidTableRow, ShapeSpans, shape_and_record_spans,
 };
 use super::LayoutCtx;
-use super::runs::{hard_break_text, next_wrap_chunk, skip_wrap_chunk_at_line_start};
+use super::runs::{
+    hard_break_text, next_wrap_chunk, push_dest_marker, skip_wrap_chunk_at_line_start,
+};
 
 pub(super) fn push_table(
     out: &mut Vec<LaidItem>,
     rows: &[TableRow],
+    dest_id: Option<&str>,
     ctx: &mut LayoutCtx,
 ) -> Result<(), WeaveError> {
+    push_dest_marker(out, dest_id);
     if rows.is_empty() {
         out.push(LaidItem::Text(LaidLine::shaped(
             ctx.fonts,
@@ -107,17 +111,18 @@ fn wrap_plain_text(
             continue;
         }
         let fill = ctx.knobs.prose.text_fill_rgb01();
-        let (spans, w) = shape_and_record_spans(
-            ctx.fonts,
+        let (spans, w) = shape_and_record_spans(ShapeSpans {
+            fonts: ctx.fonts,
             face,
-            chunk,
+            text: chunk,
             font_size,
-            ctx.glyph_sets,
+            glyph_sets: ctx.glyph_sets,
             fill,
-            false,
-            None,
-            0.0,
-        )?;
+            underline: false,
+            link_uri: None,
+            link_dest: None,
+            baseline_shift: 0.0,
+        })?;
         if current_width + w > max_width && !current.is_empty() {
             lines.push(LaidLine::wrapped(
                 std::mem::take(&mut current),
@@ -131,17 +136,18 @@ fn wrap_plain_text(
         }
         if w > max_width && current.is_empty() {
             for piece in hard_break_text(ctx.fonts, face, chunk, font_size, max_width)? {
-                let (spans, _) = shape_and_record_spans(
-                    ctx.fonts,
+                let (spans, _) = shape_and_record_spans(ShapeSpans {
+                    fonts: ctx.fonts,
                     face,
-                    &piece,
+                    text: &piece,
                     font_size,
-                    ctx.glyph_sets,
+                    glyph_sets: ctx.glyph_sets,
                     fill,
-                    false,
-                    None,
-                    0.0,
-                )?;
+                    underline: false,
+                    link_uri: None,
+                    link_dest: None,
+                    baseline_shift: 0.0,
+                })?;
                 lines.push(LaidLine::wrapped(spans, leading, max_width));
             }
             continue;

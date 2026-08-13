@@ -1,12 +1,23 @@
-# Page chrome (footer, clearance, stroke/fill gray).
+# Page chrome (header/footer, clearance, stroke/fill gray).
+# Format tokens: {page}, {pages}, {title} (heading deferred — THI-392).
 
 [footer]
 font_size = 9.0
 y_margin_factor = 0.45
 enabled = true
+align = "center"
+format = "{page} / {pages}"
+
+[header]
+font_size = 9.0
+y_margin_factor = 0.55
+enabled = false
+align = "left"
+format = "{title}"
 
 [content]
 bottom_clearance = 18.0
+top_clearance = 0.0
 
 [chrome]
 stroke_gray = 0.12
