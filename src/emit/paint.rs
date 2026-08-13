@@ -502,6 +502,21 @@ fn paint_text_item(
         return true;
     }
     let origin_x = metrics.margin + line.indent;
+    let measure = line.measure.max(line.width());
+    paint_aligned_line(content, links, line, origin_x, *y, measure, fonts);
+    true
+}
+
+/// Paint one laid line at `origin_x` / `baseline_y` honoring [`LaidLine::text_align`].
+fn paint_aligned_line(
+    content: &mut Content,
+    links: &mut Vec<PageLink>,
+    line: &LaidLine,
+    origin_x: f32,
+    baseline_y: f32,
+    measure: f32,
+    fonts: &FontBag,
+) {
     match line.text_align {
         TextAlign::Justify => {
             paint_justified_spans(
@@ -509,20 +524,19 @@ fn paint_text_item(
                 fonts,
                 &line.spans,
                 origin_x,
-                *y,
-                line.measure.max(line.width()),
+                baseline_y,
+                measure.max(line.width()),
             );
             // Justify redistributes glyph advances; use natural boxes
             // as a best-effort hit target (resume links are short).
-            push_span_links(links, &line.spans, origin_x, *y);
+            push_span_links(links, &line.spans, origin_x, baseline_y);
         }
         align => {
-            let x = origin_x + align.offset_x(line.measure.max(line.width()), line.width());
-            paint_laid_spans(content, fonts, &line.spans, x, *y);
-            push_span_links(links, &line.spans, x, *y);
+            let x = origin_x + align.offset_x(measure.max(line.width()), line.width());
+            paint_laid_spans(content, fonts, &line.spans, x, baseline_y);
+            push_span_links(links, &line.spans, x, baseline_y);
         }
     }
-    true
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -631,25 +645,15 @@ pub(super) fn paint_columns(
             } else {
                 col_w
             };
-            let origin = x + line.indent;
-            match line.text_align {
-                TextAlign::Justify => {
-                    paint_justified_spans(
-                        content,
-                        fonts,
-                        &line.spans,
-                        origin,
-                        text_y,
-                        measure.max(line.width()),
-                    );
-                    push_span_links(links, &line.spans, origin, text_y);
-                }
-                align => {
-                    let paint_x = origin + align.offset_x(measure.max(line.width()), line.width());
-                    paint_laid_spans(content, fonts, &line.spans, paint_x, text_y);
-                    push_span_links(links, &line.spans, paint_x, text_y);
-                }
-            }
+            paint_aligned_line(
+                content,
+                links,
+                line,
+                x + line.indent,
+                text_y,
+                measure,
+                fonts,
+            );
         }
         x += col_w + cols.gap;
     }
