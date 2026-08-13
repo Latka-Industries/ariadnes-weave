@@ -54,7 +54,7 @@ Dense one-column CV / resume layout (THI-324 dogfood).
 
 Emit also applies [`LayoutKnobs::densify_resume`](../src/knobs.rs) (tighter
 paragraph/heading gaps, list `end_gutter` ≈ 1.25 in, `prose.indent.step = 14`
-for sealed band levels, smaller table pad, no page-number footer, dark-blue
+for sealed band levels, smaller table pad, **no page header/footer**, dark-blue
 link fill). Band geometry comes from authored `PrintBlock::{Paragraph,List,Row}.indent`
 (`level × step`); style heuristics no longer invent org/role indent.
 

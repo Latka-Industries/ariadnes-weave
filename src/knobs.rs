@@ -18,7 +18,7 @@ pub struct LayoutKnobs {
     pub deck: DeckKnobs,
     /// Structured math optical constants.
     pub math: MathKnobs,
-    /// Page chrome (footer, clearance, stroke gray).
+    /// Page chrome (header/footer, clearance, stroke gray).
     pub page: PageKnobs,
 }
 
@@ -75,7 +75,9 @@ impl LayoutKnobs {
         self.table.cell.leading_factor = 11.5 / 9.5;
         self.table.block.gap_after = 2.0;
         self.page.footer.enabled = false;
+        self.page.header.enabled = false;
         self.page.content.bottom_clearance = 2.0;
+        self.page.content.top_clearance = 0.0;
     }
 }
 
@@ -1057,12 +1059,91 @@ pub struct MathSqrtKnobs {
 /// Page chrome knobs (`defaults/page.toml`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PageKnobs {
-    /// Page-number footer.
+    /// Page-number / running footer.
     pub footer: PageFooterKnobs,
+    /// Running header (bundled off).
+    #[serde(default)]
+    pub header: PageHeaderKnobs,
     /// Content box clearance.
     pub content: PageContentKnobs,
     /// Stroke / fill gray for rules and math chrome.
     pub chrome: PageChromeKnobs,
+}
+
+/// Minimum vertical reserve (pt) when a chrome band is enabled.
+pub const CHROME_RESERVE_FLOOR: f32 = 18.0;
+
+impl PageKnobs {
+    /// Space reserved at the bottom for an enabled footer.
+    #[must_use]
+    pub fn footer_reserve(&self) -> f32 {
+        if self.footer.enabled {
+            self.content.bottom_clearance.max(CHROME_RESERVE_FLOOR)
+        } else {
+            0.0
+        }
+    }
+
+    /// Space reserved at the top for an enabled header.
+    #[must_use]
+    pub fn header_reserve(&self) -> f32 {
+        if self.header.enabled {
+            self.content.top_clearance.max(CHROME_RESERVE_FLOOR)
+        } else {
+            0.0
+        }
+    }
+
+    /// Header + footer reserve for pagination.
+    #[must_use]
+    pub fn chrome_reserve(&self) -> f32 {
+        self.footer_reserve() + self.header_reserve()
+    }
+
+    /// Enabled header/footer bands (for glyph collect / paint).
+    #[must_use]
+    pub fn bands(&self) -> [&dyn PageChromeBand; 2] {
+        [&self.footer, &self.header]
+    }
+}
+
+/// Shared surface for `[footer]` / `[header]` paint + glyph collect.
+pub trait PageChromeBand {
+    /// Whether this band is painted.
+    fn enabled(&self) -> bool;
+    /// Format template (`{page}`, `{pages}`, `{title}`).
+    fn format(&self) -> &str;
+    /// Font size in points.
+    fn font_size(&self) -> f32;
+    /// Horizontal alignment within the content width.
+    fn align(&self) -> ChromeAlign;
+    /// Baseline as a factor of the corresponding margin.
+    fn y_margin_factor(&self) -> f32;
+}
+
+/// Horizontal align for page chrome bands (no justify).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChromeAlign {
+    /// Flush left in the content width.
+    Left,
+    /// Centered (bundled footer default).
+    #[default]
+    Center,
+    /// Flush right.
+    Right,
+}
+
+impl ChromeAlign {
+    /// Horizontal origin for natural-width chrome text within `measure`.
+    #[must_use]
+    pub fn offset_x(self, measure: f32, item_w: f32) -> f32 {
+        match self {
+            Self::Left => 0.0,
+            Self::Center => ((measure - item_w) / 2.0).max(0.0),
+            Self::Right => (measure - item_w).max(0.0),
+        }
+    }
 }
 
 /// `[footer]` in `page.toml`.
@@ -1072,13 +1153,156 @@ pub struct PageFooterKnobs {
     pub font_size: f32,
     /// Footer baseline as a factor of bottom margin.
     pub y_margin_factor: f32,
-    /// Draw centered `n / m` page numbers (bundled `true`; resume turns off).
+    /// Draw the footer (bundled `true`; resume turns off).
     #[serde(default = "default_footer_enabled")]
     pub enabled: bool,
+    /// Left / center / right within the content width.
+    #[serde(default)]
+    pub align: ChromeAlign,
+    /// Template with `{page}`, `{pages}`, `{title}`.
+    #[serde(default = "default_footer_format")]
+    pub format: String,
 }
+
+macro_rules! impl_page_chrome_band {
+    ($ty:ty) => {
+        impl PageChromeBand for $ty {
+            fn enabled(&self) -> bool {
+                self.enabled
+            }
+            fn format(&self) -> &str {
+                &self.format
+            }
+            fn font_size(&self) -> f32 {
+                self.font_size
+            }
+            fn align(&self) -> ChromeAlign {
+                self.align
+            }
+            fn y_margin_factor(&self) -> f32 {
+                self.y_margin_factor
+            }
+        }
+    };
+}
+
+impl_page_chrome_band!(PageFooterKnobs);
 
 fn default_footer_enabled() -> bool {
     true
+}
+
+fn default_footer_format() -> String {
+    "{page} / {pages}".into()
+}
+
+/// `[header]` in `page.toml`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PageHeaderKnobs {
+    /// Header font size (points).
+    #[serde(default = "default_header_font_size")]
+    pub font_size: f32,
+    /// Header baseline as a factor of top margin (from the top edge).
+    #[serde(default = "default_header_y_factor")]
+    pub y_margin_factor: f32,
+    /// Draw the header (bundled `false`; resume forces off).
+    #[serde(default)]
+    pub enabled: bool,
+    /// Left / center / right within the content width.
+    #[serde(default = "default_header_align")]
+    pub align: ChromeAlign,
+    /// Template with `{page}`, `{pages}`, `{title}`.
+    #[serde(default = "default_header_format")]
+    pub format: String,
+}
+
+impl_page_chrome_band!(PageHeaderKnobs);
+
+impl Default for PageHeaderKnobs {
+    fn default() -> Self {
+        Self {
+            font_size: default_header_font_size(),
+            y_margin_factor: default_header_y_factor(),
+            enabled: false,
+            align: default_header_align(),
+            format: default_header_format(),
+        }
+    }
+}
+
+fn default_header_font_size() -> f32 {
+    9.0
+}
+
+fn default_header_y_factor() -> f32 {
+    0.55
+}
+
+fn default_header_align() -> ChromeAlign {
+    ChromeAlign::Left
+}
+
+fn default_header_format() -> String {
+    "{title}".into()
+}
+
+/// Expand chrome `format` tokens for one page.
+///
+/// Unknown `{…}` tokens are left unchanged. Empty `title` yields an empty
+/// `{title}` substitution.
+#[must_use]
+pub fn expand_chrome_format(
+    format: &str,
+    page_no: usize,
+    page_count: usize,
+    title: &str,
+) -> String {
+    let mut out = String::with_capacity(format.len() + title.len() + 8);
+    let mut rest = format;
+    while let Some(start) = rest.find('{') {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 1..];
+        let Some(end) = after.find('}') else {
+            out.push('{');
+            rest = after;
+            continue;
+        };
+        let key = &after[..end];
+        match key {
+            "page" => out.push_str(&page_no.to_string()),
+            "pages" => out.push_str(&page_count.to_string()),
+            "title" => out.push_str(title),
+            _ => {
+                out.push('{');
+                out.push_str(key);
+                out.push('}');
+            }
+        }
+        rest = &after[end + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+#[cfg(test)]
+mod chrome_format_tests {
+    use super::expand_chrome_format;
+
+    #[test]
+    fn expands_page_pages_title() {
+        assert_eq!(
+            expand_chrome_format("{title} — {page}/{pages}", 2, 5, "Notes"),
+            "Notes — 2/5"
+        );
+    }
+
+    #[test]
+    fn empty_title_and_unknown_token() {
+        assert_eq!(
+            expand_chrome_format("{title}|{page}|{bogus}", 1, 1, ""),
+            "|1|{bogus}"
+        );
+    }
 }
 
 /// `[content]` in `page.toml`.
@@ -1086,6 +1310,9 @@ fn default_footer_enabled() -> bool {
 pub struct PageContentKnobs {
     /// Extra clearance above bottom margin when painting (points).
     pub bottom_clearance: f32,
+    /// Extra clearance below top margin when a header is enabled (points).
+    #[serde(default)]
+    pub top_clearance: f32,
 }
 
 /// `[chrome]` in `page.toml`.
@@ -1120,6 +1347,11 @@ mod tests {
         assert!(dump.contains("math.metrics.axis_factor = 0.25"));
         assert!(dump.contains("math.op.limit_size_factor = 0.65"));
         assert!(dump.contains("page.footer.font_size = 9"));
+        assert!(
+            dump.contains("page.footer.format = \"{page} / {pages}\"")
+                || dump.contains("page.footer.format = {page} / {pages}")
+        );
+        assert!(dump.contains("page.header.enabled = false"));
         assert!(dump.contains("prose.heading.leading_factor = 1.35"));
         assert!(k.prose.quote.italic);
         assert!(dump.contains("prose.quote.italic = true"));

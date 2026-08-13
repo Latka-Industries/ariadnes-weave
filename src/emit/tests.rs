@@ -122,6 +122,38 @@ fn emits_pdf_magic() {
 }
 
 #[test]
+fn page_chrome_format_and_header_affect_emit() {
+    let doc = hello_doc();
+    let baseline = emit_pdf(&doc).expect("baseline");
+    let custom = emit_with_layout_tweak(&doc, |layout| {
+        layout.page.footer.format = "p.{page}".into();
+        layout.page.header.enabled = true;
+        layout.page.header.format = "{title}".into();
+        layout.page.content.top_clearance = 18.0;
+    });
+    assert!(custom.starts_with(b"%PDF-"));
+    assert_ne!(baseline, custom);
+    write_tmp_sample("page_chrome.pdf", &custom);
+}
+
+#[test]
+fn resume_densify_disables_page_chrome() {
+    let mut doc = hello_doc();
+    doc.profile = PrintProfileId::resume_v0();
+    let with_chrome_request = emit_with_layout_tweak(&doc, |layout| {
+        layout.page.footer.enabled = true;
+        layout.page.header.enabled = true;
+        layout.page.header.format = "{title}".into();
+    });
+    let muted = emit_with_layout_tweak(&doc, |layout| {
+        layout.page.footer.enabled = false;
+        layout.page.header.enabled = false;
+    });
+    // densify_resume wins over pack-enabled chrome.
+    assert_eq!(with_chrome_request, muted);
+}
+
+#[test]
 fn prose_word_spacing_is_wider_than_glued_words() {
     let fonts = FontBag::from_pinned(&Default::default()).expect("fonts");
     let face = FaceRef::Bundled(FaceId::SansRegular);

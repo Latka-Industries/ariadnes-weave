@@ -6,7 +6,7 @@ use pdf_writer::{Content, Name, Str};
 
 use crate::error::WeaveError;
 use crate::font::{FaceId, FaceRef, FontBag, encode_gids, shape_text, shaped_width};
-use crate::knobs::{FigureAlign, LayoutKnobs, TextAlign};
+use crate::knobs::{FigureAlign, LayoutKnobs, PageChromeBand, TextAlign};
 use crate::profile::ProfileMetrics;
 
 use super::math::paint_math;
@@ -307,26 +307,41 @@ pub(super) fn image_resource_name(idx: usize) -> Vec<u8> {
     format!("Im{idx}").into_bytes()
 }
 
-/// Paint one page's items top-down and append a centered page-number footer.
+/// Paint one page's items top-down and append optional header/footer chrome.
 ///
 /// Returns content bytes plus URI link boxes for `/Annots`.
 ///
 /// # Errors
 ///
-/// Returns [`WeaveError::Font`] if footer shaping fails.
+/// Returns [`WeaveError::Font`] if chrome shaping fails.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn build_page_content(
     items: &[LaidItem],
     metrics: &ProfileMetrics,
     page_no: usize,
     page_count: usize,
+    title: &str,
     fonts: &FontBag,
     subsets: &SubsetMap,
     knobs: &LayoutKnobs,
 ) -> Result<(Vec<u8>, Vec<PageLink>), WeaveError> {
     let mut content = Content::new();
     let mut links = Vec::new();
-    let mut y = metrics.page_h - metrics.margin;
+    let header_drop = knobs.page.header_reserve();
+    let mut y = metrics.page_h - metrics.margin - header_drop;
     let bottom_limit = metrics.margin + knobs.page.content.bottom_clearance;
+
+    paint_page_chrome_band(
+        &mut content,
+        metrics,
+        page_no,
+        page_count,
+        title,
+        fonts,
+        subsets,
+        &knobs.page.header,
+        metrics.page_h - metrics.margin * knobs.page.header.y_margin_factor(),
+    )?;
 
     for item in items {
         if !paint_page_item(
@@ -343,17 +358,17 @@ pub(super) fn build_page_content(
         }
     }
 
-    if knobs.page.footer.enabled {
-        paint_page_footer(
-            &mut content,
-            metrics,
-            page_no,
-            page_count,
-            fonts,
-            subsets,
-            knobs,
-        )?;
-    }
+    paint_page_chrome_band(
+        &mut content,
+        metrics,
+        page_no,
+        page_count,
+        title,
+        fonts,
+        subsets,
+        &knobs.page.footer,
+        metrics.margin * knobs.page.footer.y_margin_factor(),
+    )?;
     Ok((content.finish().into_vec(), links))
 }
 
@@ -534,32 +549,40 @@ fn paint_layout_rule(
     content.restore_state();
 }
 
-fn paint_page_footer(
+#[allow(clippy::too_many_arguments)]
+fn paint_page_chrome_band(
     content: &mut Content,
     metrics: &ProfileMetrics,
     page_no: usize,
     page_count: usize,
+    title: &str,
     fonts: &FontBag,
     subsets: &SubsetMap,
-    knobs: &LayoutKnobs,
+    band: &impl PageChromeBand,
+    baseline_y: f32,
 ) -> Result<(), WeaveError> {
-    let footer = format!("{page_no} / {page_count}");
-    let footer_face = FaceRef::Bundled(FaceId::SansRegular);
-    let footer_size = knobs.page.footer.font_size;
-    let mut footer_glyphs = shape_text(fonts, footer_face, &footer, footer_size)?;
-    if let Some(subset) = subsets.get(&footer_face) {
-        for g in &mut footer_glyphs {
+    if !band.enabled() {
+        return Ok(());
+    }
+    let text = crate::knobs::expand_chrome_format(band.format(), page_no, page_count, title);
+    if text.is_empty() {
+        return Ok(());
+    }
+    let face = FaceRef::Bundled(FaceId::SansRegular);
+    let mut glyphs = shape_text(fonts, face, &text, band.font_size())?;
+    if let Some(subset) = subsets.get(&face) {
+        for g in &mut glyphs {
             *g = subset.remap_glyph(*g);
         }
     }
-    let footer_w = shaped_width(&footer_glyphs);
-    let footer_y = metrics.margin * knobs.page.footer.y_margin_factor;
-    let footer_x = (metrics.page_w - footer_w) / 2.0;
-    let footer_name = fonts.resource_name(footer_face);
+    let text_w = shaped_width(&glyphs);
+    let measure = metrics.content_width();
+    let x = metrics.margin + band.align().offset_x(measure, text_w);
+    let name = fonts.resource_name(face);
     content.begin_text();
-    content.set_font(Name(&footer_name), footer_size);
-    content.set_text_matrix([1.0, 0.0, 0.0, 1.0, footer_x, footer_y]);
-    content.show(Str(&encode_gids(&footer_glyphs)));
+    content.set_font(Name(&name), band.font_size());
+    content.set_text_matrix([1.0, 0.0, 0.0, 1.0, x, baseline_y]);
+    content.show(Str(&encode_gids(&glyphs)));
     content.end_text();
     Ok(())
 }

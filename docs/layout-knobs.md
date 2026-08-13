@@ -8,7 +8,7 @@ Emit uses named optical defaults from per-category TOML files under `defaults/`:
 | `table.toml` | table | Cell padding, leading, and block gap |
 | `deck.toml` | deck | Slide title/subtitle/body scales and column gaps |
 | `math.toml` | math | Fractions, scripts, big-op limits, matrices, arrows, display gaps |
-| `page.toml` | page | Footer size/position, bottom clearance, math stroke gray |
+| `page.toml` | page | Footer/header format+align, clearance, math stroke gray |
 
 Profiles (`print@0`, `deck@0`, …) still own page size, margins, and body font size. Knobs are the hard-coded paddings, gaps, and scale factors inside emit.
 
@@ -112,6 +112,29 @@ Omit these keys to keep Liberation style mapping (bundled `defaults/prose.toml` 
 **Precedence:** explicit `TextRun.face` wins. When `face` is unset, cite pin wins if `InlineStyle.cite`; else the mutually exclusive layout category (`heading` / `quote` / `caption` / `text`). Unknown ids use the same `unknown pinned face` error as an explicit pin. Category pins do not inherit across sections (unlike colors).
 
 First cut defers table / code / math / deck and per-level `heading.1` / `heading.2`.
+
+## Page chrome (`defaults/page.toml`)
+
+Optional running header + page-number footer (THI-392). Tokens in `format`:
+
+| Token | Meaning |
+|-------|---------|
+| `{page}` | 1-based page index |
+| `{pages}` | total page count |
+| `{title}` | `PrintMeta.title` (empty if unset) |
+
+`{heading}` / live section titles are deferred (need layout tracking).
+
+| Key | Meaning |
+|-----|---------|
+| `[footer].enabled` | Draw footer (bundled `true`; `resume@0` densify forces off) |
+| `[footer].format` | Template (bundled `"{page} / {pages}"`) |
+| `[footer].align` | `left` / `center` / `right` (bundled `center`) |
+| `[footer].font_size` / `y_margin_factor` | Size + baseline as a fraction of bottom margin |
+| `[header].*` | Same shape; bundled `enabled = false`, `align = left`, `format = "{title}"` |
+| `[content].bottom_clearance` | Reserve above bottom margin when footer is on |
+| `[content].top_clearance` | Reserve below top margin when header is on |
+| `[chrome].stroke_gray` / `fill_gray` | Rules + math chrome gray |
 
 ## Defaults and overrides
 

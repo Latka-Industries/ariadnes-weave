@@ -43,7 +43,7 @@ pub fn emit_pdf(doc: &PrintDocument) -> Result<Vec<u8>, WeaveError> {
 /// Emit PDF bytes with explicit [`EmitOptions`].
 ///
 /// Resolves the profile, lays out blocks, paginates, subsets used faces, and
-/// writes a PDF 1.7 file with page-number footers.
+/// writes a PDF 1.7 file with optional page chrome (header/footer).
 ///
 /// Supports [`crate::FontResolveMode::BundledOnly`] (default) and
 /// [`crate::FontResolveMode::OsWithFallback`] (requires `--features os-fonts`).
@@ -62,21 +62,33 @@ pub fn emit_pdf_with(doc: &PrintDocument, opts: &EmitOptions) -> Result<Vec<u8>,
         layout.densify_resume();
     }
     let (segments, images, mut glyph_sets) = collect_layout(doc, &metrics, &fonts, &layout)?;
-    // Digits for page footers (`n / m`).
-    let footer_face = FaceRef::Bundled(FaceId::SansRegular);
-    collect_glyph_set(
-        &fonts,
-        footer_face,
-        "0123456789 /",
-        glyph_sets.entry(footer_face).or_default(),
+
+    let chrome_face = FaceRef::Bundled(FaceId::SansRegular);
+    let mut pages = paginate_items(
+        &segments,
+        metrics.content_height(),
+        layout.page.chrome_reserve(),
     );
 
-    let footer_reserve = if layout.page.footer.enabled {
-        layout.page.content.bottom_clearance.max(18.0)
-    } else {
-        0.0
-    };
-    let mut pages = paginate_items(&segments, metrics.content_height(), footer_reserve);
+    // Glyphs for every expanded chrome string (page digits + title + literals).
+    let page_count = pages.len().max(1);
+    let title = doc.meta.title.as_str();
+    for page_no in 1..=page_count {
+        for band in layout.page.bands() {
+            if !band.enabled() {
+                continue;
+            }
+            let text =
+                crate::knobs::expand_chrome_format(band.format(), page_no, page_count, title);
+            collect_glyph_set(
+                &fonts,
+                chrome_face,
+                &text,
+                glyph_sets.entry(chrome_face).or_default(),
+            );
+        }
+    }
+
     let subsets = prepare_subsets(&fonts, &glyph_sets)?;
     remap_pages(&mut pages, &subsets);
 
@@ -108,6 +120,7 @@ pub fn emit_pdf_with(doc: &PrintDocument, opts: &EmitOptions) -> Result<Vec<u8>,
         image_refs: &image_refs,
         subsets: &subsets,
         knobs: &layout,
+        title,
         next_id: &mut next_id,
     }
     .run()?;

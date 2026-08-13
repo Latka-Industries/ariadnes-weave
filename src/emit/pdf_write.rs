@@ -122,6 +122,7 @@ pub(super) struct WritePagesArgs<'a> {
     pub image_refs: &'a [(Ref, Option<Ref>)],
     pub subsets: &'a SubsetMap,
     pub knobs: &'a LayoutKnobs,
+    pub title: &'a str,
     pub next_id: &'a mut i32,
 }
 
@@ -140,6 +141,7 @@ impl WritePagesArgs<'_> {
             image_refs,
             subsets,
             knobs,
+            title,
             next_id,
         } = self;
         let page_count = pages.len().max(1);
@@ -155,6 +157,7 @@ impl WritePagesArgs<'_> {
                 metrics,
                 page_idx + 1,
                 page_count,
+                title,
                 fonts,
                 subsets,
                 knobs,
