@@ -154,6 +154,38 @@ fn resume_densify_disables_page_chrome() {
 }
 
 #[test]
+fn hyphenate_changes_narrow_emit() {
+    let long = "internationalization decentralization telecommunications \
+         supercalifragilisticexpialidocious electroencephalographically";
+    let doc = note_doc(
+        "Hyphen",
+        vec![PrintBlock::Paragraph {
+            runs: vec![TextRun::plain(long)],
+            indent: 6,
+        }],
+    );
+    let on = emit_with_layout_tweak(&doc, |layout| {
+        layout.prose.indent.step = 50.0;
+        layout.prose.wrap.hyphenate = true;
+    });
+    let off = emit_with_layout_tweak(&doc, |layout| {
+        layout.prose.indent.step = 50.0;
+        layout.prose.wrap.hyphenate = false;
+    });
+    assert_ne!(on, off);
+    write_tmp_sample("hyphen_on.pdf", &on);
+    write_tmp_sample("hyphen_off.pdf", &off);
+}
+
+#[test]
+fn densify_resume_disables_hyphenate() {
+    let mut layout = LayoutKnobs::bundled();
+    assert!(layout.prose.wrap.hyphenate);
+    layout.densify_resume();
+    assert!(!layout.prose.wrap.hyphenate);
+}
+
+#[test]
 fn prose_word_spacing_is_wider_than_glued_words() {
     let fonts = FontBag::from_pinned(&Default::default()).expect("fonts");
     let face = FaceRef::Bundled(FaceId::SansRegular);
@@ -1115,10 +1147,13 @@ fn caption_overflow_soft_only_differs_from_hard_break() {
 
     let hard = emit_with_layout_tweak(&doc, |layout| {
         layout.prose.figure.max_width_factor = 0.2;
+        // Isolate overflow policy from soft hyphenation (THI-394).
+        layout.prose.wrap.hyphenate = false;
         layout.prose.caption.overflow = CaptionOverflow::HardBreak;
     });
     let soft = emit_with_layout_tweak(&doc, |layout| {
         layout.prose.figure.max_width_factor = 0.2;
+        layout.prose.wrap.hyphenate = false;
         layout.prose.caption.overflow = CaptionOverflow::SoftOnly;
     });
     assert_ne!(

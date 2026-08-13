@@ -12,6 +12,7 @@ use super::super::types::{
     FaceMode, LaidItem, LaidLine, LaidSpan, PaintCategory, RunLayout, shape_and_record_spans,
 };
 use super::LayoutCtx;
+use super::hyphen::{hyphen_fit, split_trailing_space};
 
 pub(super) fn layout_ctx<'a>(
     metrics: &'a ProfileMetrics,
@@ -283,7 +284,11 @@ pub(super) fn push_styled_runs(
 
     flush_styled_line(&mut current_spans, out, layout, max_width, true);
     let content_end = out.len();
-    apply_widow_orphan(&mut out[start..content_end]);
+    apply_widow_orphan(
+        &mut out[start..content_end],
+        ctx.knobs.prose.wrap.orphan_lines,
+        ctx.knobs.prose.wrap.widow_lines,
+    );
     if layout.gap_after > 0.0 {
         out.push(LaidItem::Text(LaidLine::gap(layout.gap_after)));
     }
@@ -348,19 +353,22 @@ fn append_styled_run(
         underline = true;
     }
     let link_uri = run.link_uri.as_deref();
-    let mut remaining = run.text.as_str();
-    while !remaining.is_empty() {
-        let (chunk, rest) = next_wrap_chunk(remaining);
-        remaining = rest;
+    let hyphenate = ctx.knobs.prose.wrap.hyphenate;
+    let mut queue = run.text.clone();
+    while !queue.is_empty() {
+        let (chunk_borrowed, rest_borrowed) = next_wrap_chunk(&queue);
+        let chunk = chunk_borrowed.to_string();
+        let rest = rest_borrowed.to_string();
         // Keep trailing spaces so inter-word advances are shaped; drop
         // whitespace-only chunks at the start of a line.
-        if current_spans.is_empty() && skip_wrap_chunk_at_line_start(chunk) {
+        if current_spans.is_empty() && skip_wrap_chunk_at_line_start(&chunk) {
+            queue = rest;
             continue;
         }
         let (spans, w) = shape_and_record_spans(
             ctx.fonts,
             face,
-            chunk,
+            &chunk,
             font_size,
             ctx.glyph_sets,
             fill,
@@ -369,19 +377,46 @@ fn append_styled_run(
             baseline_shift,
         )?;
         if *current_width + w > max_width && !current_spans.is_empty() {
+            if hyphenate {
+                let remain = (max_width - *current_width).max(0.0);
+                let (word, trail) = split_trailing_space(&chunk);
+                if let Some((left, right)) = hyphen_fit(ctx.fonts, face, word, font_size, remain)? {
+                    let (left_spans, left_w) = shape_and_record_spans(
+                        ctx.fonts,
+                        face,
+                        &left,
+                        font_size,
+                        ctx.glyph_sets,
+                        fill,
+                        underline,
+                        link_uri,
+                        baseline_shift,
+                    )?;
+                    current_spans.extend(left_spans);
+                    *current_width += left_w;
+                    flush_styled_line(current_spans, out, layout, max_width, false);
+                    *current_width = 0.0;
+                    queue = format!("{right}{trail}{rest}");
+                    continue;
+                }
+            }
             flush_styled_line(current_spans, out, layout, max_width, false);
             *current_width = 0.0;
-            if skip_wrap_chunk_at_line_start(chunk) {
+            if skip_wrap_chunk_at_line_start(&chunk) {
+                queue = rest;
                 continue;
             }
         }
-        if w > max_width && current_spans.is_empty() && layout.hard_break_overflow {
-            // Hard-break tokens wider than the content box (URLs, long code).
-            for piece in hard_break_text(ctx.fonts, face, chunk, font_size, max_width)? {
-                let (spans, _) = shape_and_record_spans(
+        if w > max_width && current_spans.is_empty() {
+            let (word, trail) = split_trailing_space(&chunk);
+            if hyphenate
+                && let Some((left, right)) =
+                    hyphen_fit(ctx.fonts, face, word, font_size, max_width)?
+            {
+                let (left_spans, _) = shape_and_record_spans(
                     ctx.fonts,
                     face,
-                    &piece,
+                    &left,
                     font_size,
                     ctx.glyph_sets,
                     fill,
@@ -389,21 +424,49 @@ fn append_styled_run(
                     link_uri,
                     baseline_shift,
                 )?;
-                current_spans.extend(spans);
+                current_spans.extend(left_spans);
                 flush_styled_line(current_spans, out, layout, max_width, false);
                 *current_width = 0.0;
+                queue = format!("{right}{trail}{rest}");
+                continue;
             }
-            continue;
+            if layout.hard_break_overflow {
+                // Hard-break tokens wider than the content box (URLs, long code).
+                for piece in hard_break_text(ctx.fonts, face, &chunk, font_size, max_width)? {
+                    let (spans, _) = shape_and_record_spans(
+                        ctx.fonts,
+                        face,
+                        &piece,
+                        font_size,
+                        ctx.glyph_sets,
+                        fill,
+                        underline,
+                        link_uri,
+                        baseline_shift,
+                    )?;
+                    current_spans.extend(spans);
+                    flush_styled_line(current_spans, out, layout, max_width, false);
+                    *current_width = 0.0;
+                }
+                queue = rest;
+                continue;
+            }
         }
         // soft_only: place an overlong token and let it stick out.
         current_spans.extend(spans);
         *current_width += w;
+        queue = rest;
     }
     Ok(())
 }
 
-/// Keep at least two content lines together at paragraph start and end.
-fn apply_widow_orphan(items: &mut [LaidItem]) {
+/// Keep `orphan_lines` / `widow_lines` content lines together (CSS-like).
+///
+/// Values below 1 are treated as 1. Glues the first `orphan_lines - 1` content
+/// lines and the `widow_lines - 1` lines before the last content line.
+pub(super) fn apply_widow_orphan(items: &mut [LaidItem], orphan_lines: u32, widow_lines: u32) {
+    let orphans = orphan_lines.max(1) as usize;
+    let widows = widow_lines.max(1) as usize;
     let idxs: Vec<usize> = items
         .iter()
         .enumerate()
@@ -415,12 +478,20 @@ fn apply_widow_orphan(items: &mut [LaidItem]) {
     if idxs.len() < 2 {
         return;
     }
-    if let LaidItem::Text(line) = &mut items[idxs[0]] {
-        line.glue_after = true;
+    // Orphans: keep the first N lines together → glue first N-1.
+    for &i in idxs.iter().take(orphans.saturating_sub(1)) {
+        if let LaidItem::Text(line) = &mut items[i] {
+            line.glue_after = true;
+        }
     }
-    let penultimate = idxs[idxs.len() - 2];
-    if let LaidItem::Text(line) = &mut items[penultimate] {
-        line.glue_after = true;
+    // Widows: keep the last N lines together → glue the N-1 before the last.
+    if idxs.len() >= widows {
+        let start = idxs.len() - widows;
+        for &i in idxs.iter().skip(start).take(widows.saturating_sub(1)) {
+            if let LaidItem::Text(line) = &mut items[i] {
+                line.glue_after = true;
+            }
+        }
     }
 }
 
@@ -496,4 +567,88 @@ pub(super) fn measure_runs_natural_width(
         width += shaped_runs_width(&shaped);
     }
     Ok(width)
+}
+
+#[cfg(test)]
+mod widow_orphan_tests {
+    use super::{LaidItem, LaidLine, LaidSpan, apply_widow_orphan};
+    use crate::font::{FaceId, FaceRef};
+    use crate::knobs::TextAlign;
+
+    fn content_line(glue: bool) -> LaidItem {
+        LaidItem::Text(LaidLine {
+            // Non-empty spans so `is_gap()` is false (gap = empty spans).
+            spans: vec![LaidSpan {
+                face: FaceRef::Bundled(FaceId::SansRegular),
+                font_size: 11.0,
+                glyphs: Vec::new(),
+                fill: [0.0, 0.0, 0.0],
+                underline: false,
+                link_uri: None,
+                baseline_shift: 0.0,
+            }],
+            leading: 12.0,
+            glue_after: glue,
+            indent: 0.0,
+            measure: 100.0,
+            text_align: TextAlign::Left,
+        })
+    }
+
+    fn glue_flags(items: &[LaidItem]) -> Vec<bool> {
+        items
+            .iter()
+            .map(|item| match item {
+                LaidItem::Text(line) => line.glue_after,
+                _ => false,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn default_two_two_glues_first_and_penultimate() {
+        let mut items = vec![
+            content_line(false),
+            content_line(false),
+            content_line(false),
+            content_line(false),
+        ];
+        apply_widow_orphan(&mut items, 2, 2);
+        assert_eq!(glue_flags(&items), vec![true, false, true, false]);
+    }
+
+    #[test]
+    fn orphan_three_glues_first_two() {
+        let mut items = vec![
+            content_line(false),
+            content_line(false),
+            content_line(false),
+            content_line(false),
+        ];
+        apply_widow_orphan(&mut items, 3, 1);
+        assert_eq!(glue_flags(&items), vec![true, true, false, false]);
+    }
+
+    #[test]
+    fn widow_three_glues_two_before_last() {
+        let mut items = vec![
+            content_line(false),
+            content_line(false),
+            content_line(false),
+            content_line(false),
+        ];
+        apply_widow_orphan(&mut items, 1, 3);
+        assert_eq!(glue_flags(&items), vec![false, true, true, false]);
+    }
+
+    #[test]
+    fn values_below_one_treated_as_one() {
+        let mut items = vec![
+            content_line(false),
+            content_line(false),
+            content_line(false),
+        ];
+        apply_widow_orphan(&mut items, 0, 0);
+        assert_eq!(glue_flags(&items), vec![false, false, false]);
+    }
 }

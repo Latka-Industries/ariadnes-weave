@@ -1,6 +1,7 @@
 //! Turn print IR blocks into laid segments, images, and glyph sets.
 
 mod figure;
+mod hyphen;
 mod ops;
 mod prose;
 mod runs;

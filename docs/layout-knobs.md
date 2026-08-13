@@ -113,6 +113,18 @@ Omit these keys to keep Liberation style mapping (bundled `defaults/prose.toml` 
 
 First cut defers table / code / math / deck and per-level `heading.1` / `heading.2`.
 
+## Soft wrap (`[wrap]` in `defaults/prose.toml`)
+
+| Key | Meaning |
+|-----|---------|
+| `body_leading_factor` | Leading factor for generic body runs (deck slides, etc.) |
+| `min_width` | Floor on wrap measure (points) |
+| `hyphenate` | Soft-hyphenate pure ASCII letter words when they do not fit (`true` bundled; `resume@0` densify forces off) |
+| `orphan_lines` | Min content lines kept together at paragraph start (bundled `2`; values below 1 → `1`) |
+| `widow_lines` | Min content lines kept together at paragraph end (bundled `2`; values below 1 → `1`) |
+
+Hyphenation is conservative ASCII-first (no dictionary crate): words shorter than 5 letters, URLs / paths (`://`, `/`, `:`, `@`, `.`), digits, and non-ASCII letters are skipped. Valid splits keep ≥2 letters before the hyphen and ≥3 after; the engine picks the longest `prefix-` that fits the remaining measure.
+
 ## Page chrome (`defaults/page.toml`)
 
 Optional running header + page-number footer (THI-392). Tokens in `format`:

@@ -44,6 +44,10 @@ band = "match_figure"
 text_align = "left"
 overflow = "hard_break"
 
+# Soft wrap / hyphenation / widow-orphan (THI-394).
 [wrap]
 body_leading_factor = 1.35
 min_width = 36.0
+hyphenate = true
+orphan_lines = 2
+widow_lines = 2

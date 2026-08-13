@@ -78,6 +78,7 @@ impl LayoutKnobs {
         self.page.header.enabled = false;
         self.page.content.bottom_clearance = 2.0;
         self.page.content.top_clearance = 0.0;
+        self.prose.wrap.hyphenate = false;
     }
 }
 
@@ -648,6 +649,27 @@ pub struct ProseWrapKnobs {
     pub body_leading_factor: f32,
     /// Minimum wrap width (points).
     pub min_width: f32,
+    /// Soft-hyphenate ASCII letter words when they do not fit (THI-394).
+    #[serde(default = "default_hyphenate")]
+    pub hyphenate: bool,
+    /// Min content lines kept together at the start of a paragraph (CSS orphans).
+    #[serde(default = "default_orphan_lines")]
+    pub orphan_lines: u32,
+    /// Min content lines kept together at the end of a paragraph (CSS widows).
+    #[serde(default = "default_widow_lines")]
+    pub widow_lines: u32,
+}
+
+fn default_hyphenate() -> bool {
+    true
+}
+
+fn default_orphan_lines() -> u32 {
+    2
+}
+
+fn default_widow_lines() -> u32 {
+    2
 }
 
 /// Mutually exclusive prose fill categories (`[text]` / `[quote]` / `[caption]`).
@@ -1352,6 +1374,7 @@ mod tests {
                 || dump.contains("page.footer.format = {page} / {pages}")
         );
         assert!(dump.contains("page.header.enabled = false"));
+        assert!(dump.contains("prose.wrap.hyphenate = true"));
         assert!(dump.contains("prose.heading.leading_factor = 1.35"));
         assert!(k.prose.quote.italic);
         assert!(dump.contains("prose.quote.italic = true"));
