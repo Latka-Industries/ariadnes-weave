@@ -53,6 +53,7 @@ fn figure(title: &str, caption: &str, placement: FigurePlacement) -> PrintBlock 
         title: vec![TextRun::strong(title)],
         caption: vec![TextRun::plain(caption)],
         placement,
+        dest_id: None,
     }
 }
 

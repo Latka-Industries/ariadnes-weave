@@ -102,6 +102,7 @@ fn figure_block(
         title: Vec::new(),
         caption: vec![TextRun::plain(caption)],
         placement,
+        dest_id: None,
     }
 }
 
@@ -597,6 +598,7 @@ fn table_draws_grid_paths() {
                     cells: vec!["alpha".into(), "1".into()],
                 },
             ],
+            dest_id: None,
         }],
     };
     let bytes = emit_pdf(&doc).expect("emit");
@@ -975,6 +977,7 @@ fn figure_gap_after_title_affects_emit() {
             title: vec![TextRun::plain("Title")],
             caption: vec![TextRun::plain("Cap")],
             placement: FigurePlacement::Flow,
+            dest_id: None,
         }],
     );
     let tight = emit_with_layout_tweak(&doc, |l| l.prose.figure.gap_after_title = 0.0);
@@ -999,7 +1002,8 @@ fn figure_title_align_and_caption_band_affect_emit() {
             caption: vec![TextRun::plain(
                 "Caption under a mid-width image for band checks.",
             )],
-            placement: FigurePlacement::Flow,
+             placement: FigurePlacement::Flow,
+            dest_id: None,
         }],
     );
 
@@ -1078,6 +1082,7 @@ fn caption_and_title_justify_affect_emit() {
                  stretch inter-word gaps under justify while the last line stays left.",
             )],
             placement: FigurePlacement::Flow,
+            dest_id: None,
         }],
     );
 
@@ -1146,6 +1151,7 @@ fn caption_overflow_soft_only_differs_from_hard_break() {
             title: Vec::new(),
             caption: vec![TextRun::plain(long)],
             placement: FigurePlacement::Flow,
+            dest_id: None,
         }],
     );
 

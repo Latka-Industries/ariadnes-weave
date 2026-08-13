@@ -10,7 +10,8 @@ use crate::profile::ProfileMetrics;
 use super::super::types::{GlyphSets, LaidItem, LaidLine, LayoutSegment};
 use super::LayoutCtx;
 use super::runs::{
-    caption_layout, figure_title_layout, layout_ctx, push_styled_runs, with_knob_italic,
+    caption_layout, figure_title_layout, layout_ctx, push_dest_marker, push_styled_runs,
+    with_knob_italic,
 };
 
 /// Inputs for laying out a [`crate::ir::PrintBlock::Figure`].
@@ -22,6 +23,7 @@ pub(super) struct PushFigureArgs<'a> {
     pub title: &'a [TextRun],
     pub caption: &'a [TextRun],
     pub placement: FigurePlacement,
+    pub dest_id: Option<&'a str>,
     pub metrics: &'a ProfileMetrics,
     pub fonts: &'a FontBag,
     pub knobs: &'a LayoutKnobs,
@@ -65,6 +67,7 @@ impl PushFigureArgs<'_> {
             title,
             caption,
             placement,
+            dest_id,
             metrics,
             fonts,
             knobs,
@@ -80,6 +83,7 @@ impl PushFigureArgs<'_> {
         }
 
         apply_figure_gap_before(&mut seg.1, knobs.prose.figure.gap_before);
+        push_dest_marker(&mut seg.1, dest_id);
 
         let content_w = metrics.content_width();
         let align = knobs.prose.figure.align;

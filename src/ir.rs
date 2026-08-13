@@ -138,6 +138,9 @@ pub enum PrintBlock {
     Table {
         /// Row-major cells.
         rows: Vec<TableRow>,
+        /// Optional internal destination id (list-of-tables `GoTo`; THI-395).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dest_id: Option<String>,
     },
     /// Meta row without a table grid (LaTeX `\hfill` stand-in).
     ///
@@ -164,7 +167,7 @@ pub enum PrintBlock {
         /// `Some("")` omits the page column.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         page_label: Option<String>,
-        /// Internal destination matching a heading [`Self::Heading::dest_id`].
+        /// Internal destination matching a heading / figure / table `dest_id`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         dest_id: Option<String>,
         /// Band indent level (0 = content margin). Nesting ≈ heading depth − 1.
@@ -188,6 +191,9 @@ pub enum PrintBlock {
         caption: Vec<TextRun>,
         /// Placement hint.
         placement: FigurePlacement,
+        /// Optional internal destination id (list-of-figures `GoTo`; THI-395).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dest_id: Option<String>,
     },
     /// Math (LaTeX source; structured layout for `\frac` / scripts / display
     /// ∑∏ limits / matrices).
@@ -356,6 +362,24 @@ impl PrintBlock {
             level,
             runs,
             break_before,
+            dest_id: Some(dest_id.into()),
+        }
+    }
+
+    /// Table without an internal destination.
+    #[must_use]
+    pub fn table(rows: Vec<TableRow>) -> Self {
+        Self::Table {
+            rows,
+            dest_id: None,
+        }
+    }
+
+    /// Table that registers an internal destination for list-of-tables.
+    #[must_use]
+    pub fn table_dest(rows: Vec<TableRow>, dest_id: impl Into<String>) -> Self {
+        Self::Table {
+            rows,
             dest_id: Some(dest_id.into()),
         }
     }

@@ -8,13 +8,15 @@ use super::super::types::{
     LaidItem, LaidLine, LaidSpan, LaidTable, LaidTableRow, shape_and_record_spans,
 };
 use super::LayoutCtx;
-use super::runs::{hard_break_text, next_wrap_chunk, skip_wrap_chunk_at_line_start};
+use super::runs::{hard_break_text, next_wrap_chunk, push_dest_marker, skip_wrap_chunk_at_line_start};
 
 pub(super) fn push_table(
     out: &mut Vec<LaidItem>,
     rows: &[TableRow],
+    dest_id: Option<&str>,
     ctx: &mut LayoutCtx,
 ) -> Result<(), WeaveError> {
+    push_dest_marker(out, dest_id);
     if rows.is_empty() {
         out.push(LaidItem::Text(LaidLine::shaped(
             ctx.fonts,

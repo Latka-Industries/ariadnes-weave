@@ -66,6 +66,7 @@ fn doc() -> PrintDocument {
                 )],
                 caption: vec![wrapping_caption()],
                 placement: FigurePlacement::Flow,
+                dest_id: None,
             },
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain("Body after the figure.")],

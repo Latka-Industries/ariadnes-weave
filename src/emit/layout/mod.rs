@@ -138,10 +138,10 @@ fn layout_block(
             let seg = segments.last_mut().expect("segment");
             push_list_lines(&mut seg.1, *ordered, items, *indent, 0, &mut ctx)?;
         }
-        PrintBlock::Table { rows } => {
+        PrintBlock::Table { rows, dest_id } => {
             let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
             let seg = segments.last_mut().expect("segment");
-            push_table(&mut seg.1, rows, &mut ctx)?;
+            push_table(&mut seg.1, rows, dest_id.as_deref(), &mut ctx)?;
         }
         PrintBlock::Row { panes, indent } => {
             let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
@@ -154,6 +154,7 @@ fn layout_block(
             title,
             caption,
             placement,
+            dest_id,
         } => {
             PushFigureArgs {
                 segments,
@@ -163,6 +164,7 @@ fn layout_block(
                 title,
                 caption,
                 placement: *placement,
+                dest_id: dest_id.as_deref(),
                 metrics,
                 fonts,
                 knobs,

@@ -28,6 +28,16 @@ pub(super) fn layout_ctx<'a>(
     }
 }
 
+/// Zero-height destination marker so LOF/LOT / TOC page resolve can find floats.
+pub(super) fn push_dest_marker(out: &mut Vec<LaidItem>, dest_id: Option<&str>) {
+    let Some(id) = dest_id.filter(|s| !s.is_empty()) else {
+        return;
+    };
+    let mut line = LaidLine::gap(0.0);
+    line.dest_id = Some(id.to_owned());
+    out.push(LaidItem::Text(line));
+}
+
 pub(super) fn body_layout(
     metrics: &ProfileMetrics,
     knobs: &LayoutKnobs,
