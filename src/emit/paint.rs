@@ -619,13 +619,19 @@ pub(super) fn paint_columns(
 ) {
     let mut x = origin_x + cols.indent;
     for (i, lines) in cols.columns.iter().enumerate() {
+        let col_w = cols.col_widths.get(i).copied().unwrap_or(0.0);
         let mut text_y = top_y;
         for line in lines {
             text_y -= line.leading;
-            paint_laid_spans(content, fonts, &line.spans, x, text_y);
-            push_span_links(links, &line.spans, x, text_y);
+            let measure = if line.measure > 0.0 {
+                line.measure
+            } else {
+                col_w
+            };
+            let paint_x = x + line.indent + line.text_align.offset_x(measure, line.width());
+            paint_laid_spans(content, fonts, &line.spans, paint_x, text_y);
+            push_span_links(links, &line.spans, paint_x, text_y);
         }
-        let col_w = cols.col_widths.get(i).copied().unwrap_or(0.0);
         x += col_w + cols.gap;
     }
 }

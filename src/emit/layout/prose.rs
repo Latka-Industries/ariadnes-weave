@@ -65,7 +65,11 @@ pub(super) fn layout_heading(
     Ok(())
 }
 
-/// TOC line: title + optional dotted leaders + flush-right page digits.
+/// TOC line: nested title + optional dotted leaders; page digits flush-right.
+///
+/// Nesting uses list `indent_per_depth` (not `[indent].step`, often `0`) on the
+/// **title** only. The page column stays on the content right edge for every
+/// level (classic TOC).
 pub(super) fn push_toc_entry(
     out: &mut Vec<LaidItem>,
     title: &[TextRun],
@@ -75,15 +79,18 @@ pub(super) fn push_toc_entry(
     leaders: bool,
     ctx: &mut LayoutCtx,
 ) -> Result<(), WeaveError> {
-    let band = ctx.knobs.prose.indent.pts(indent);
+    let nest_step = ctx.knobs.prose.list.indent_per_depth.max(12.0);
+    #[allow(clippy::cast_precision_loss)]
+    let nest = nest_step * indent as f32;
     let font_size = ctx.metrics.body_size;
     let leading = ctx.metrics.body_leading;
-    let measure = (ctx.metrics.content_width() - band).max(ctx.knobs.prose.wrap.min_width);
+    let full = ctx.metrics.content_width();
     let fill = ctx.knobs.prose.text_fill_rgb01();
     let link_dest = dest_id;
     let face = FaceRef::Bundled(FaceId::SansRegular);
+    let col_gap = 6.0_f32;
 
-    let mut spans: Vec<LaidSpan> = Vec::new();
+    let mut title_spans: Vec<LaidSpan> = Vec::new();
     let mut title_w = 0.0_f32;
     for run in title {
         let run_face = resolve_run_face(
@@ -106,7 +113,7 @@ pub(super) fn push_toc_entry(
             link_dest,
             0.0,
         )?;
-        spans.extend(run_spans);
+        title_spans.extend(run_spans);
         title_w += w;
     }
 
@@ -135,7 +142,7 @@ pub(super) fn push_toc_entry(
         page_w = w;
     }
 
-    // Reserve a stable right column so "9" and "12" share the same right edge.
+    // Fixed page column (≥ two digits) so "2" and "12" share a right edge.
     let page_slot = if page_w > 0.0 {
         let (_, two_w) = shape_and_record_spans(
             ctx.fonts,
@@ -154,7 +161,16 @@ pub(super) fn push_toc_entry(
         0.0
     };
 
-    let gap = (measure - title_w - page_slot).max(0.0);
+    // Full-width band: nest only the title; page column stays on the outer edge.
+    let left_w = if page_slot > 0.0 {
+        (full - col_gap - page_slot).max(ctx.knobs.prose.wrap.min_width)
+    } else {
+        full
+    };
+    let title_measure = (left_w - nest).max(ctx.knobs.prose.wrap.min_width);
+
+    let mut left_spans = title_spans;
+    let gap = (title_measure - title_w).max(0.0);
     if gap > 0.0 {
         let fill_char = if leaders { "." } else { " " };
         let (unit_spans, unit_w) = shape_and_record_spans(
@@ -172,70 +188,47 @@ pub(super) fn push_toc_entry(
         if unit_w > 0.0 {
             let n = (gap / unit_w).floor() as usize;
             for _ in 0..n {
-                spans.extend(unit_spans.iter().cloned());
-            }
-            let used = n as f32 * unit_w;
-            let slack = gap - used;
-            // Pad remaining slack with hair spaces so the page slot stays flush-right.
-            if slack > 0.5 {
-                let (sp, space_w) = shape_and_record_spans(
-                    ctx.fonts,
-                    face,
-                    " ",
-                    font_size,
-                    ctx.glyph_sets,
-                    fill,
-                    false,
-                    None,
-                    None,
-                    0.0,
-                )?;
-                if space_w > 0.0 {
-                    let sn = (slack / space_w).floor() as usize;
-                    for _ in 0..sn {
-                        spans.extend(sp.iter().cloned());
-                    }
-                }
+                left_spans.extend(unit_spans.iter().cloned());
             }
         }
     }
 
-    // Right-align page digits inside the reserved slot.
-    let pad = (page_slot - page_w).max(0.0);
-    if pad > 0.5 {
-        let (sp, space_w) = shape_and_record_spans(
-            ctx.fonts,
-            face,
-            " ",
-            font_size,
-            ctx.glyph_sets,
-            fill,
-            false,
-            None,
-            None,
-            0.0,
-        )?;
-        if space_w > 0.0 {
-            let sn = (pad / space_w).floor() as usize;
-            for _ in 0..sn {
-                spans.extend(sp.iter().cloned());
-            }
-        }
-    }
-
-    spans.extend(page_spans);
-    out.push(LaidItem::Text(LaidLine {
-        spans,
+    let left_line = LaidLine {
+        spans: left_spans,
         leading,
         glue_after: false,
-        indent: band,
-        measure,
+        indent: nest,
+        measure: title_measure,
         text_align: TextAlign::Left,
         dest_id: None,
+    };
+
+    if page_slot <= 0.0 {
+        out.push(LaidItem::Text(left_line));
+        out.push(LaidItem::Text(LaidLine::gap(
+            ctx.knobs.prose.paragraph.gap_after,
+        )));
+        return Ok(());
+    }
+
+    // Page digits only — column paint right-aligns within `page_slot`.
+    let right_line = LaidLine {
+        spans: page_spans,
+        leading,
+        glue_after: false,
+        indent: 0.0,
+        measure: page_slot,
+        text_align: TextAlign::Right,
+        dest_id: None,
+    };
+
+    out.push(LaidItem::Columns(LaidColumns {
+        columns: vec![vec![left_line], vec![right_line]],
+        col_widths: vec![left_w, page_slot],
+        gap: col_gap,
+        gap_after: ctx.knobs.prose.paragraph.gap_after,
+        indent: 0.0,
     }));
-    out.push(LaidItem::Text(LaidLine::gap(
-        ctx.knobs.prose.paragraph.gap_after,
-    )));
     Ok(())
 }
 
