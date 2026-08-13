@@ -20,7 +20,12 @@ crates.io. Local suite work can still path-dep when cutting paired releases.
 **Prose + structure emit** via `emit_pdf` / `emit_pdf_with`:
 
 - Blocks: `Heading` / `Paragraph` / `List` / `Code` / `Quote` / `Break` /
-  `Table` / `Figure` / `Slide` / `Math` / `Layout` (`place` / `vspace` / `rule`)
+  `Table` / `Figure` / `Row` / `TocEntry` / `Columns` / `Slide` / `Math` /
+  `Layout` (`place` / `vspace` / `rule`)
+- Long-doc print (THI-316 slice): page chrome headers/footers; ASCII hyphenation
+  + widow/orphan knobs; in-doc `TocEntry` (leaders, page resolve, `GoTo`); native
+  PDF `/Outlines` from heading `dest_id`s; multi-column body flow; figure/table
+  `dest_id` stamps for LOF/LOT lists (same `TocEntry` paint)
 - Faces: Liberation Sans (R/B/I/BI), Serif (R/B/I/BI) for `manuscript@0`, Mono
   for `code`; optional Font Awesome Free behind `--features icons`; optional
   sealed CJK / emoji subsets behind `--features cjk` / `emoji` (script fallback)
@@ -30,8 +35,8 @@ crates.io. Local suite work can still path-dep when cutting paired releases.
 - Shaping: `rustybuzz` + Type0 / CIDFontType2 / Identity-H; `subsetter` for
   used glyphs only
 - Profiles: `print@0` (A4 prose), `print-letter@0` (US Letter prose),
-  `manuscript@0` (Letter, double-spaced, H1 page breaks —
-  [literary unfolding](docs/decisions/D-literary-unfolding.md)),
+  `resume@0` (dense Letter CV), `manuscript@0` (Letter, double-spaced, H1 page
+  breaks — [literary unfolding](docs/decisions/D-literary-unfolding.md)),
   `deck@0` (16:9); axes in [`docs/profiles.md`](docs/profiles.md) /
   [D-print-profile-axes](docs/decisions/D-print-profile-axes.md)
 - Layout knobs: named optical defaults in `defaults/*.toml` (prose / table /
@@ -41,7 +46,8 @@ crates.io. Local suite work can still path-dep when cutting paired releases.
   `[figure].align` / `[figure].max_width_factor` / `[figure].title_align` /
   `title_text_align` and `[caption].band` / `text_align` (`left` / `center` /
   `right` / `justify` / `follow`) / `overflow`; body
-  `[paragraph].text_align`; optional
+  `[paragraph].text_align`; `[wrap]` hyphenate / orphans / widows;
+  `[body_columns].gap`; `[header]` / `[footer]` chrome tokens; optional
   `#RGB`/`#RRGGBB`
   fills for `[text]` / `[quote]` / `[caption]` / `[cite]` plus
   `[cite].underline`, `[link].underline` (default off), and per-run
@@ -49,10 +55,8 @@ crates.io. Local suite work can still path-dep when cutting paired releases.
   `font` pin ids (same namespace as `TextRun.face`); dump with
   `cargo run --example dump_knobs` — see
   [`docs/layout-knobs.md`](docs/layout-knobs.md)
-- Forced page breaks + keep-with-next + basic widow/orphan glue; page-number
-  footers
-- Deterministic emit: sorted font object order + SHA-256 fixtures in
-  `tests/determinism.rs`
+- Forced page breaks + keep-with-next; deterministic emit (sorted font object
+  order + SHA-256 fixtures in `tests/determinism.rs`)
 - `Table` → drawn grid + wrapped cells; `Figure` → PNG/JPEG XObject
   (`Flow` / `FloatNear` glue; title on figure; `[figure].align` /
   `max_width_factor` / `title_align`; caption `band` / `overflow`);
@@ -61,8 +65,10 @@ crates.io. Local suite work can still path-dep when cutting paired releases.
   `\frac`, multi-char scripts, `matrix`/`pmatrix`/`bmatrix`, and display
   under/over limits on `\sum`/`\prod`/…; `\int` keeps side limits (not full TeX)
 
-Not yet: full TeX/MathML, OS font collection/CFF polish, full-coverage CJK/emoji
-packs (only tiny sealed subsets behind features), color-emoji PDF paint.
+Not yet: footnotes/endnotes, per-chunk text align (pack-global only today), full
+TeX/MathML, OS font collection/CFF polish, full-coverage CJK/emoji packs (only
+tiny sealed subsets behind features), color-emoji PDF paint, live `{heading}`
+chrome tokens.
 
 | Later                                           | Where                                                                   |
 | ----------------------------------------------- | ----------------------------------------------------------------------- |

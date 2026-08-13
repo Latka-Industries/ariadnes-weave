@@ -99,6 +99,21 @@ Literary / beta-reader manuscript. See
 
 Column slots: `left` / `col1` / `body-left`, `right` / `col2` / `body-right`. Plain `body` without a side goes to the left column.
 
+## Long-doc surfaces (any prose profile)
+
+These are IR/emit features, not separate profile ids:
+
+| Feature | Notes |
+| --- | --- |
+| Page chrome | `[header]` / `[footer]` knobs; `resume@0` densify forces both off |
+| Hyphen / widows | `[wrap]` knobs; `resume@0` densify forces `hyphenate = false` |
+| `TocEntry` | Leaders + page resolve + `GoTo` from `dest_id` |
+| PDF outline | `/Outlines` from heading `dest_id`s |
+| `Columns` | Continuous body columns; gap from IR or `[body_columns].gap` |
+| Figure/table dests | Optional `dest_id` for LOF/LOT page resolve |
+
+See [`layout-knobs.md`](layout-knobs.md).
+
 ## Break hints
 
 `BreakHint` on blocks / headings:

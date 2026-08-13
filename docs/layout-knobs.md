@@ -4,9 +4,9 @@ Emit uses named optical defaults from per-category TOML files under `defaults/`:
 
 | File | Category | Used for |
 |------|----------|----------|
-| `prose.toml` | prose | Paragraph/heading/list/quote/code/figure/caption spacing and figure align/width, quote/caption italic, optional text/quote/cite/caption colors, cite underline, optional category font pins, wrap width |
+| `prose.toml` | prose | Paragraph/heading/list/quote/code/figure/caption spacing and figure align/width, quote/caption italic, optional text/quote/cite/caption colors, cite underline, optional category font pins, `[wrap]` hyphen/widow/orphan, `[body_columns].gap` |
 | `table.toml` | table | Cell padding, leading, and block gap |
-| `deck.toml` | deck | Slide title/subtitle/body scales and column gaps |
+| `deck.toml` | deck | Slide title/subtitle/body scales and column gaps (deck region columns — not article body) |
 | `math.toml` | math | Fractions, scripts, big-op limits, matrices, arrows, display gaps |
 | `page.toml` | page | Footer/header format+align, clearance, math stroke gray |
 
@@ -124,6 +124,28 @@ First cut defers table / code / math / deck and per-level `heading.1` / `heading
 | `widow_lines` | Min content lines kept together at paragraph end (bundled `2`; values below 1 → `1`) |
 
 Hyphenation is conservative ASCII-first (no dictionary crate): words shorter than 5 letters, URLs / paths (`://`, `/`, `:`, `@`, `.`), digits, and non-ASCII letters are skipped. Valid splits keep ≥2 letters before the hyphen and ≥3 after; the engine picks the longest `prefix-` that fits the remaining measure.
+
+## Body columns (`[body_columns]` in `defaults/prose.toml`)
+
+Newspaper / article continuous columns for `PrintBlock::Columns` (THI-391). Distinct from deck slide `[columns]` / `two-column` templates and from `PrintBlock::Row` meta panes.
+
+| Key | Meaning |
+|-----|---------|
+| `gap` | Space between columns in points (bundled `18`) |
+
+Column count and optional per-block `gap` live on the IR (`Columns { count, gap, children }`). Headings, figures, tables, math, breaks, rows, TOC lines, and nested columns **span** full measure (flush the current band). Body paragraphs/lists/quotes/code flow down each column; paragraph `[paragraph].text_align` (including `justify`) applies inside column bands.
+
+## TOC / destinations / outline
+
+Not knob-driven; IR + emit behavior:
+
+| Surface | Behavior |
+|---------|----------|
+| `PrintBlock::TocEntry` | Title + optional leaders + flush-right page column; `page_label: None` + `dest_id` → resolve after layout; `GoTo` when dest resolves |
+| `Heading` / `Figure` / `Table` `dest_id` | Zero-height dest markers for page resolve (TOC / LOF / LOT) |
+| PDF `/Outlines` | Built from headings that carry a resolvable `dest_id` (same Fit dests as TOC `GoTo`) |
+
+Tessera owns `\toc` / `\lof` / `\lot` expansion into these blocks; weave only paints and links.
 
 ## Page chrome (`defaults/page.toml`)
 
