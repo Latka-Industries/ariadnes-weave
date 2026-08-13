@@ -52,22 +52,21 @@ fn doc() -> PrintDocument {
                 )],
                 indent: 0,
             },
-            PrintBlock::Figure {
-                image: PrintImage {
+            PrintBlock::figure(
+                PrintImage {
                     bytes: figure_png(),
                     media_type: "image/png".into(),
                     width_px: Some(280),
                     height_px: Some(100),
                 },
-                alt: "swatch".into(),
-                title: vec![TextRun::strong(
+                "swatch",
+                vec![TextRun::strong(
                     "Figure title with enough words that a narrow band wraps and \
                      title_text_align justify can stretch intermediate lines",
                 )],
-                caption: vec![wrapping_caption()],
-                placement: FigurePlacement::Flow,
-                dest_id: None,
-            },
+                vec![wrapping_caption()],
+                FigurePlacement::Flow,
+            ),
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain("Body after the figure.")],
                 indent: 0,

@@ -96,14 +96,7 @@ fn figure_block(
     caption: impl Into<String>,
     placement: FigurePlacement,
 ) -> PrintBlock {
-    PrintBlock::Figure {
-        image,
-        alt: "swatch".into(),
-        title: Vec::new(),
-        caption: vec![TextRun::plain(caption)],
-        placement,
-        dest_id: None,
-    }
+    PrintBlock::figure(image, "swatch", Vec::new(), vec![TextRun::plain(caption)], placement)
 }
 
 fn figure_with_caption(caption: impl Into<String>, placement: FigurePlacement) -> PrintBlock {

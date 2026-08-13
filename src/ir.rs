@@ -384,6 +384,45 @@ impl PrintBlock {
         }
     }
 
+    /// Figure without an internal destination.
+    #[must_use]
+    pub fn figure(
+        image: PrintImage,
+        alt: impl Into<String>,
+        title: Vec<TextRun>,
+        caption: Vec<TextRun>,
+        placement: FigurePlacement,
+    ) -> Self {
+        Self::Figure {
+            image,
+            alt: alt.into(),
+            title,
+            caption,
+            placement,
+            dest_id: None,
+        }
+    }
+
+    /// Figure that registers an internal destination for list-of-figures.
+    #[must_use]
+    pub fn figure_dest(
+        image: PrintImage,
+        alt: impl Into<String>,
+        title: Vec<TextRun>,
+        caption: Vec<TextRun>,
+        placement: FigurePlacement,
+        dest_id: impl Into<String>,
+    ) -> Self {
+        Self::Figure {
+            image,
+            alt: alt.into(),
+            title,
+            caption,
+            placement,
+            dest_id: Some(dest_id.into()),
+        }
+    }
+
     /// Multi-column body region (THI-391).
     #[must_use]
     pub fn columns(count: u8, gap: Option<u16>, children: Vec<Self>) -> Self {
