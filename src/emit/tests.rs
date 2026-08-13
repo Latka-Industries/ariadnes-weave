@@ -1909,6 +1909,43 @@ fn body_columns_flow_emits_pdf() {
 }
 
 #[test]
+fn body_columns_justify_paint_differs_from_left() {
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "Justify cols".into(),
+            doc_kind: "document".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::columns(
+            2,
+            Some(12),
+            vec![
+                PrintBlock::paragraph(vec![TextRun::plain(
+                    "Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor \
+                     incididunt ut labore et dolore magna aliqua ut enim ad minim veniam quis nostrud.",
+                )]),
+                PrintBlock::paragraph(vec![TextRun::plain(
+                    "Curabitur pretium tincidunt lacus nulla gravida orci a odio nullam varius turpis \
+                     et commodo pharetra est eros bibendum elit nec luctus magna felis sollicitudin.",
+                )]),
+            ],
+        )],
+    };
+    let left = emit_with_layout_tweak(&doc, |layout| {
+        layout.prose.paragraph.text_align = TextAlign::Left;
+    });
+    let justify = emit_with_layout_tweak(&doc, |layout| {
+        layout.prose.paragraph.text_align = TextAlign::Justify;
+    });
+    assert_ne!(
+        left, justify,
+        "column paint must word-justify when paragraph text_align is justify"
+    );
+}
+
+#[test]
 fn measure_frac_try_from_f32() {
     assert_eq!(MeasureFrac::try_from_f32(1.0).unwrap(), MeasureFrac::FULL);
     assert_eq!(MeasureFrac::try_from_f32(0.5).unwrap(), MeasureFrac::HALF);

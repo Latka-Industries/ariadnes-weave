@@ -623,14 +623,33 @@ pub(super) fn paint_columns(
         let mut text_y = top_y;
         for line in lines {
             text_y -= line.leading;
+            if line.is_gap() {
+                continue;
+            }
             let measure = if line.measure > 0.0 {
                 line.measure
             } else {
                 col_w
             };
-            let paint_x = x + line.indent + line.text_align.offset_x(measure, line.width());
-            paint_laid_spans(content, fonts, &line.spans, paint_x, text_y);
-            push_span_links(links, &line.spans, paint_x, text_y);
+            let origin = x + line.indent;
+            match line.text_align {
+                TextAlign::Justify => {
+                    paint_justified_spans(
+                        content,
+                        fonts,
+                        &line.spans,
+                        origin,
+                        text_y,
+                        measure.max(line.width()),
+                    );
+                    push_span_links(links, &line.spans, origin, text_y);
+                }
+                align => {
+                    let paint_x = origin + align.offset_x(measure.max(line.width()), line.width());
+                    paint_laid_spans(content, fonts, &line.spans, paint_x, text_y);
+                    push_span_links(links, &line.spans, paint_x, text_y);
+                }
+            }
         }
         x += col_w + cols.gap;
     }
