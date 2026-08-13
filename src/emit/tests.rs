@@ -1866,6 +1866,49 @@ fn headings_emit_pdf_outline_bookmarks() {
 }
 
 #[test]
+fn body_columns_flow_emits_pdf() {
+    let para = |s: &str| PrintBlock::paragraph(vec![TextRun::plain(s)]);
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "Columns".into(),
+            doc_kind: "document".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![
+            PrintBlock::heading(1, vec![TextRun::plain("Lead")], BreakHint::None),
+            PrintBlock::columns(
+                2,
+                Some(14),
+                vec![
+                    para(
+                        "Alpha column flow paragraph with enough words to wrap inside a narrow measure for newspaper style layout.",
+                    ),
+                    para(
+                        "Bravo continues the article body so the second column receives text after the first column fills.",
+                    ),
+                    para(
+                        "Charlie adds still more prose to force a taller column band on the page.",
+                    ),
+                ],
+            ),
+            PrintBlock::heading(2, vec![TextRun::plain("Spanning")], BreakHint::None),
+            PrintBlock::columns(
+                2,
+                None,
+                vec![para(
+                    "Delta resumes two-column flow after a full-width heading span.",
+                )],
+            ),
+        ],
+    };
+    let pdf = emit_pdf(&doc).expect("columns pdf");
+    assert!(pdf.starts_with(b"%PDF-"));
+    assert!(pdf.len() > 2_000, "expected non-trivial PDF");
+}
+
+#[test]
 fn measure_frac_try_from_f32() {
     assert_eq!(MeasureFrac::try_from_f32(1.0).unwrap(), MeasureFrac::FULL);
     assert_eq!(MeasureFrac::try_from_f32(0.5).unwrap(), MeasureFrac::HALF);

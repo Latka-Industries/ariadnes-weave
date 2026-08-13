@@ -155,6 +155,12 @@ pub struct ProseKnobs {
     pub caption: ProseCaptionKnobs,
     /// Wrap helpers.
     pub wrap: ProseWrapKnobs,
+    /// Defaults for [`crate::PrintBlock::Columns`] gap (THI-391).
+    ///
+    /// Distinct from deck `[columns]` (slide two-column). Pack overlay:
+    /// `[body_columns]` or `[prose.body_columns]`.
+    #[serde(default, skip_serializing_if = "ProseBodyColumnsKnobs::is_default")]
+    pub body_columns: ProseBodyColumnsKnobs,
     /// Default body text color (optional; omit for engine black).
     #[serde(default, skip_serializing_if = "ProseTextKnobs::is_empty")]
     pub text: ProseTextKnobs,
@@ -670,6 +676,32 @@ fn default_orphan_lines() -> u32 {
 
 fn default_widow_lines() -> u32 {
     2
+}
+
+/// `[body_columns]` in `prose.toml` — newspaper/article column flow defaults (THI-391).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProseBodyColumnsKnobs {
+    /// Gap between columns when [`crate::PrintBlock::Columns::gap`] is omitted (points).
+    #[serde(default = "default_body_columns_gap")]
+    pub gap: f32,
+}
+
+fn default_body_columns_gap() -> f32 {
+    18.0
+}
+
+impl Default for ProseBodyColumnsKnobs {
+    fn default() -> Self {
+        Self {
+            gap: default_body_columns_gap(),
+        }
+    }
+}
+
+impl ProseBodyColumnsKnobs {
+    fn is_default(&self) -> bool {
+        (self.gap - default_body_columns_gap()).abs() < f32::EPSILON
+    }
 }
 
 /// Mutually exclusive prose fill categories (`[text]` / `[quote]` / `[caption]`).

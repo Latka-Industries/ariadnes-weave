@@ -212,6 +212,21 @@ pub enum PrintBlock {
         /// Ordered layout ops in reading order.
         ops: Vec<LayoutOp>,
     },
+    /// Continuous multi-column body flow (newspaper/article; THI-391).
+    ///
+    /// Distinct from [`Self::Row`] (meta hfill panes) and slide `two-column`.
+    /// Children flow down column 1, then 2… then the next page. Headings,
+    /// figures, tables, math, slides, layout ops, breaks, rows, TOC lines, and
+    /// nested columns **span** full measure (flush the current column band).
+    Columns {
+        /// Column count (clamped to 2..=6 at layout).
+        count: u8,
+        /// Gap between columns in points; `None` → knobs `[body_columns].gap`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        gap: Option<u16>,
+        /// Nested body blocks in reading order.
+        children: Vec<PrintBlock>,
+    },
     /// Explicit author/export break (e.g. chapter boundary).
     Break(BreakHint),
 }
@@ -342,6 +357,16 @@ impl PrintBlock {
             runs,
             break_before,
             dest_id: Some(dest_id.into()),
+        }
+    }
+
+    /// Multi-column body region (THI-391).
+    #[must_use]
+    pub fn columns(count: u8, gap: Option<u16>, children: Vec<Self>) -> Self {
+        Self::Columns {
+            count,
+            gap,
+            children,
         }
     }
 }

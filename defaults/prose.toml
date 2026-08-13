@@ -51,3 +51,7 @@ min_width = 36.0
 hyphenate = true
 orphan_lines = 2
 widow_lines = 2
+
+# Newspaper / article body columns (THI-391). Distinct from deck [columns].
+[body_columns]
+gap = 18.0

@@ -1,5 +1,6 @@
 //! Turn print IR blocks into laid segments, images, and glyph sets.
 
+mod columns;
 mod figure;
 mod hyphen;
 mod ops;
@@ -18,6 +19,7 @@ use crate::profile::ProfileMetrics;
 use super::math::layout_math;
 use super::types::{ForcedBreak, GlyphSets, LaidItem, LayoutDoc, LayoutSegment, PaintCategory};
 
+use columns::{LayoutColumnsArgs, layout_columns};
 use figure::PushFigureArgs;
 use ops::layout_layout_ops;
 use prose::{layout_code, layout_heading, layout_quote, push_list_lines, push_row, push_toc_entry};
@@ -187,6 +189,23 @@ fn layout_block(
             let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
             layout_layout_ops(ops, &mut ctx, segments)?;
         }
+        PrintBlock::Columns {
+            count,
+            gap,
+            children,
+        } => {
+            layout_columns(LayoutColumnsArgs {
+                count: *count,
+                gap: *gap,
+                children,
+                metrics,
+                fonts,
+                knobs,
+                segments,
+                images,
+                glyph_sets,
+            })?;
+        }
     }
     Ok(())
 }
@@ -209,6 +228,7 @@ fn block_name(block: &PrintBlock) -> &'static str {
         PrintBlock::Math { .. } => "math",
         PrintBlock::Slide { .. } => "slide",
         PrintBlock::Layout { .. } => "layout",
+        PrintBlock::Columns { .. } => "columns",
         PrintBlock::Break(_) => "break",
     }
 }
