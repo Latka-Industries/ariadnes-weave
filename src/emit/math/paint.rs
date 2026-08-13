@@ -420,24 +420,24 @@ fn paint_math_sym(content: &mut Content, geom: &SymGeom, chrome: &PageChromeKnob
     begin_math_stroke(content, chrome, thickness, true, true);
     match kind {
         MathSymKind::In | MathSymKind::NotIn => {
-            paint_sym_in(content, x, mid_y, width, height, bot, top, thickness, kind);
+            paint_sym_in(content, geom);
         }
         MathSymKind::Subset
         | MathSymKind::Superset
         | MathSymKind::SubsetEq
         | MathSymKind::SupersetEq => {
-            paint_sym_subset(content, kind, x, mid_y, width, height, bot, top);
+            paint_sym_subset(content, geom);
         }
         MathSymKind::Cup | MathSymKind::BigCup => {
-            paint_sym_cup(content, x, mid_y, width, height, top, bot, false);
+            paint_sym_cup(content, geom, false);
         }
         MathSymKind::BigCap => {
-            paint_sym_cup(content, x, mid_y, width, height, top, bot, true);
+            paint_sym_cup(content, geom, true);
         }
         MathSymKind::Coprod => paint_sym_coprod(content, x, width, top, bot),
-        MathSymKind::Forall => paint_sym_forall(content, x, cx, width, height, mid_y, top, bot),
+        MathSymKind::Forall => paint_sym_forall(content, geom),
         MathSymKind::Exists => paint_sym_exists(content, x, width, mid_y, top, bot),
-        MathSymKind::Empty => paint_sym_empty(content, cx, mid_y, width, height, top, bot),
+        MathSymKind::Empty => paint_sym_empty(content, geom),
         MathSymKind::Circ => {
             // Keep the ring optically small inside a padded advance box.
             let r = height * 0.38;
@@ -456,18 +456,17 @@ fn paint_math_sym(content: &mut Content, geom: &SymGeom, chrome: &PageChromeKnob
     content.restore_state();
 }
 
-#[allow(clippy::too_many_arguments)]
-fn paint_sym_in(
-    content: &mut Content,
-    x: f32,
-    mid_y: f32,
-    width: f32,
-    height: f32,
-    bot: f32,
-    top: f32,
-    thickness: f32,
-    kind: MathSymKind,
-) {
+fn paint_sym_in(content: &mut Content, geom: &SymGeom) {
+    let SymGeom {
+        kind,
+        x,
+        mid_y,
+        width,
+        height,
+        thickness,
+    } = *geom;
+    let top = mid_y + height / 2.0;
+    let bot = mid_y - height / 2.0;
     // ∈ shares ⊂'s open-right bowl, plus a mid bar (not a square E).
     let near = x + width * 0.18;
     let far = x + width * 0.9;
@@ -501,17 +500,17 @@ fn paint_sym_in(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn paint_sym_subset(
-    content: &mut Content,
-    kind: MathSymKind,
-    x: f32,
-    mid_y: f32,
-    width: f32,
-    height: f32,
-    bot: f32,
-    top: f32,
-) {
+fn paint_sym_subset(content: &mut Content, geom: &SymGeom) {
+    let SymGeom {
+        kind,
+        x,
+        mid_y,
+        width,
+        height,
+        ..
+    } = *geom;
+    let top = mid_y + height / 2.0;
+    let bot = mid_y - height / 2.0;
     let open_right = matches!(kind, MathSymKind::Subset | MathSymKind::SubsetEq);
     let (near, far) = if open_right {
         (x + width * 0.12, x + width * 0.88)
@@ -545,17 +544,16 @@ fn paint_sym_subset(
 }
 
 /// `cap=false` draws ∪ (open at top); `cap=true` draws ∩ (open at bottom).
-#[allow(clippy::too_many_arguments)]
-fn paint_sym_cup(
-    content: &mut Content,
-    x: f32,
-    mid_y: f32,
-    width: f32,
-    height: f32,
-    top: f32,
-    bot: f32,
-    cap: bool,
-) {
+fn paint_sym_cup(content: &mut Content, geom: &SymGeom, cap: bool) {
+    let SymGeom {
+        x,
+        mid_y,
+        width,
+        height,
+        ..
+    } = *geom;
+    let top = mid_y + height / 2.0;
+    let bot = mid_y - height / 2.0;
     let left = x + width * 0.12;
     let right = x + width * 0.88;
     if cap {
@@ -596,17 +594,17 @@ fn paint_sym_coprod(content: &mut Content, x: f32, width: f32, top: f32, bot: f3
     content.stroke();
 }
 
-#[allow(clippy::too_many_arguments)]
-fn paint_sym_forall(
-    content: &mut Content,
-    x: f32,
-    cx: f32,
-    width: f32,
-    height: f32,
-    mid_y: f32,
-    top: f32,
-    bot: f32,
-) {
+fn paint_sym_forall(content: &mut Content, geom: &SymGeom) {
+    let SymGeom {
+        x,
+        mid_y,
+        width,
+        height,
+        ..
+    } = *geom;
+    let top = mid_y + height / 2.0;
+    let bot = mid_y - height / 2.0;
+    let cx = x + width * 0.5;
     content.move_to(x + width * 0.08, top);
     content.line_to(cx, bot);
     content.line_to(x + width * 0.92, top);
@@ -625,16 +623,17 @@ fn paint_sym_exists(content: &mut Content, x: f32, width: f32, mid_y: f32, top: 
     content.stroke();
 }
 
-#[allow(clippy::too_many_arguments)]
-fn paint_sym_empty(
-    content: &mut Content,
-    cx: f32,
-    mid_y: f32,
-    width: f32,
-    height: f32,
-    top: f32,
-    bot: f32,
-) {
+fn paint_sym_empty(content: &mut Content, geom: &SymGeom) {
+    let SymGeom {
+        x,
+        mid_y,
+        width,
+        height,
+        ..
+    } = *geom;
+    let top = mid_y + height / 2.0;
+    let bot = mid_y - height / 2.0;
+    let cx = x + width * 0.5;
     let rx = width * 0.32;
     let ry = height * 0.36;
     ellipse_stroke(content, cx, mid_y, rx, ry);

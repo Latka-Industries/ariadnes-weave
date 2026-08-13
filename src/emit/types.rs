@@ -62,35 +62,46 @@ pub(super) fn spans_from_shaped_runs(
         .collect()
 }
 
+/// Inputs for [`ShapeSpans::run`].
+pub(super) struct ShapeSpans<'a> {
+    pub fonts: &'a FontBag,
+    pub face: FaceRef,
+    pub text: &'a str,
+    pub font_size: f32,
+    pub glyph_sets: &'a mut GlyphSets,
+    pub fill: [f32; 3],
+    pub underline: bool,
+    pub link_uri: Option<&'a str>,
+    pub link_dest: Option<&'a str>,
+    pub baseline_shift: f32,
+}
+
+impl ShapeSpans<'_> {
+    /// Shape with sealed script fallback, record glyphs, return spans + width.
+    pub(super) fn run(self) -> Result<(Vec<LaidSpan>, f32), WeaveError> {
+        let runs = shape_text_with_fallback(self.fonts, self.face, self.text, self.font_size)?;
+        let width = shaped_runs_width(&runs);
+        record_shaped_chunk(self.fonts, self.face, self.text, &runs, self.glyph_sets);
+        Ok((
+            spans_from_shaped_runs(
+                self.font_size,
+                runs,
+                self.fill,
+                self.underline,
+                self.link_uri,
+                self.link_dest,
+                self.baseline_shift,
+            ),
+            width,
+        ))
+    }
+}
+
 /// Shape with sealed script fallback, record glyphs, return spans + width.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn shape_and_record_spans(
-    fonts: &FontBag,
-    face: FaceRef,
-    text: &str,
-    font_size: f32,
-    glyph_sets: &mut GlyphSets,
-    fill: [f32; 3],
-    underline: bool,
-    link_uri: Option<&str>,
-    link_dest: Option<&str>,
-    baseline_shift: f32,
+    args: ShapeSpans<'_>,
 ) -> Result<(Vec<LaidSpan>, f32), WeaveError> {
-    let runs = shape_text_with_fallback(fonts, face, text, font_size)?;
-    let width = shaped_runs_width(&runs);
-    record_shaped_chunk(fonts, face, text, &runs, glyph_sets);
-    Ok((
-        spans_from_shaped_runs(
-            font_size,
-            runs,
-            fill,
-            underline,
-            link_uri,
-            link_dest,
-            baseline_shift,
-        ),
-        width,
-    ))
+    args.run()
 }
 
 /// One forced-break boundary plus the items that follow until the next segment.
@@ -183,9 +194,18 @@ impl LaidLine {
         glyph_sets: &mut GlyphSets,
         fill: [f32; 3],
     ) -> Result<Self, WeaveError> {
-        let (spans, _) = shape_and_record_spans(
-            fonts, face, text, font_size, glyph_sets, fill, false, None, None, 0.0,
-        )?;
+        let (spans, _) = shape_and_record_spans(ShapeSpans {
+            fonts,
+            face,
+            text,
+            font_size,
+            glyph_sets,
+            fill,
+            underline: false,
+            link_uri: None,
+            link_dest: None,
+            baseline_shift: 0.0,
+        })?;
         Ok(Self {
             spans,
             leading,

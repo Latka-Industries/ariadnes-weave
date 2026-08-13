@@ -9,7 +9,8 @@ use crate::knobs::{
 use crate::profile::ProfileMetrics;
 
 use super::super::types::{
-    FaceMode, LaidItem, LaidLine, LaidSpan, PaintCategory, RunLayout, shape_and_record_spans,
+    FaceMode, LaidItem, LaidLine, LaidSpan, PaintCategory, RunLayout, ShapeSpans,
+    shape_and_record_spans,
 };
 use super::LayoutCtx;
 use super::hyphen::{hyphen_fit, split_trailing_space};
@@ -282,9 +283,11 @@ pub(super) fn push_styled_runs(
 
     for run in runs {
         append_styled_run(
-            out,
-            &mut current_spans,
-            &mut current_width,
+            WrapLine {
+                out,
+                spans: &mut current_spans,
+                width: &mut current_width,
+            },
             run,
             ctx,
             layout,
@@ -331,13 +334,37 @@ fn flush_styled_line(
     }));
 }
 
-#[allow(clippy::too_many_arguments)]
+/// Mutable open line while soft-wrapping a styled run.
+struct WrapLine<'a> {
+    out: &'a mut Vec<LaidItem>,
+    spans: &'a mut Vec<LaidSpan>,
+    width: &'a mut f32,
+}
+
+/// Face + paint for the current styled run.
+#[derive(Clone, Copy)]
+struct RunPaint<'a> {
+    face: FaceRef,
+    font_size: f32,
+    fill: [f32; 3],
+    underline: bool,
+    link_uri: Option<&'a str>,
+    baseline_shift: f32,
+}
+
+/// Shared wrap state for one styled run.
+struct WrapCtx<'a, 'ctx> {
+    line: WrapLine<'a>,
+    ctx: &'a mut LayoutCtx<'ctx>,
+    paint: RunPaint<'a>,
+    layout: RunLayout,
+    max_width: f32,
+}
+
 fn append_styled_run(
-    out: &mut Vec<LaidItem>,
-    current_spans: &mut Vec<LaidSpan>,
-    current_width: &mut f32,
+    line: WrapLine<'_>,
     run: &TextRun,
-    ctx: &mut LayoutCtx,
+    ctx: &mut LayoutCtx<'_>,
     layout: RunLayout,
     max_width: f32,
 ) -> Result<(), WeaveError> {
@@ -352,8 +379,6 @@ fn append_styled_run(
     // Font Awesome (`fab`/`fas`): match LaTeX `fontawesome5` — `\faLinkedin` /
     // `\faGlobe` at the current text size on the shared baseline (no scale,
     // no raisebox, no invented gap). Author spaces in Tessprek like the .tex.
-    let font_size = layout.font_size;
-    let baseline_shift = 0.0_f32;
     let (fill, mut underline) = ctx.knobs.prose.run_paint_rgb01(
         run.style.cite || run.style.link || run.link_uri.is_some(),
         layout.paint,
@@ -363,194 +388,157 @@ fn append_styled_run(
     if run.link_uri.is_some() && run.face.is_none() && ctx.knobs.prose.link.underline {
         underline = true;
     }
-    let link_uri = run.link_uri.as_deref();
     let hyphenate = ctx.knobs.prose.wrap.hyphenate;
+    let mut wrap = WrapCtx {
+        line,
+        ctx,
+        paint: RunPaint {
+            face,
+            font_size: layout.font_size,
+            fill,
+            underline,
+            link_uri: run.link_uri.as_deref(),
+            baseline_shift: 0.0,
+        },
+        layout,
+        max_width,
+    };
     let mut queue = run.text.clone();
     while !queue.is_empty() {
         let (chunk_borrowed, rest_borrowed) = next_wrap_chunk(&queue);
         let chunk = chunk_borrowed.to_string();
         let rest = rest_borrowed.to_string();
-        // Keep trailing spaces so inter-word advances are shaped; drop
-        // whitespace-only chunks at the start of a line.
-        if current_spans.is_empty() && skip_wrap_chunk_at_line_start(&chunk) {
-            queue = rest;
-            continue;
-        }
-        let (spans, w) = shape_and_record_spans(
-            ctx.fonts,
-            face,
-            &chunk,
-            font_size,
-            ctx.glyph_sets,
-            fill,
-            underline,
-            link_uri,
-            None,
-            baseline_shift,
-        )?;
-        if *current_width + w > max_width && !current_spans.is_empty() {
-            let remain = (max_width - *current_width).max(0.0);
-            if hyphenate
-                && try_hyphen_flush(
-                    out,
-                    current_spans,
-                    current_width,
-                    ctx,
-                    face,
-                    &chunk,
-                    remain,
-                    font_size,
-                    fill,
-                    underline,
-                    link_uri,
-                    baseline_shift,
-                    layout,
-                    max_width,
-                    &rest,
-                    &mut queue,
-                )?
-            {
-                continue;
-            }
-            flush_styled_line(current_spans, out, layout, max_width, false);
-            *current_width = 0.0;
-            if skip_wrap_chunk_at_line_start(&chunk) {
-                queue = rest;
-                continue;
-            }
-        }
-        if w > max_width && current_spans.is_empty() {
-            if hyphenate
-                && try_hyphen_flush(
-                    out,
-                    current_spans,
-                    current_width,
-                    ctx,
-                    face,
-                    &chunk,
-                    max_width,
-                    font_size,
-                    fill,
-                    underline,
-                    link_uri,
-                    baseline_shift,
-                    layout,
-                    max_width,
-                    &rest,
-                    &mut queue,
-                )?
-            {
-                continue;
-            }
-            if layout.hard_break_overflow {
-                // Hard-break tokens wider than the content box (URLs, long code).
-                for piece in hard_break_text(ctx.fonts, face, &chunk, font_size, max_width)? {
-                    place_shaped_flush(
-                        out,
-                        current_spans,
-                        current_width,
-                        ctx,
-                        face,
-                        &piece,
-                        font_size,
-                        fill,
-                        underline,
-                        link_uri,
-                        baseline_shift,
-                        layout,
-                        max_width,
-                    )?;
-                }
-                queue = rest;
-                continue;
-            }
-        }
-        // soft_only: place an overlong token and let it stick out.
-        current_spans.extend(spans);
-        *current_width += w;
-        queue = rest;
+        wrap.place_chunk(&chunk, &rest, &mut queue, hyphenate)?;
     }
     Ok(())
 }
 
-/// Shape `text`, append to the current line, flush, and zero width.
-#[allow(clippy::too_many_arguments)]
-fn place_shaped_flush(
-    out: &mut Vec<LaidItem>,
-    current_spans: &mut Vec<LaidSpan>,
-    current_width: &mut f32,
-    ctx: &mut LayoutCtx,
-    face: FaceRef,
-    text: &str,
-    font_size: f32,
-    fill: [f32; 3],
-    underline: bool,
-    link_uri: Option<&str>,
-    baseline_shift: f32,
-    layout: RunLayout,
-    max_width: f32,
-) -> Result<(), WeaveError> {
-    let (spans, w) = shape_and_record_spans(
-        ctx.fonts,
-        face,
-        text,
-        font_size,
-        ctx.glyph_sets,
-        fill,
-        underline,
-        link_uri,
-        None,
-        baseline_shift,
-    )?;
-    current_spans.extend(spans);
-    *current_width += w;
-    flush_styled_line(current_spans, out, layout, max_width, false);
-    *current_width = 0.0;
-    Ok(())
-}
+impl WrapCtx<'_, '_> {
+    fn shape(&mut self, text: &str) -> Result<(Vec<LaidSpan>, f32), WeaveError> {
+        let paint = self.paint;
+        shape_and_record_spans(ShapeSpans {
+            fonts: self.ctx.fonts,
+            face: paint.face,
+            text,
+            font_size: paint.font_size,
+            glyph_sets: self.ctx.glyph_sets,
+            fill: paint.fill,
+            underline: paint.underline,
+            link_uri: paint.link_uri,
+            link_dest: None,
+            baseline_shift: paint.baseline_shift,
+        })
+    }
 
-/// If `chunk` can soft-hyphenate into `fit_width`, place the prefix, flush, and
-/// rewrite `queue` to `right + trail + rest`. Returns `true` when a split landed.
-#[allow(clippy::too_many_arguments)]
-fn try_hyphen_flush(
-    out: &mut Vec<LaidItem>,
-    current_spans: &mut Vec<LaidSpan>,
-    current_width: &mut f32,
-    ctx: &mut LayoutCtx,
-    face: FaceRef,
-    chunk: &str,
-    fit_width: f32,
-    font_size: f32,
-    fill: [f32; 3],
-    underline: bool,
-    link_uri: Option<&str>,
-    baseline_shift: f32,
-    layout: RunLayout,
-    max_width: f32,
-    rest: &str,
-    queue: &mut String,
-) -> Result<bool, WeaveError> {
-    let (word, trail) = split_trailing_space(chunk);
-    let Some((left, right)) = hyphen_fit(ctx.fonts, face, word, font_size, fit_width)? else {
-        return Ok(false);
-    };
-    place_shaped_flush(
-        out,
-        current_spans,
-        current_width,
-        ctx,
-        face,
-        &left,
-        font_size,
-        fill,
-        underline,
-        link_uri,
-        baseline_shift,
-        layout,
-        max_width,
-    )?;
-    *queue = format!("{right}{trail}{rest}");
-    Ok(true)
+    /// Shape `text`, append to the current line, flush, and zero width.
+    fn place_shaped_flush(&mut self, text: &str) -> Result<(), WeaveError> {
+        let (spans, w) = self.shape(text)?;
+        self.line.spans.extend(spans);
+        *self.line.width += w;
+        flush_styled_line(
+            self.line.spans,
+            self.line.out,
+            self.layout,
+            self.max_width,
+            false,
+        );
+        *self.line.width = 0.0;
+        Ok(())
+    }
+
+    /// If `chunk` can soft-hyphenate into `fit_width`, place the prefix, flush, and
+    /// rewrite `queue` to `right + trail + rest`. Returns `true` when a split landed.
+    fn try_hyphen_flush(
+        &mut self,
+        chunk: &str,
+        fit_width: f32,
+        rest: &str,
+        queue: &mut String,
+    ) -> Result<bool, WeaveError> {
+        let (word, trail) = split_trailing_space(chunk);
+        let Some((left, right)) = hyphen_fit(
+            self.ctx.fonts,
+            self.paint.face,
+            word,
+            self.paint.font_size,
+            fit_width,
+        )?
+        else {
+            return Ok(false);
+        };
+        self.place_shaped_flush(&left)?;
+        *queue = format!("{right}{trail}{rest}");
+        Ok(true)
+    }
+
+    /// Hard-break tokens wider than the content box (URLs, long code).
+    fn hard_break_overwide(
+        &mut self,
+        chunk: &str,
+        rest: &str,
+        queue: &mut String,
+    ) -> Result<(), WeaveError> {
+        let pieces = hard_break_text(
+            self.ctx.fonts,
+            self.paint.face,
+            chunk,
+            self.paint.font_size,
+            self.max_width,
+        )?;
+        for piece in pieces {
+            self.place_shaped_flush(&piece)?;
+        }
+        *queue = rest.to_owned();
+        Ok(())
+    }
+
+    /// Place one soft-wrap chunk: flush/hyphen/hard-break as needed, then update queue.
+    fn place_chunk(
+        &mut self,
+        chunk: &str,
+        rest: &str,
+        queue: &mut String,
+        hyphenate: bool,
+    ) -> Result<(), WeaveError> {
+        // Keep trailing spaces so inter-word advances are shaped; drop
+        // whitespace-only chunks at the start of a line.
+        if self.line.spans.is_empty() && skip_wrap_chunk_at_line_start(chunk) {
+            *queue = rest.to_owned();
+            return Ok(());
+        }
+        let (spans, w) = self.shape(chunk)?;
+        if *self.line.width + w > self.max_width && !self.line.spans.is_empty() {
+            let remain = (self.max_width - *self.line.width).max(0.0);
+            if hyphenate && self.try_hyphen_flush(chunk, remain, rest, queue)? {
+                return Ok(());
+            }
+            flush_styled_line(
+                self.line.spans,
+                self.line.out,
+                self.layout,
+                self.max_width,
+                false,
+            );
+            *self.line.width = 0.0;
+            if skip_wrap_chunk_at_line_start(chunk) {
+                *queue = rest.to_owned();
+                return Ok(());
+            }
+        }
+        if w > self.max_width && self.line.spans.is_empty() {
+            if hyphenate && self.try_hyphen_flush(chunk, self.max_width, rest, queue)? {
+                return Ok(());
+            }
+            if self.layout.hard_break_overflow {
+                return self.hard_break_overwide(chunk, rest, queue);
+            }
+        }
+        // soft_only: place an overlong token and let it stick out.
+        self.line.spans.extend(spans);
+        *self.line.width += w;
+        *queue = rest.to_owned();
+        Ok(())
+    }
 }
 
 /// Keep `orphan_lines` / `widow_lines` content lines together (CSS-like).

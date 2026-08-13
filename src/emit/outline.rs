@@ -147,7 +147,7 @@ pub(super) fn write_outline(
 
     for (i, entry) in entries.iter().enumerate() {
         let link = &links[i];
-        let parent_ref = link.parent.map(|p| item_ids[p]).unwrap_or(root_id);
+        let parent_ref = link.parent.map_or(root_id, |p| item_ids[p]);
         let mut item = pdf.outline_item(item_ids[i]);
         item.title(TextStr(&entry.title));
         item.parent(parent_ref);

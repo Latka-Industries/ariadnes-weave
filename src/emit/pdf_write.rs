@@ -11,7 +11,9 @@ use crate::image_prep::PreparedImage;
 use crate::knobs::LayoutKnobs;
 use crate::profile::ProfileMetrics;
 
-use super::paint::{PageLink, PageLinkTarget, build_page_content, image_resource_name};
+use super::paint::{
+    BuildPageContent, PageLink, PageLinkTarget, build_page_content, image_resource_name,
+};
 use super::types::{GlyphSets, LaidItem, LaidLine, SubsetMap};
 
 /// Subset each face that contributed glyphs during layout.
@@ -168,16 +170,16 @@ impl WritePagesArgs<'_> {
             .zip(pages.iter())
             .enumerate()
         {
-            let (content_bytes, page_links) = build_page_content(
-                page_items,
+            let (content_bytes, page_links) = build_page_content(BuildPageContent {
+                items: page_items,
                 metrics,
-                page_idx + 1,
+                page_no: page_idx + 1,
                 page_count,
                 title,
                 fonts,
                 subsets,
                 knobs,
-            )?;
+            })?;
             let mut annot_ids = Vec::with_capacity(page_links.len());
             for _ in &page_links {
                 annot_ids.push(alloc_ref(next_id));

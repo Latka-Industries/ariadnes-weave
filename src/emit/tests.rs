@@ -96,7 +96,13 @@ fn figure_block(
     caption: impl Into<String>,
     placement: FigurePlacement,
 ) -> PrintBlock {
-    PrintBlock::figure(image, "swatch", Vec::new(), vec![TextRun::plain(caption)], placement)
+    PrintBlock::figure(
+        image,
+        "swatch",
+        Vec::new(),
+        vec![TextRun::plain(caption)],
+        placement,
+    )
 }
 
 fn figure_with_caption(caption: impl Into<String>, placement: FigurePlacement) -> PrintBlock {
@@ -995,7 +1001,7 @@ fn figure_title_align_and_caption_band_affect_emit() {
             caption: vec![TextRun::plain(
                 "Caption under a mid-width image for band checks.",
             )],
-             placement: FigurePlacement::Flow,
+            placement: FigurePlacement::Flow,
             dest_id: None,
         }],
     );
