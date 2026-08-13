@@ -6,6 +6,8 @@ use pdf_writer::{Pdf, Ref, TextStr};
 
 use crate::ir::{PrintBlock, PrintDocument, TextRun};
 
+use super::pdf_write::alloc_ref;
+
 /// One outline bookmark derived from a heading with a resolvable `dest_id`.
 #[derive(Debug, Clone)]
 pub(super) struct OutlineEntry {
@@ -49,12 +51,8 @@ pub(super) fn collect_outline_entries(
 }
 
 fn runs_title(runs: &[TextRun]) -> String {
-    runs.iter()
-        .map(|r| r.text.as_str())
-        .collect::<String>()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
+    let raw: String = runs.iter().map(|r| r.text.as_str()).collect();
+    raw.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// Tree links for one outline item (indices into the entries slice).
@@ -69,6 +67,26 @@ struct OutlineLinks {
     descendants: i32,
 }
 
+/// Append `child` as the next sibling under `parent` (or start the child list).
+fn append_child(links: &mut [OutlineLinks], parent: usize, child: usize) {
+    if let Some(prev) = links[parent].last_child {
+        links[prev].next = Some(child);
+        links[child].prev = Some(prev);
+    } else {
+        links[parent].first_child = Some(child);
+    }
+    links[parent].last_child = Some(child);
+}
+
+/// Append a top-level outline item, linking siblings via `roots`.
+fn append_root(links: &mut [OutlineLinks], roots: &mut Vec<usize>, child: usize) {
+    if let Some(&prev) = roots.last() {
+        links[prev].next = Some(child);
+        links[child].prev = Some(prev);
+    }
+    roots.push(child);
+}
+
 fn build_outline_links(entries: &[OutlineEntry]) -> (Vec<usize>, Vec<OutlineLinks>) {
     let n = entries.len();
     let mut links = vec![OutlineLinks::default(); n];
@@ -77,27 +95,14 @@ fn build_outline_links(entries: &[OutlineEntry]) -> (Vec<usize>, Vec<OutlineLink
     let mut stack: Vec<(u8, usize)> = Vec::new();
 
     for (i, entry) in entries.iter().enumerate() {
-        while stack
-            .last()
-            .is_some_and(|&(lvl, _)| lvl >= entry.level)
-        {
+        while stack.last().is_some_and(|&(lvl, _)| lvl >= entry.level) {
             stack.pop();
         }
         if let Some(&(_, parent_idx)) = stack.last() {
             links[i].parent = Some(parent_idx);
-            if let Some(prev_sib) = links[parent_idx].last_child {
-                links[prev_sib].next = Some(i);
-                links[i].prev = Some(prev_sib);
-            } else {
-                links[parent_idx].first_child = Some(i);
-            }
-            links[parent_idx].last_child = Some(i);
+            append_child(&mut links, parent_idx, i);
         } else {
-            if let Some(&prev_root) = roots.last() {
-                links[prev_root].next = Some(i);
-                links[i].prev = Some(prev_root);
-            }
-            roots.push(i);
+            append_root(&mut links, &mut roots, i);
         }
         stack.push((entry.level, i));
     }
@@ -116,42 +121,24 @@ fn build_outline_links(entries: &[OutlineEntry]) -> (Vec<usize>, Vec<OutlineLink
     (roots, links)
 }
 
-/// Allocate outline object ids, wire `/Outlines` on the catalog, and write items.
-///
-/// Returns early (catalog pages-only) when there are no outline entries.
-pub(super) fn write_outline_tree(
+/// Write the outline object tree; returns the root `/Outlines` ref (catalog wires it).
+pub(super) fn write_outline(
     pdf: &mut Pdf,
-    catalog_id: Ref,
-    page_tree_id: Ref,
     page_ids: &[Ref],
     entries: &[OutlineEntry],
     next_id: &mut i32,
-) {
+) -> Option<Ref> {
     if entries.is_empty() {
-        pdf.catalog(catalog_id).pages(page_tree_id);
-        return;
+        return None;
     }
 
-    let root_id = Ref::new(*next_id);
-    *next_id += 1;
-    let item_ids: Vec<Ref> = (0..entries.len())
-        .map(|_| {
-            let id = Ref::new(*next_id);
-            *next_id += 1;
-            id
-        })
-        .collect();
+    let root_id = alloc_ref(next_id);
+    let item_ids: Vec<Ref> = (0..entries.len()).map(|_| alloc_ref(next_id)).collect();
 
     let (roots, links) = build_outline_links(entries);
     let first_root = item_ids[roots[0]];
     let last_root = item_ids[*roots.last().expect("non-empty roots")];
     let visible: i32 = entries.len().try_into().unwrap_or(i32::MAX);
-
-    {
-        let mut catalog = pdf.catalog(catalog_id);
-        catalog.pages(page_tree_id);
-        catalog.outlines(root_id);
-    }
 
     {
         let mut outline = pdf.outline(root_id);
@@ -160,10 +147,7 @@ pub(super) fn write_outline_tree(
 
     for (i, entry) in entries.iter().enumerate() {
         let link = &links[i];
-        let parent_ref = link
-            .parent
-            .map(|p| item_ids[p])
-            .unwrap_or(root_id);
+        let parent_ref = link.parent.map(|p| item_ids[p]).unwrap_or(root_id);
         let mut item = pdf.outline_item(item_ids[i]);
         item.title(TextStr(&entry.title));
         item.parent(parent_ref);
@@ -187,6 +171,8 @@ pub(super) fn write_outline_tree(
             item.dest().page(page_ref).fit();
         }
     }
+
+    Some(root_id)
 }
 
 #[cfg(test)]
@@ -214,11 +200,7 @@ mod tests {
                 heading(1, "B", "b"),
             ],
         };
-        let pages = BTreeMap::from([
-            ("a".into(), 0usize),
-            ("a1".into(), 0),
-            ("b".into(), 1),
-        ]);
+        let pages = BTreeMap::from([("a".into(), 0usize), ("a1".into(), 0), ("b".into(), 1)]);
         let entries = collect_outline_entries(&doc, &pages);
         assert_eq!(entries.len(), 3);
         assert_eq!(entries[0].title, "A");

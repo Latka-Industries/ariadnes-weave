@@ -55,12 +55,9 @@ pub(super) fn alloc_image_refs(
 ) -> Vec<(Ref, Option<Ref>)> {
     let mut image_refs = Vec::with_capacity(images.len());
     for img in images {
-        let image_id = Ref::new(*next_id);
-        *next_id += 1;
+        let image_id = alloc_ref(next_id);
         let mask_id = if img.mask.is_some() {
-            let id = Ref::new(*next_id);
-            *next_id += 1;
-            Some(id)
+            Some(alloc_ref(next_id))
         } else {
             None
         };
@@ -73,12 +70,29 @@ pub(super) fn alloc_page_refs(page_count: usize, next_id: &mut i32) -> (Vec<Ref>
     let mut page_ids = Vec::with_capacity(page_count);
     let mut content_ids = Vec::with_capacity(page_count);
     for _ in 0..page_count {
-        page_ids.push(Ref::new(*next_id));
-        *next_id += 1;
-        content_ids.push(Ref::new(*next_id));
-        *next_id += 1;
+        page_ids.push(alloc_ref(next_id));
+        content_ids.push(alloc_ref(next_id));
     }
     (page_ids, content_ids)
+}
+
+/// Next PDF object id, bumping the allocator.
+#[inline]
+pub(super) fn alloc_ref(next_id: &mut i32) -> Ref {
+    let id = Ref::new(*next_id);
+    *next_id += 1;
+    id
+}
+
+/// Resolve an internal dest id to its page object ref.
+pub(super) fn page_ref_for_dest(
+    dest_pages: &BTreeMap<String, usize>,
+    page_ids: &[Ref],
+    dest_id: &str,
+) -> Option<Ref> {
+    dest_pages
+        .get(dest_id)
+        .and_then(|&idx| page_ids.get(idx).copied())
 }
 
 pub(super) fn write_image_xobjects(
@@ -166,8 +180,7 @@ impl WritePagesArgs<'_> {
             )?;
             let mut annot_ids = Vec::with_capacity(page_links.len());
             for _ in &page_links {
-                annot_ids.push(Ref::new(*next_id));
-                *next_id += 1;
+                annot_ids.push(alloc_ref(next_id));
             }
             WritePageDictArgs {
                 pdf,
@@ -209,9 +222,7 @@ fn write_link(
                 .uri(Str(uri.as_bytes()));
         }
         PageLinkTarget::Dest { id } => {
-            if let Some(&page_idx) = dest_pages.get(id)
-                && let Some(&page_ref) = page_ids.get(page_idx)
-            {
+            if let Some(page_ref) = page_ref_for_dest(dest_pages, page_ids, id) {
                 annotation
                     .action()
                     .action_type(ActionType::GoTo)

@@ -182,14 +182,14 @@ fn emit_laid_pdf(
     let image_refs = alloc_image_refs(&images, &mut next_id);
     let (page_ids, content_ids) = alloc_page_refs(pages.len(), &mut next_id);
 
-    outline::write_outline_tree(
-        &mut pdf,
-        catalog_id,
-        page_tree_id,
-        &page_ids,
-        &outline_entries,
-        &mut next_id,
-    );
+    let outline_root = outline::write_outline(&mut pdf, &page_ids, &outline_entries, &mut next_id);
+    {
+        let mut catalog = pdf.catalog(catalog_id);
+        catalog.pages(page_tree_id);
+        if let Some(root) = outline_root {
+            catalog.outlines(root);
+        }
+    }
     pdf.pages(page_tree_id)
         .kids(page_ids.iter().copied())
         .count(i32::try_from(page_ids.len()).unwrap_or(i32::MAX));

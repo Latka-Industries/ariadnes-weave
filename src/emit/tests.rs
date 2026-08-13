@@ -1853,7 +1853,10 @@ fn headings_emit_pdf_outline_bookmarks() {
     };
     let pdf = emit_pdf(&doc).expect("outline pdf");
     let hay = String::from_utf8_lossy(&pdf);
-    assert!(hay.contains("/Outlines"), "catalog should link Outlines: {hay}");
+    assert!(
+        hay.contains("/Outlines"),
+        "catalog should link Outlines: {hay}"
+    );
     assert!(hay.contains("/Title"), "outline items need titles");
     assert!(
         hay.contains("Chapter One") && hay.contains("Section A") && hay.contains("Chapter Two"),
