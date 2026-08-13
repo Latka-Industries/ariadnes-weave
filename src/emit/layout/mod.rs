@@ -94,6 +94,7 @@ fn layout_block(
             page_label,
             dest_id,
             indent,
+            leaders,
         } => {
             let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
             let seg = segments.last_mut().expect("segment");
@@ -103,6 +104,7 @@ fn layout_block(
                 page_label.as_deref(),
                 dest_id.as_deref(),
                 *indent,
+                *leaders,
                 &mut ctx,
             )?;
         }

@@ -65,13 +65,14 @@ pub(super) fn layout_heading(
     Ok(())
 }
 
-/// TOC line: title + dotted leaders + optional page digits (single line).
+/// TOC line: title + optional dotted leaders + flush-right page digits.
 pub(super) fn push_toc_entry(
     out: &mut Vec<LaidItem>,
     title: &[TextRun],
     page_label: Option<&str>,
     dest_id: Option<&str>,
     indent: u32,
+    leaders: bool,
     ctx: &mut LayoutCtx,
 ) -> Result<(), WeaveError> {
     let band = ctx.knobs.prose.indent.pts(indent);
@@ -80,11 +81,12 @@ pub(super) fn push_toc_entry(
     let measure = (ctx.metrics.content_width() - band).max(ctx.knobs.prose.wrap.min_width);
     let fill = ctx.knobs.prose.text_fill_rgb01();
     let link_dest = dest_id;
+    let face = FaceRef::Bundled(FaceId::SansRegular);
 
     let mut spans: Vec<LaidSpan> = Vec::new();
     let mut title_w = 0.0_f32;
     for run in title {
-        let face = resolve_run_face(
+        let run_face = resolve_run_face(
             run,
             ctx.metrics,
             FaceMode::Body,
@@ -94,7 +96,7 @@ pub(super) fn push_toc_entry(
         )?;
         let (run_spans, w) = shape_and_record_spans(
             ctx.fonts,
-            face,
+            run_face,
             &run.text,
             font_size,
             ctx.glyph_sets,
@@ -117,7 +119,6 @@ pub(super) fn push_toc_entry(
     let mut page_spans: Vec<LaidSpan> = Vec::new();
     let mut page_w = 0.0_f32;
     if !page_text.is_empty() {
-        let face = FaceRef::Bundled(FaceId::SansRegular);
         let (ps, w) = shape_and_record_spans(
             ctx.fonts,
             face,
@@ -134,13 +135,12 @@ pub(super) fn push_toc_entry(
         page_w = w;
     }
 
-    let gap = (measure - title_w - page_w).max(0.0);
-    if gap > 0.0 {
-        let face = FaceRef::Bundled(FaceId::SansRegular);
-        let (dot_spans, dot_w) = shape_and_record_spans(
+    // Reserve a stable right column so "9" and "12" share the same right edge.
+    let page_slot = if page_w > 0.0 {
+        let (_, two_w) = shape_and_record_spans(
             ctx.fonts,
             face,
-            ".",
+            "88",
             font_size,
             ctx.glyph_sets,
             fill,
@@ -149,14 +149,35 @@ pub(super) fn push_toc_entry(
             None,
             0.0,
         )?;
-        if dot_w > 0.0 {
-            let n = (gap / dot_w).floor() as usize;
+        page_w.max(two_w)
+    } else {
+        0.0
+    };
+
+    let gap = (measure - title_w - page_slot).max(0.0);
+    if gap > 0.0 {
+        let fill_char = if leaders { "." } else { " " };
+        let (unit_spans, unit_w) = shape_and_record_spans(
+            ctx.fonts,
+            face,
+            fill_char,
+            font_size,
+            ctx.glyph_sets,
+            fill,
+            false,
+            None,
+            None,
+            0.0,
+        )?;
+        if unit_w > 0.0 {
+            let n = (gap / unit_w).floor() as usize;
             for _ in 0..n {
-                spans.extend(dot_spans.iter().cloned());
+                spans.extend(unit_spans.iter().cloned());
             }
-            let used = n as f32 * dot_w;
+            let used = n as f32 * unit_w;
             let slack = gap - used;
-            if slack > 0.0 && !page_spans.is_empty() {
+            // Pad remaining slack with hair spaces so the page slot stays flush-right.
+            if slack > 0.5 {
                 let (sp, space_w) = shape_and_record_spans(
                     ctx.fonts,
                     face,
@@ -175,6 +196,29 @@ pub(super) fn push_toc_entry(
                         spans.extend(sp.iter().cloned());
                     }
                 }
+            }
+        }
+    }
+
+    // Right-align page digits inside the reserved slot.
+    let pad = (page_slot - page_w).max(0.0);
+    if pad > 0.5 {
+        let (sp, space_w) = shape_and_record_spans(
+            ctx.fonts,
+            face,
+            " ",
+            font_size,
+            ctx.glyph_sets,
+            fill,
+            false,
+            None,
+            None,
+            0.0,
+        )?;
+        if space_w > 0.0 {
+            let sn = (pad / space_w).floor() as usize;
+            for _ in 0..sn {
+                spans.extend(sp.iter().cloned());
             }
         }
     }

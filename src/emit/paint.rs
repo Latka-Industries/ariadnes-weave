@@ -22,7 +22,7 @@ pub(super) struct PageLink {
     pub y1: f32,
 }
 
-/// URI external link or internal GoTo destination id.
+/// URI external link or internal `GoTo` destination id.
 #[derive(Debug, Clone)]
 pub(super) enum PageLinkTarget {
     Uri(String),

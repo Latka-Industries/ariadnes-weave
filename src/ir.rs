@@ -100,7 +100,7 @@ pub enum PrintBlock {
         runs: Vec<TextRun>,
         /// Break preference before this heading.
         break_before: BreakHint,
-        /// Optional internal destination id (TOC / outline GoTo; THI-390/393).
+        /// Optional internal destination id (TOC / outline `GoTo`; THI-390/393).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         dest_id: Option<String>,
     },
@@ -152,14 +152,16 @@ pub enum PrintBlock {
         indent: u32,
     },
     /// Table-of-contents line: title (+ optional section prefix in runs),
-    /// dotted leaders, optional page digits, optional GoTo dest (THI-390).
+    /// optional dotted leaders, optional page digits, optional `GoTo` dest (THI-390).
     ///
     /// When [`Self::TocEntry::page_label`] is `None` and `dest_id` is set, emit
-    /// resolves the page number after a layout pass.
+    /// resolves the page number after a layout pass. Page digits are flush-right
+    /// in a reserved slot so multi-digit pages share one column edge.
     TocEntry {
         /// Title runs (may include section number prefix).
         title: Vec<TextRun>,
         /// Page digits when known; `None` → resolve from `dest_id` when possible.
+        /// `Some("")` omits the page column.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         page_label: Option<String>,
         /// Internal destination matching a heading [`Self::Heading::dest_id`].
@@ -168,6 +170,9 @@ pub enum PrintBlock {
         /// Band indent level (0 = content margin). Nesting ≈ heading depth − 1.
         #[serde(default, skip_serializing_if = "u32_is_zero")]
         indent: u32,
+        /// Fill the gap between title and page with `.` leaders (default true).
+        #[serde(default = "default_true", skip_serializing_if = "is_true")]
+        leaders: bool,
     },
     /// Figure with image bytes + optional title + caption.
     Figure {
@@ -241,6 +246,15 @@ fn u32_is_zero(v: &u32) -> bool {
     *v == 0
 }
 
+fn default_true() -> bool {
+    true
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_true(v: &bool) -> bool {
+    *v
+}
+
 impl PrintBlock {
     /// Body paragraph at indent level 0.
     #[must_use]
@@ -275,7 +289,7 @@ impl PrintBlock {
         Self::Row { panes, indent }
     }
 
-    /// TOC line with optional page label and internal dest.
+    /// TOC line with optional page label, leaders, and internal dest.
     #[must_use]
     pub fn toc_entry(
         title: Vec<TextRun>,
@@ -283,11 +297,24 @@ impl PrintBlock {
         dest_id: Option<String>,
         indent: u32,
     ) -> Self {
+        Self::toc_entry_leaders(title, page_label, dest_id, indent, true)
+    }
+
+    /// TOC line with explicit leaders on/off.
+    #[must_use]
+    pub fn toc_entry_leaders(
+        title: Vec<TextRun>,
+        page_label: Option<String>,
+        dest_id: Option<String>,
+        indent: u32,
+        leaders: bool,
+    ) -> Self {
         Self::TocEntry {
             title,
             page_label,
             dest_id,
             indent,
+            leaders,
         }
     }
 

@@ -110,7 +110,7 @@ pub(super) struct LaidSpan {
     pub underline: bool,
     /// Optional external URI → PDF `/Link` annotation over this span's ink box.
     pub link_uri: Option<String>,
-    /// Optional internal GoTo destination id (TOC / outline).
+    /// Optional internal `GoTo` destination id (TOC / outline).
     pub link_dest: Option<String>,
     /// Raise baseline by this many points (FA icon optical alignment).
     pub baseline_shift: f32,
@@ -130,7 +130,7 @@ pub(super) struct LaidLine {
     pub measure: f32,
     /// In-band text alignment within [`Self::measure`].
     pub text_align: TextAlign,
-    /// Optional internal destination id registered on this line (heading GoTo target).
+    /// Optional internal destination id registered on this line (heading `GoTo` target).
     pub dest_id: Option<String>,
 }
 

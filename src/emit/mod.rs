@@ -51,7 +51,7 @@ pub fn emit_pdf(doc: &PrintDocument) -> Result<Vec<u8>, WeaveError> {
 ///
 /// When any [`PrintBlock::TocEntry`] has `page_label = None` and a `dest_id`,
 /// emit runs a layout+paginate pass to resolve 1-based page digits, then
-/// re-layouts and writes with GoTo destinations.
+/// re-layouts and writes with `GoTo` destinations.
 ///
 /// Supports [`crate::FontResolveMode::BundledOnly`] (default) and
 /// [`crate::FontResolveMode::OsWithFallback`] (requires `--features os-fonts`).
