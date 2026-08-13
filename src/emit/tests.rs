@@ -1812,6 +1812,57 @@ fn toc_entry_emits_goto_annotation() {
 }
 
 #[test]
+fn headings_emit_pdf_outline_bookmarks() {
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "Outline".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![
+            PrintBlock::heading_dest(
+                1,
+                vec![TextRun::plain("Chapter One")],
+                BreakHint::None,
+                "ch1",
+            ),
+            PrintBlock::Paragraph {
+                runs: vec![TextRun::plain("Intro body.")],
+                indent: 0,
+            },
+            PrintBlock::heading_dest(
+                2,
+                vec![TextRun::plain("Section A")],
+                BreakHint::None,
+                "ch1a",
+            ),
+            PrintBlock::Break(BreakHint::PageAlways),
+            PrintBlock::heading_dest(
+                1,
+                vec![TextRun::plain("Chapter Two")],
+                BreakHint::None,
+                "ch2",
+            ),
+            PrintBlock::Paragraph {
+                runs: vec![TextRun::plain("More body.")],
+                indent: 0,
+            },
+        ],
+    };
+    let pdf = emit_pdf(&doc).expect("outline pdf");
+    let hay = String::from_utf8_lossy(&pdf);
+    assert!(hay.contains("/Outlines"), "catalog should link Outlines: {hay}");
+    assert!(hay.contains("/Title"), "outline items need titles");
+    assert!(
+        hay.contains("Chapter One") && hay.contains("Section A") && hay.contains("Chapter Two"),
+        "outline titles missing: {hay}"
+    );
+    assert!(pdf.starts_with(b"%PDF-"));
+}
+
+#[test]
 fn measure_frac_try_from_f32() {
     assert_eq!(MeasureFrac::try_from_f32(1.0).unwrap(), MeasureFrac::FULL);
     assert_eq!(MeasureFrac::try_from_f32(0.5).unwrap(), MeasureFrac::HALF);
