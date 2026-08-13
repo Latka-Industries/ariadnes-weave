@@ -45,6 +45,7 @@ pub(super) fn spans_from_shaped_runs(
     fill: [f32; 3],
     underline: bool,
     link_uri: Option<&str>,
+    link_dest: Option<&str>,
     baseline_shift: f32,
 ) -> Vec<LaidSpan> {
     runs.into_iter()
@@ -55,6 +56,7 @@ pub(super) fn spans_from_shaped_runs(
             fill,
             underline,
             link_uri: link_uri.map(str::to_owned),
+            link_dest: link_dest.map(str::to_owned),
             baseline_shift,
         })
         .collect()
@@ -71,13 +73,22 @@ pub(super) fn shape_and_record_spans(
     fill: [f32; 3],
     underline: bool,
     link_uri: Option<&str>,
+    link_dest: Option<&str>,
     baseline_shift: f32,
 ) -> Result<(Vec<LaidSpan>, f32), WeaveError> {
     let runs = shape_text_with_fallback(fonts, face, text, font_size)?;
     let width = shaped_runs_width(&runs);
     record_shaped_chunk(fonts, face, text, &runs, glyph_sets);
     Ok((
-        spans_from_shaped_runs(font_size, runs, fill, underline, link_uri, baseline_shift),
+        spans_from_shaped_runs(
+            font_size,
+            runs,
+            fill,
+            underline,
+            link_uri,
+            link_dest,
+            baseline_shift,
+        ),
         width,
     ))
 }
@@ -99,6 +110,8 @@ pub(super) struct LaidSpan {
     pub underline: bool,
     /// Optional external URI → PDF `/Link` annotation over this span's ink box.
     pub link_uri: Option<String>,
+    /// Optional internal GoTo destination id (TOC / outline).
+    pub link_dest: Option<String>,
     /// Raise baseline by this many points (FA icon optical alignment).
     pub baseline_shift: f32,
 }
@@ -117,6 +130,8 @@ pub(super) struct LaidLine {
     pub measure: f32,
     /// In-band text alignment within [`Self::measure`].
     pub text_align: TextAlign,
+    /// Optional internal destination id registered on this line (heading GoTo target).
+    pub dest_id: Option<String>,
 }
 
 impl LaidLine {
@@ -134,6 +149,7 @@ impl LaidLine {
             indent: 0.0,
             measure: 0.0,
             text_align: TextAlign::Left,
+            dest_id: None,
         }
     }
 
@@ -146,6 +162,7 @@ impl LaidLine {
             indent: 0.0,
             measure,
             text_align: TextAlign::Left,
+            dest_id: None,
         }
     }
 
@@ -167,7 +184,7 @@ impl LaidLine {
         fill: [f32; 3],
     ) -> Result<Self, WeaveError> {
         let (spans, _) = shape_and_record_spans(
-            fonts, face, text, font_size, glyph_sets, fill, false, None, 0.0,
+            fonts, face, text, font_size, glyph_sets, fill, false, None, None, 0.0,
         )?;
         Ok(Self {
             spans,
@@ -176,6 +193,7 @@ impl LaidLine {
             indent: 0.0,
             measure: 0.0,
             text_align: TextAlign::Left,
+            dest_id: None,
         })
     }
 

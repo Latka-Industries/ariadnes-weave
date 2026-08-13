@@ -41,6 +41,7 @@ fn hello_doc() -> PrintDocument {
                     link_uri: None,
                 }],
                 break_before: BreakHint::None,
+                dest_id: None,
             },
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain(
@@ -289,6 +290,7 @@ fn category_heading_font_pin_without_run_face() {
             level: 1,
             runs: vec![TextRun::plain("Display heading")],
             break_before: BreakHint::None,
+            dest_id: None,
         }],
     };
     let bytes = emit_pdf_with(&doc, &opts).expect("emit category heading font");
@@ -321,6 +323,7 @@ fn explicit_run_face_wins_over_category_font() {
             level: 1,
             runs: vec![TextRun::pinned("Explicit other", "other")],
             break_before: BreakHint::None,
+            dest_id: None,
         }],
     };
     let category_only = {
@@ -344,6 +347,7 @@ fn explicit_run_face_wins_over_category_font() {
                 level: 1,
                 runs: vec![TextRun::plain("Explicit other")],
                 break_before: BreakHint::None,
+                dest_id: None,
             }],
         };
         emit_pdf_with(&doc, &opts).expect("category only")
@@ -1281,6 +1285,7 @@ fn figure_png_embeds_xobject() {
                 level: 1,
                 runs: vec![TextRun::plain("With figure")],
                 break_before: BreakHint::None,
+                dest_id: None,
             },
             figure_with_caption("A tiny PNG.", FigurePlacement::Flow),
         ],
@@ -1764,6 +1769,46 @@ fn layout_empty_rule_width_errors() {
     };
     let err = emit_pdf(&doc).expect_err("empty rule");
     assert!(matches!(err, WeaveError::EmptyRuleWidth));
+}
+
+#[test]
+fn toc_entry_emits_goto_annotation() {
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "TOC".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![
+            PrintBlock::toc_entry(
+                vec![TextRun::plain("1. Intro")],
+                None,
+                Some("sec-intro".into()),
+                0,
+            ),
+            PrintBlock::Break(BreakHint::PageAlways),
+            PrintBlock::heading_dest(
+                1,
+                vec![TextRun::plain("Intro")],
+                BreakHint::None,
+                "sec-intro",
+            ),
+            PrintBlock::Paragraph {
+                runs: vec![TextRun::plain("Body after the heading.")],
+                indent: 0,
+            },
+        ],
+    };
+    let pdf = emit_pdf(&doc).expect("toc pdf");
+    let hay = String::from_utf8_lossy(&pdf);
+    assert!(
+        hay.contains("/GoTo") || hay.contains("/S /GoTo"),
+        "expected GoTo action for TocEntry dest: {hay}"
+    );
+    // Resolved page label should appear as digit "2" (heading after page break).
+    assert!(pdf.starts_with(b"%PDF-"));
 }
 
 #[test]

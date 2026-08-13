@@ -116,6 +116,7 @@ fn wrap_plain_text(
             fill,
             false,
             None,
+            None,
             0.0,
         )?;
         if current_width + w > max_width && !current.is_empty() {
@@ -139,6 +140,7 @@ fn wrap_plain_text(
                     ctx.glyph_sets,
                     fill,
                     false,
+                    None,
                     None,
                     0.0,
                 )?;

@@ -20,6 +20,7 @@ fn hello_doc() -> PrintDocument {
                 level: 1,
                 runs: vec![TextRun::plain("Hello, ariadnes-weave")],
                 break_before: BreakHint::None,
+                dest_id: None,
             },
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain(
@@ -45,6 +46,7 @@ fn quadratic_formula_doc() -> PrintDocument {
                 level: 1,
                 runs: vec![TextRun::plain("Quadratic formula")],
                 break_before: BreakHint::None,
+                dest_id: None,
             },
             PrintBlock::Math {
                 display: true,
@@ -69,6 +71,7 @@ fn sum_limits_doc() -> PrintDocument {
                 level: 1,
                 runs: vec![TextRun::plain("Sum with limits")],
                 break_before: BreakHint::None,
+                dest_id: None,
             },
             PrintBlock::Math {
                 display: true,
@@ -135,6 +138,7 @@ fn manuscript_two_chapters() -> PrintDocument {
                 level: 1,
                 runs: vec![TextRun::plain("Chapter One")],
                 break_before: BreakHint::None,
+                dest_id: None,
             },
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain("Body of chapter one.")],
@@ -144,6 +148,7 @@ fn manuscript_two_chapters() -> PrintDocument {
                 level: 1,
                 runs: vec![TextRun::plain("Chapter Two")],
                 break_before: BreakHint::None,
+                dest_id: None,
             },
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain("Body of chapter two.")],

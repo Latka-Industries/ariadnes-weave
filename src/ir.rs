@@ -100,6 +100,9 @@ pub enum PrintBlock {
         runs: Vec<TextRun>,
         /// Break preference before this heading.
         break_before: BreakHint,
+        /// Optional internal destination id (TOC / outline GoTo; THI-390/393).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dest_id: Option<String>,
     },
     /// Body paragraph.
     Paragraph {
@@ -145,6 +148,24 @@ pub enum PrintBlock {
         /// Ordered panes (Tessprek `\row{…}{…}…`).
         panes: Vec<Vec<TextRun>>,
         /// Band indent level (0 = content margin). Points = `level × indent_step`.
+        #[serde(default, skip_serializing_if = "u32_is_zero")]
+        indent: u32,
+    },
+    /// Table-of-contents line: title (+ optional section prefix in runs),
+    /// dotted leaders, optional page digits, optional GoTo dest (THI-390).
+    ///
+    /// When [`Self::TocEntry::page_label`] is `None` and `dest_id` is set, emit
+    /// resolves the page number after a layout pass.
+    TocEntry {
+        /// Title runs (may include section number prefix).
+        title: Vec<TextRun>,
+        /// Page digits when known; `None` → resolve from `dest_id` when possible.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        page_label: Option<String>,
+        /// Internal destination matching a heading [`Self::Heading::dest_id`].
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dest_id: Option<String>,
+        /// Band indent level (0 = content margin). Nesting ≈ heading depth − 1.
         #[serde(default, skip_serializing_if = "u32_is_zero")]
         indent: u32,
     },
@@ -252,6 +273,49 @@ impl PrintBlock {
     #[must_use]
     pub fn row_indent(panes: Vec<Vec<TextRun>>, indent: u32) -> Self {
         Self::Row { panes, indent }
+    }
+
+    /// TOC line with optional page label and internal dest.
+    #[must_use]
+    pub fn toc_entry(
+        title: Vec<TextRun>,
+        page_label: Option<String>,
+        dest_id: Option<String>,
+        indent: u32,
+    ) -> Self {
+        Self::TocEntry {
+            title,
+            page_label,
+            dest_id,
+            indent,
+        }
+    }
+
+    /// Heading with optional internal destination id.
+    #[must_use]
+    pub fn heading(level: u8, runs: Vec<TextRun>, break_before: BreakHint) -> Self {
+        Self::Heading {
+            level,
+            runs,
+            break_before,
+            dest_id: None,
+        }
+    }
+
+    /// Heading that registers an internal destination for TOC / outline.
+    #[must_use]
+    pub fn heading_dest(
+        level: u8,
+        runs: Vec<TextRun>,
+        break_before: BreakHint,
+        dest_id: impl Into<String>,
+    ) -> Self {
+        Self::Heading {
+            level,
+            runs,
+            break_before,
+            dest_id: Some(dest_id.into()),
+        }
     }
 }
 

@@ -317,6 +317,7 @@ fn flush_styled_line(
         indent: layout.indent,
         measure: max_width,
         text_align,
+        dest_id: None,
     }));
 }
 
@@ -374,6 +375,7 @@ fn append_styled_run(
             fill,
             underline,
             link_uri,
+            None,
             baseline_shift,
         )?;
         if *current_width + w > max_width && !current_spans.is_empty() {
@@ -487,6 +489,7 @@ fn place_shaped_flush(
         fill,
         underline,
         link_uri,
+        None,
         baseline_shift,
     )?;
     current_spans.extend(spans);
@@ -665,6 +668,7 @@ mod widow_orphan_tests {
                 fill: [0.0, 0.0, 0.0],
                 underline: false,
                 link_uri: None,
+                link_dest: None,
                 baseline_shift: 0.0,
             }],
             leading: 12.0,
@@ -672,6 +676,7 @@ mod widow_orphan_tests {
             indent: 0.0,
             measure: 100.0,
             text_align: TextAlign::Left,
+            dest_id: None,
         })
     }
 

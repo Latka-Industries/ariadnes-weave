@@ -12,27 +12,48 @@ use crate::profile::ProfileMetrics;
 use super::math::paint_math;
 use super::types::{LaidColumns, LaidItem, LaidLine, LaidSpan, LaidTable, SubsetMap};
 
-/// Clickable URI box collected while painting a page (PDF user space).
+/// Clickable box collected while painting a page (PDF user space).
 #[derive(Debug, Clone)]
 pub(super) struct PageLink {
-    pub uri: String,
+    pub target: PageLinkTarget,
     pub x0: f32,
     pub y0: f32,
     pub x1: f32,
     pub y1: f32,
 }
 
+/// URI external link or internal GoTo destination id.
+#[derive(Debug, Clone)]
+pub(super) enum PageLinkTarget {
+    Uri(String),
+    Dest { id: String },
+}
+
 fn link_rect_for_span(origin_x: f32, baseline_y: f32, span: &LaidSpan) -> Option<PageLink> {
-    let uri = span.link_uri.as_ref()?;
+    let target = if let Some(uri) = span.link_uri.as_ref() {
+        if uri.is_empty() {
+            None
+        } else {
+            Some(PageLinkTarget::Uri(uri.clone()))
+        }
+    } else if let Some(id) = span.link_dest.as_ref() {
+        if id.is_empty() {
+            None
+        } else {
+            Some(PageLinkTarget::Dest { id: id.clone() })
+        }
+    } else {
+        None
+    }?;
     let width = shaped_width(&span.glyphs);
-    if width <= 0.0 || uri.is_empty() {
+    if width <= 0.0 {
         return None;
     }
     let y = baseline_y + span.baseline_shift;
     // Ink box around the baseline (generous hit target for icons).
     let pad = span.font_size * 0.15;
     Some(PageLink {
-        uri: uri.clone(),
+        target,
         x0: origin_x - pad * 0.25,
         y0: y - span.font_size * 0.25 - pad,
         x1: origin_x + width + pad * 0.25,

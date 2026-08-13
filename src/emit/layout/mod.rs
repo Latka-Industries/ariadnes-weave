@@ -20,7 +20,7 @@ use super::types::{ForcedBreak, GlyphSets, LaidItem, LayoutDoc, LayoutSegment, P
 
 use figure::PushFigureArgs;
 use ops::layout_layout_ops;
-use prose::{layout_code, layout_heading, layout_quote, push_list_lines, push_row};
+use prose::{layout_code, layout_heading, layout_quote, push_list_lines, push_row, push_toc_entry};
 use runs::{body_layout, layout_ctx, push_styled_runs};
 use slide::layout_slide;
 use table::push_table;
@@ -77,9 +77,34 @@ fn layout_block(
             level,
             runs,
             break_before,
+            dest_id,
         } => {
             let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
-            layout_heading(*level, runs, *break_before, &mut ctx, segments)?;
+            layout_heading(
+                *level,
+                runs,
+                *break_before,
+                dest_id.as_deref(),
+                &mut ctx,
+                segments,
+            )?;
+        }
+        PrintBlock::TocEntry {
+            title,
+            page_label,
+            dest_id,
+            indent,
+        } => {
+            let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
+            let seg = segments.last_mut().expect("segment");
+            push_toc_entry(
+                &mut seg.1,
+                title,
+                page_label.as_deref(),
+                dest_id.as_deref(),
+                *indent,
+                &mut ctx,
+            )?;
         }
         PrintBlock::Paragraph { runs, indent } => {
             let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
@@ -177,6 +202,7 @@ fn block_name(block: &PrintBlock) -> &'static str {
         PrintBlock::Quote { .. } => "quote",
         PrintBlock::Table { .. } => "table",
         PrintBlock::Row { .. } => "row",
+        PrintBlock::TocEntry { .. } => "toc_entry",
         PrintBlock::Figure { .. } => "figure",
         PrintBlock::Math { .. } => "math",
         PrintBlock::Slide { .. } => "slide",

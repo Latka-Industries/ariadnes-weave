@@ -21,6 +21,7 @@ pub(super) fn layout_heading(
     level: u8,
     runs: &[TextRun],
     break_before: BreakHint,
+    dest_id: Option<&str>,
     ctx: &mut LayoutCtx,
     segments: &mut Vec<LayoutSegment>,
 ) -> Result<(), WeaveError> {
@@ -32,6 +33,7 @@ pub(super) fn layout_heading(
     let font_size = profile::heading_size(level, ctx.metrics);
     let glue = matches!(break_before, BreakHint::KeepWithNext) || level <= 2;
     let seg = segments.last_mut().expect("segment");
+    let start = seg.1.len();
     push_styled_runs(
         &mut seg.1,
         runs,
@@ -48,7 +50,149 @@ pub(super) fn layout_heading(
             hard_break_overflow: true,
             text_align: TextAlign::Left,
         },
-    )
+    )?;
+    if let Some(id) = dest_id {
+        // Tag the first content line so pagination can map dest → page.
+        for item in &mut seg.1[start..] {
+            if let LaidItem::Text(line) = item
+                && !line.is_gap()
+            {
+                line.dest_id = Some(id.to_owned());
+                break;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// TOC line: title + dotted leaders + optional page digits (single line).
+pub(super) fn push_toc_entry(
+    out: &mut Vec<LaidItem>,
+    title: &[TextRun],
+    page_label: Option<&str>,
+    dest_id: Option<&str>,
+    indent: u32,
+    ctx: &mut LayoutCtx,
+) -> Result<(), WeaveError> {
+    let band = ctx.knobs.prose.indent.pts(indent);
+    let font_size = ctx.metrics.body_size;
+    let leading = ctx.metrics.body_leading;
+    let measure = (ctx.metrics.content_width() - band).max(ctx.knobs.prose.wrap.min_width);
+    let fill = ctx.knobs.prose.text_fill_rgb01();
+    let link_dest = dest_id;
+
+    let mut spans: Vec<LaidSpan> = Vec::new();
+    let mut title_w = 0.0_f32;
+    for run in title {
+        let face = resolve_run_face(
+            run,
+            ctx.metrics,
+            FaceMode::Body,
+            ctx.fonts,
+            ctx.knobs,
+            PaintCategory::Text,
+        )?;
+        let (run_spans, w) = shape_and_record_spans(
+            ctx.fonts,
+            face,
+            &run.text,
+            font_size,
+            ctx.glyph_sets,
+            fill,
+            false,
+            None,
+            link_dest,
+            0.0,
+        )?;
+        spans.extend(run_spans);
+        title_w += w;
+    }
+
+    // Known label, or "0" placeholder when dest will resolve after a layout pass.
+    let page_text = page_label
+        .map(str::to_owned)
+        .or_else(|| dest_id.map(|_| "0".into()))
+        .unwrap_or_default();
+
+    let mut page_spans: Vec<LaidSpan> = Vec::new();
+    let mut page_w = 0.0_f32;
+    if !page_text.is_empty() {
+        let face = FaceRef::Bundled(FaceId::SansRegular);
+        let (ps, w) = shape_and_record_spans(
+            ctx.fonts,
+            face,
+            &page_text,
+            font_size,
+            ctx.glyph_sets,
+            fill,
+            false,
+            None,
+            link_dest,
+            0.0,
+        )?;
+        page_spans = ps;
+        page_w = w;
+    }
+
+    let gap = (measure - title_w - page_w).max(0.0);
+    if gap > 0.0 {
+        let face = FaceRef::Bundled(FaceId::SansRegular);
+        let (dot_spans, dot_w) = shape_and_record_spans(
+            ctx.fonts,
+            face,
+            ".",
+            font_size,
+            ctx.glyph_sets,
+            fill,
+            false,
+            None,
+            None,
+            0.0,
+        )?;
+        if dot_w > 0.0 {
+            let n = (gap / dot_w).floor() as usize;
+            for _ in 0..n {
+                spans.extend(dot_spans.iter().cloned());
+            }
+            let used = n as f32 * dot_w;
+            let slack = gap - used;
+            if slack > 0.0 && !page_spans.is_empty() {
+                let (sp, space_w) = shape_and_record_spans(
+                    ctx.fonts,
+                    face,
+                    " ",
+                    font_size,
+                    ctx.glyph_sets,
+                    fill,
+                    false,
+                    None,
+                    None,
+                    0.0,
+                )?;
+                if space_w > 0.0 {
+                    let sn = (slack / space_w).floor() as usize;
+                    for _ in 0..sn {
+                        spans.extend(sp.iter().cloned());
+                    }
+                }
+            }
+        }
+    }
+
+    spans.extend(page_spans);
+    out.push(LaidItem::Text(LaidLine {
+        spans,
+        leading,
+        glue_after: false,
+        indent: band,
+        measure,
+        text_align: TextAlign::Left,
+        dest_id: None,
+    }));
+    out.push(LaidItem::Text(LaidLine::gap(
+        ctx.knobs.prose.paragraph.gap_after,
+    )));
+    Ok(())
 }
 
 pub(super) fn layout_quote(
@@ -178,6 +322,7 @@ fn push_one_list_item(
         ctx.glyph_sets,
         fill,
         underline,
+        None,
         None,
         0.0,
     )?;

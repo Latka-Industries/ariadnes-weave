@@ -11,7 +11,7 @@ use crate::image_prep::PreparedImage;
 use crate::knobs::LayoutKnobs;
 use crate::profile::ProfileMetrics;
 
-use super::paint::{PageLink, build_page_content, image_resource_name};
+use super::paint::{PageLink, PageLinkTarget, build_page_content, image_resource_name};
 use super::types::{GlyphSets, LaidItem, LaidLine, SubsetMap};
 
 /// Subset each face that contributed glyphs during layout.
@@ -123,11 +123,12 @@ pub(super) struct WritePagesArgs<'a> {
     pub subsets: &'a SubsetMap,
     pub knobs: &'a LayoutKnobs,
     pub title: &'a str,
+    pub dest_pages: &'a BTreeMap<String, usize>,
     pub next_id: &'a mut i32,
 }
 
 impl WritePagesArgs<'_> {
-    /// Write each page dict + painted content stream + URI link annotations.
+    /// Write each page dict + painted content stream + link annotations.
     pub(super) fn run(self) -> Result<(), WeaveError> {
         let Self {
             pdf,
@@ -142,6 +143,7 @@ impl WritePagesArgs<'_> {
             subsets,
             knobs,
             title,
+            dest_pages,
             next_id,
         } = self;
         let page_count = pages.len().max(1);
@@ -181,7 +183,7 @@ impl WritePagesArgs<'_> {
             }
             .run();
             for (annot_id, link) in annot_ids.iter().copied().zip(page_links.iter()) {
-                write_uri_link(pdf, annot_id, link);
+                write_link(pdf, annot_id, link, dest_pages, page_ids);
             }
             pdf.stream(content_id, &content_bytes);
         }
@@ -189,14 +191,36 @@ impl WritePagesArgs<'_> {
     }
 }
 
-fn write_uri_link(pdf: &mut Pdf, annot_id: Ref, link: &PageLink) {
+fn write_link(
+    pdf: &mut Pdf,
+    annot_id: Ref,
+    link: &PageLink,
+    dest_pages: &BTreeMap<String, usize>,
+    page_ids: &[Ref],
+) {
     let mut annotation = pdf.annotation(annot_id);
     annotation.subtype(AnnotationType::Link);
     annotation.rect(Rect::new(link.x0, link.y0, link.x1, link.y1));
-    annotation
-        .action()
-        .action_type(ActionType::Uri)
-        .uri(Str(link.uri.as_bytes()));
+    match &link.target {
+        PageLinkTarget::Uri(uri) => {
+            annotation
+                .action()
+                .action_type(ActionType::Uri)
+                .uri(Str(uri.as_bytes()));
+        }
+        PageLinkTarget::Dest { id } => {
+            if let Some(&page_idx) = dest_pages.get(id)
+                && let Some(&page_ref) = page_ids.get(page_idx)
+            {
+                annotation
+                    .action()
+                    .action_type(ActionType::GoTo)
+                    .destination()
+                    .page(page_ref)
+                    .fit();
+            }
+        }
+    }
     // Invisible border — color comes from the painted text/icons.
     annotation
         .border_style()
