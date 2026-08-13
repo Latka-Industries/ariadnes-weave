@@ -377,28 +377,28 @@ fn append_styled_run(
             baseline_shift,
         )?;
         if *current_width + w > max_width && !current_spans.is_empty() {
-            if hyphenate {
-                let remain = (max_width - *current_width).max(0.0);
-                let (word, trail) = split_trailing_space(&chunk);
-                if let Some((left, right)) = hyphen_fit(ctx.fonts, face, word, font_size, remain)? {
-                    let (left_spans, left_w) = shape_and_record_spans(
-                        ctx.fonts,
-                        face,
-                        &left,
-                        font_size,
-                        ctx.glyph_sets,
-                        fill,
-                        underline,
-                        link_uri,
-                        baseline_shift,
-                    )?;
-                    current_spans.extend(left_spans);
-                    *current_width += left_w;
-                    flush_styled_line(current_spans, out, layout, max_width, false);
-                    *current_width = 0.0;
-                    queue = format!("{right}{trail}{rest}");
-                    continue;
-                }
+            let remain = (max_width - *current_width).max(0.0);
+            if hyphenate
+                && try_hyphen_flush(
+                    out,
+                    current_spans,
+                    current_width,
+                    ctx,
+                    face,
+                    &chunk,
+                    remain,
+                    font_size,
+                    fill,
+                    underline,
+                    link_uri,
+                    baseline_shift,
+                    layout,
+                    max_width,
+                    &rest,
+                    &mut queue,
+                )?
+            {
+                continue;
             }
             flush_styled_line(current_spans, out, layout, max_width, false);
             *current_width = 0.0;
@@ -408,45 +408,46 @@ fn append_styled_run(
             }
         }
         if w > max_width && current_spans.is_empty() {
-            let (word, trail) = split_trailing_space(&chunk);
             if hyphenate
-                && let Some((left, right)) =
-                    hyphen_fit(ctx.fonts, face, word, font_size, max_width)?
-            {
-                let (left_spans, _) = shape_and_record_spans(
-                    ctx.fonts,
+                && try_hyphen_flush(
+                    out,
+                    current_spans,
+                    current_width,
+                    ctx,
                     face,
-                    &left,
+                    &chunk,
+                    max_width,
                     font_size,
-                    ctx.glyph_sets,
                     fill,
                     underline,
                     link_uri,
                     baseline_shift,
-                )?;
-                current_spans.extend(left_spans);
-                flush_styled_line(current_spans, out, layout, max_width, false);
-                *current_width = 0.0;
-                queue = format!("{right}{trail}{rest}");
+                    layout,
+                    max_width,
+                    &rest,
+                    &mut queue,
+                )?
+            {
                 continue;
             }
             if layout.hard_break_overflow {
                 // Hard-break tokens wider than the content box (URLs, long code).
                 for piece in hard_break_text(ctx.fonts, face, &chunk, font_size, max_width)? {
-                    let (spans, _) = shape_and_record_spans(
-                        ctx.fonts,
+                    place_shaped_flush(
+                        out,
+                        current_spans,
+                        current_width,
+                        ctx,
                         face,
                         &piece,
                         font_size,
-                        ctx.glyph_sets,
                         fill,
                         underline,
                         link_uri,
                         baseline_shift,
+                        layout,
+                        max_width,
                     )?;
-                    current_spans.extend(spans);
-                    flush_styled_line(current_spans, out, layout, max_width, false);
-                    *current_width = 0.0;
                 }
                 queue = rest;
                 continue;
@@ -458,6 +459,85 @@ fn append_styled_run(
         queue = rest;
     }
     Ok(())
+}
+
+/// Shape `text`, append to the current line, flush, and zero width.
+#[allow(clippy::too_many_arguments)]
+fn place_shaped_flush(
+    out: &mut Vec<LaidItem>,
+    current_spans: &mut Vec<LaidSpan>,
+    current_width: &mut f32,
+    ctx: &mut LayoutCtx,
+    face: FaceRef,
+    text: &str,
+    font_size: f32,
+    fill: [f32; 3],
+    underline: bool,
+    link_uri: Option<&str>,
+    baseline_shift: f32,
+    layout: RunLayout,
+    max_width: f32,
+) -> Result<(), WeaveError> {
+    let (spans, w) = shape_and_record_spans(
+        ctx.fonts,
+        face,
+        text,
+        font_size,
+        ctx.glyph_sets,
+        fill,
+        underline,
+        link_uri,
+        baseline_shift,
+    )?;
+    current_spans.extend(spans);
+    *current_width += w;
+    flush_styled_line(current_spans, out, layout, max_width, false);
+    *current_width = 0.0;
+    Ok(())
+}
+
+/// If `chunk` can soft-hyphenate into `fit_width`, place the prefix, flush, and
+/// rewrite `queue` to `right + trail + rest`. Returns `true` when a split landed.
+#[allow(clippy::too_many_arguments)]
+fn try_hyphen_flush(
+    out: &mut Vec<LaidItem>,
+    current_spans: &mut Vec<LaidSpan>,
+    current_width: &mut f32,
+    ctx: &mut LayoutCtx,
+    face: FaceRef,
+    chunk: &str,
+    fit_width: f32,
+    font_size: f32,
+    fill: [f32; 3],
+    underline: bool,
+    link_uri: Option<&str>,
+    baseline_shift: f32,
+    layout: RunLayout,
+    max_width: f32,
+    rest: &str,
+    queue: &mut String,
+) -> Result<bool, WeaveError> {
+    let (word, trail) = split_trailing_space(chunk);
+    let Some((left, right)) = hyphen_fit(ctx.fonts, face, word, font_size, fit_width)? else {
+        return Ok(false);
+    };
+    place_shaped_flush(
+        out,
+        current_spans,
+        current_width,
+        ctx,
+        face,
+        &left,
+        font_size,
+        fill,
+        underline,
+        link_uri,
+        baseline_shift,
+        layout,
+        max_width,
+    )?;
+    *queue = format!("{right}{trail}{rest}");
+    Ok(true)
 }
 
 /// Keep `orphan_lines` / `widow_lines` content lines together (CSS-like).
