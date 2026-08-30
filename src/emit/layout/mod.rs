@@ -13,7 +13,7 @@ use crate::error::WeaveError;
 use crate::font::FontBag;
 use crate::image_prep::PreparedImage;
 use crate::ir::{PrintBlock, PrintDocument};
-use crate::knobs::LayoutKnobs;
+use crate::knobs::{LayoutKnobs, TextAlign};
 use crate::profile::ProfileMetrics;
 
 use super::math::layout_math;
@@ -57,10 +57,27 @@ pub(super) fn collect_layout(
             &mut segments,
             &mut images,
             &mut glyph_sets,
+            None,
         )?;
     }
 
     Ok((segments, images, glyph_sets))
+}
+
+/// Pack `[paragraph].text_align`, overridden by inherit then explicit (THI-398).
+fn resolved_prose_align(
+    explicit: Option<TextAlign>,
+    inherit: Option<TextAlign>,
+    knobs: &LayoutKnobs,
+) -> TextAlign {
+    explicit
+        .or(inherit)
+        .unwrap_or(knobs.prose.paragraph.text_align)
+}
+
+/// Quotes stay flush-start unless a block or region sets align.
+fn resolved_quote_align(explicit: Option<TextAlign>, inherit: Option<TextAlign>) -> TextAlign {
+    explicit.or(inherit).unwrap_or(TextAlign::Left)
 }
 
 fn layout_block(
@@ -71,6 +88,7 @@ fn layout_block(
     segments: &mut Vec<LayoutSegment>,
     images: &mut Vec<PreparedImage>,
     glyph_sets: &mut GlyphSets,
+    inherit_align: Option<TextAlign>,
 ) -> Result<(), WeaveError> {
     match block {
         PrintBlock::Break(hint) => {
@@ -113,20 +131,30 @@ fn layout_block(
             glyph_sets,
         }
         .run()?,
-        PrintBlock::Paragraph { runs, indent } => {
+        PrintBlock::Paragraph {
+            runs,
+            indent,
+            text_align,
+        } => {
             let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
             let seg = segments.last_mut().expect("segment");
             let band = knobs.prose.indent.pts(*indent);
+            let align = resolved_prose_align(*text_align, inherit_align, knobs);
             push_styled_runs(
                 &mut seg.1,
                 runs,
                 &mut ctx,
-                body_layout(metrics, knobs, band, PaintCategory::Text),
+                body_layout(metrics, knobs, band, PaintCategory::Text, align),
             )?;
         }
-        PrintBlock::Quote { runs } => {
+        PrintBlock::Quote { runs, text_align } => {
             let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
-            layout_quote(runs, &mut ctx, segments)?;
+            layout_quote(
+                runs,
+                resolved_quote_align(*text_align, inherit_align),
+                &mut ctx,
+                segments,
+            )?;
         }
         PrintBlock::Code { lang: _, text } => {
             let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
@@ -136,14 +164,23 @@ fn layout_block(
             ordered,
             items,
             indent,
+            text_align,
         } => {
             let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
             let seg = segments.last_mut().expect("segment");
-            push_list_lines(&mut seg.1, *ordered, items, *indent, 0, &mut ctx)?;
+            let align = resolved_prose_align(*text_align, inherit_align, knobs);
+            push_list_lines(&mut seg.1, *ordered, items, *indent, 0, align, &mut ctx)?;
         }
-        other => {
-            layout_structure_block(other, metrics, fonts, knobs, segments, images, glyph_sets)?
-        }
+        other => layout_structure_block(
+            other,
+            metrics,
+            fonts,
+            knobs,
+            segments,
+            images,
+            glyph_sets,
+            inherit_align,
+        )?,
     }
     Ok(())
 }
@@ -156,6 +193,7 @@ fn layout_structure_block(
     segments: &mut Vec<LayoutSegment>,
     images: &mut Vec<PreparedImage>,
     glyph_sets: &mut GlyphSets,
+    inherit_align: Option<TextAlign>,
 ) -> Result<(), WeaveError> {
     match block {
         PrintBlock::Table { rows, dest_id } => {
@@ -213,10 +251,12 @@ fn layout_structure_block(
             count,
             gap,
             children,
+            text_align,
         } => layout_columns(LayoutColumnsArgs {
             count: *count,
             gap: *gap,
             children,
+            inherit_align: text_align.or(inherit_align),
             metrics,
             fonts,
             knobs,

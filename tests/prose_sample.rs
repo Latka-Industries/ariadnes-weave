@@ -46,6 +46,7 @@ fn prose_doc() -> PrintDocument {
                     TextRun::plain(" before a list, a quote, and a code block."),
                 ],
                 indent: 0,
+                text_align: None,
             },
             PrintBlock::List {
                 ordered: false,
@@ -63,6 +64,7 @@ fn prose_doc() -> PrintDocument {
                                 children: vec![],
                             }],
                             indent: 0,
+                            text_align: None,
                         }],
                     },
                     ListItem {
@@ -71,9 +73,11 @@ fn prose_doc() -> PrintDocument {
                     },
                 ],
                 indent: 0,
+                text_align: None,
             },
             PrintBlock::Quote {
                 runs: vec![TextRun::plain("Quoted line for the MVP path.")],
+                text_align: None,
             },
             PrintBlock::Code {
                 lang: Some("rust".into()),
@@ -89,6 +93,7 @@ fn prose_doc() -> PrintDocument {
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain("Second page after an explicit break.")],
                 indent: 0,
+                text_align: None,
             },
         ],
     }

@@ -35,14 +35,17 @@ fn dense_doc() -> PrintDocument {
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain(para)],
                 indent: 3,
+                text_align: None,
             },
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain(para)],
                 indent: 3,
+                text_align: None,
             },
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain(para)],
                 indent: 3,
+                text_align: None,
             },
         ],
     }

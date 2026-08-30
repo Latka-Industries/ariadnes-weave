@@ -26,6 +26,7 @@ fn heading_and_paragraph_emit_pdf_magic() {
                     "Owned print IR to PDF with Liberation Sans and rustybuzz shaping — unicode ok.",
                 )],
                 indent: 0,
+                text_align: None,
             },
         ],
     };
@@ -58,6 +59,7 @@ fn serde_roundtrip_print_document() {
         blocks: vec![PrintBlock::Paragraph {
             runs: vec![TextRun::plain("roundtrip")],
             indent: 0,
+            text_align: None,
         }],
     };
     let json = serde_json::to_string(&doc).expect("serialize");

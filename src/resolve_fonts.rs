@@ -65,7 +65,7 @@ mod hydrate {
         match block {
             PrintBlock::Heading { runs, .. }
             | PrintBlock::Paragraph { runs, .. }
-            | PrintBlock::Quote { runs }
+            | PrintBlock::Quote { runs, .. }
             | PrintBlock::TocEntry { title: runs, .. } => collect_run_faces(runs, out),
             PrintBlock::Row { panes, .. } => {
                 for pane in panes {
@@ -86,6 +86,11 @@ mod hydrate {
                     if let crate::ir::LayoutOp::Place { runs, .. } = op {
                         collect_run_faces(runs, out);
                     }
+                }
+            }
+            PrintBlock::Columns { children, .. } => {
+                for child in children {
+                    collect_block_faces(child, out);
                 }
             }
             PrintBlock::Slide { .. }

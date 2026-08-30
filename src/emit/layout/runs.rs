@@ -44,11 +44,8 @@ pub(super) fn body_layout(
     knobs: &LayoutKnobs,
     indent: f32,
     paint: PaintCategory,
+    text_align: TextAlign,
 ) -> RunLayout {
-    let text_align = match paint {
-        PaintCategory::Text => knobs.prose.paragraph.text_align,
-        _ => TextAlign::Left,
-    };
     RunLayout {
         font_size: metrics.body_size,
         leading: metrics.body_leading,

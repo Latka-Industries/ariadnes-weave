@@ -65,10 +65,9 @@ crates.io. Local suite work can still path-dep when cutting paired releases.
   `\frac`, multi-char scripts, `matrix`/`pmatrix`/`bmatrix`, and display
   under/over limits on `\sum`/`\prod`/…; `\int` keeps side limits (not full TeX)
 
-Not yet: footnotes/endnotes, per-chunk text align (pack-global only today), full
-TeX/MathML, OS font collection/CFF polish, full-coverage CJK/emoji packs (only
-tiny sealed subsets behind features), color-emoji PDF paint, live `{heading}`
-chrome tokens.
+Not yet: footnotes/endnotes, full TeX/MathML, OS font collection/CFF polish,
+full-coverage CJK/emoji packs (only tiny sealed subsets behind features),
+color-emoji PDF paint, live `{heading}` chrome tokens.
 
 | Later                                           | Where                                                                   |
 | ----------------------------------------------- | ----------------------------------------------------------------------- |
@@ -138,6 +137,7 @@ let doc = PrintDocument {
         PrintBlock::Paragraph {
             runs: vec![TextRun::plain("Body.")],
             indent: 0,
+            text_align: None,
         },
         PrintBlock::List {
             ordered: false,
@@ -146,6 +146,7 @@ let doc = PrintDocument {
                 children: vec![],
             }],
             indent: 0,
+            text_align: None,
         },
     ],
 };

@@ -122,21 +122,25 @@ fn paint_span_underlines(
 }
 
 /// Paint a horizontal run of spans (text object + optional underlines).
+///
+/// `last_fill` is the page content-stream fill, not per-line: PDF `/rg`
+/// survives `ET`/`BT`, so a new line that starts black must still restore
+/// after a colored link (resume rows, following bullets).
 fn paint_laid_spans(
     content: &mut Content,
     fonts: &FontBag,
     spans: &[LaidSpan],
     origin_x: f32,
     baseline_y: f32,
+    last_fill: &mut Option<[f32; 3]>,
 ) {
     if spans.is_empty() {
         return;
     }
     content.begin_text();
     let mut x = origin_x;
-    let mut last_fill = None;
     for span in spans {
-        paint_span_text(content, fonts, span, x, baseline_y, &mut last_fill);
+        paint_span_text(content, fonts, span, x, baseline_y, last_fill);
         x += shaped_width(&span.glyphs);
     }
     content.end_text();
@@ -208,6 +212,7 @@ fn paint_justified_spans(
     origin_x: f32,
     baseline_y: f32,
     measure: f32,
+    last_fill: &mut Option<[f32; 3]>,
 ) {
     if spans.is_empty() {
         return;
@@ -218,9 +223,8 @@ fn paint_justified_spans(
 
     content.begin_text();
     let mut x = origin_x;
-    let mut last_fill = None;
     for (si, span) in spans.iter().enumerate() {
-        apply_fill_rgb(content, &mut last_fill, span.fill);
+        apply_fill_rgb(content, last_fill, span.fill);
         let face_name = fonts.resource_name(span.face);
         content.set_font(Name(&face_name), span.font_size);
         for (gi, glyph) in span.glyphs.iter().enumerate() {
@@ -305,8 +309,9 @@ fn paint_span_underlines_justified(
 }
 
 /// Emit `/rg` only when fill changes. Default PDF fill is black, so the first
-/// black span stays silent (byte-stable fixtures); after a colored link we must
-/// explicitly restore black so following phone/location text is not tinted.
+/// black span stays silent (byte-stable fixtures). `last` is page-level: after
+/// a colored link, later black runs (next line, next row pane, next block)
+/// must emit `0 0 0 rg` or they inherit the cite/link accent.
 fn apply_fill_rgb(content: &mut Content, last: &mut Option<[f32; 3]>, fill: [f32; 3]) {
     let is_black = rgb_bits(fill) == rgb_bits([0.0, 0.0, 0.0]);
     match *last {
@@ -375,6 +380,7 @@ impl BuildPageContent<'_> {
             metrics: self.metrics,
             fonts: self.fonts,
             knobs: self.knobs,
+            last_fill: None,
         };
         for item in self.items {
             if !cursor.paint_item(item) {
@@ -418,6 +424,7 @@ struct PageCursor<'a> {
     metrics: &'a ProfileMetrics,
     fonts: &'a FontBag,
     knobs: &'a LayoutKnobs,
+    last_fill: Option<[f32; 3]>,
 }
 
 impl PageCursor<'_> {
@@ -432,6 +439,7 @@ impl PageCursor<'_> {
                 self.bottom_limit,
                 self.metrics,
                 self.fonts,
+                &mut self.last_fill,
             ),
             LaidItem::Image {
                 img_idx,
@@ -465,6 +473,7 @@ impl PageCursor<'_> {
                     self.metrics.margin,
                     *self.y,
                     self.fonts,
+                    &mut self.last_fill,
                 );
                 *self.y -= table_h + table.gap_after;
                 true
@@ -481,6 +490,7 @@ impl PageCursor<'_> {
                     self.metrics.margin,
                     *self.y,
                     self.fonts,
+                    &mut self.last_fill,
                 );
                 *self.y -= cols.height();
                 true
@@ -526,6 +536,7 @@ impl PageCursor<'_> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn paint_text_item(
     content: &mut Content,
     links: &mut Vec<PageLink>,
@@ -534,6 +545,7 @@ fn paint_text_item(
     bottom_limit: f32,
     metrics: &ProfileMetrics,
     fonts: &FontBag,
+    last_fill: &mut Option<[f32; 3]>,
 ) -> bool {
     *y -= line.leading;
     if *y < bottom_limit {
@@ -544,11 +556,21 @@ fn paint_text_item(
     }
     let origin_x = metrics.margin + line.indent;
     let measure = line.measure.max(line.width());
-    paint_aligned_line(content, links, line, origin_x, *y, measure, fonts);
+    paint_aligned_line(
+        content,
+        links,
+        line,
+        origin_x,
+        *y,
+        measure,
+        fonts,
+        last_fill,
+    );
     true
 }
 
 /// Paint one laid line at `origin_x` / `baseline_y` honoring [`LaidLine::text_align`].
+#[allow(clippy::too_many_arguments)]
 fn paint_aligned_line(
     content: &mut Content,
     links: &mut Vec<PageLink>,
@@ -557,6 +579,7 @@ fn paint_aligned_line(
     baseline_y: f32,
     measure: f32,
     fonts: &FontBag,
+    last_fill: &mut Option<[f32; 3]>,
 ) {
     match line.text_align {
         TextAlign::Justify => {
@@ -567,6 +590,7 @@ fn paint_aligned_line(
                 origin_x,
                 baseline_y,
                 measure.max(line.width()),
+                last_fill,
             );
             // Justify redistributes glyph advances; use natural boxes
             // as a best-effort hit target (resume links are short).
@@ -574,7 +598,7 @@ fn paint_aligned_line(
         }
         align => {
             let x = origin_x + align.offset_x(measure.max(line.width()), line.width());
-            paint_laid_spans(content, fonts, &line.spans, x, baseline_y);
+            paint_laid_spans(content, fonts, &line.spans, x, baseline_y, last_fill);
             push_span_links(links, &line.spans, x, baseline_y);
         }
     }
@@ -688,6 +712,7 @@ pub(super) fn paint_columns(
     origin_x: f32,
     top_y: f32,
     fonts: &FontBag,
+    last_fill: &mut Option<[f32; 3]>,
 ) {
     let mut x = origin_x + cols.indent;
     for (i, lines) in cols.columns.iter().enumerate() {
@@ -711,6 +736,7 @@ pub(super) fn paint_columns(
                 text_y,
                 measure,
                 fonts,
+                last_fill,
             );
         }
         x += col_w + cols.gap;
@@ -725,6 +751,7 @@ pub(super) fn paint_table(
     origin_x: f32,
     top_y: f32,
     fonts: &FontBag,
+    last_fill: &mut Option<[f32; 3]>,
 ) {
     let table_w: f32 = table.col_widths.iter().sum();
     let table_h: f32 = table.rows.iter().map(|r| r.height).sum();
@@ -767,7 +794,14 @@ pub(super) fn paint_table(
             let mut text_y = row_top - table.pad;
             for line in cell_lines {
                 text_y -= line.leading;
-                paint_laid_spans(content, fonts, &line.spans, cell_x + table.pad, text_y);
+                paint_laid_spans(
+                    content,
+                    fonts,
+                    &line.spans,
+                    cell_x + table.pad,
+                    text_y,
+                    last_fill,
+                );
                 push_span_links(links, &line.spans, cell_x + table.pad, text_y);
             }
             cell_x += col_w;

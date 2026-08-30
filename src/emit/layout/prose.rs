@@ -273,6 +273,7 @@ impl TocShape<'_, '_> {
 
 pub(super) fn layout_quote(
     runs: &[TextRun],
+    text_align: TextAlign,
     ctx: &mut LayoutCtx,
     segments: &mut [LayoutSegment],
 ) -> Result<(), WeaveError> {
@@ -291,6 +292,7 @@ pub(super) fn layout_quote(
             ctx.knobs,
             ctx.knobs.prose.quote.indent,
             PaintCategory::Quote,
+            text_align,
         ),
     )
 }
@@ -338,10 +340,11 @@ pub(super) fn push_list_lines(
     items: &[crate::ir::ListItem],
     band_indent: u32,
     depth: usize,
+    text_align: TextAlign,
     ctx: &mut LayoutCtx,
 ) -> Result<(), WeaveError> {
     for (i, item) in items.iter().enumerate() {
-        push_one_list_item(out, ordered, item, i, band_indent, depth, ctx)?;
+        push_one_list_item(out, ordered, item, i, band_indent, depth, text_align, ctx)?;
     }
     // Only top-level lists trail into the next CV entry; nested trailers
     // were stacking a fat gap after every sub-bullet group.
@@ -360,6 +363,7 @@ fn push_one_list_item(
     index: usize,
     band_indent: u32,
     depth: usize,
+    text_align: TextAlign,
     ctx: &mut LayoutCtx,
 ) -> Result<(), WeaveError> {
     let marker = if ordered {
@@ -430,7 +434,7 @@ fn push_one_list_item(
             max_width: Some(max_width),
             paint: PaintCategory::Text,
             hard_break_overflow: true,
-            text_align: TextAlign::Left,
+            text_align,
         },
     )?;
     prepend_list_marker(
@@ -448,6 +452,7 @@ fn push_one_list_item(
                 ordered: child_ordered,
                 items: child_items,
                 indent: child_indent,
+                text_align: child_align,
             } => {
                 // Nested lists keep the parent's band unless explicitly set.
                 let band = if *child_indent > 0 {
@@ -455,7 +460,16 @@ fn push_one_list_item(
                 } else {
                     band_indent
                 };
-                push_list_lines(out, *child_ordered, child_items, band, depth + 1, ctx)?;
+                let child_align = child_align.unwrap_or(text_align);
+                push_list_lines(
+                    out,
+                    *child_ordered,
+                    child_items,
+                    band,
+                    depth + 1,
+                    child_align,
+                    ctx,
+                )?;
             }
             other => return Err(WeaveError::UnsupportedBlock(block_name(other))),
         }

@@ -4,7 +4,7 @@ use crate::error::WeaveError;
 use crate::font::FontBag;
 use crate::image_prep::PreparedImage;
 use crate::ir::PrintBlock;
-use crate::knobs::LayoutKnobs;
+use crate::knobs::{LayoutKnobs, TextAlign};
 use crate::profile::ProfileMetrics;
 
 use super::super::types::{ForcedBreak, GlyphSets, LaidColumns, LaidItem, LaidLine, LayoutSegment};
@@ -15,6 +15,7 @@ pub(super) struct LayoutColumnsArgs<'a> {
     pub count: u8,
     pub gap: Option<u16>,
     pub children: &'a [PrintBlock],
+    pub inherit_align: Option<TextAlign>,
     pub metrics: &'a ProfileMetrics,
     pub fonts: &'a FontBag,
     pub knobs: &'a LayoutKnobs,
@@ -49,6 +50,7 @@ pub(super) fn layout_columns(args: LayoutColumnsArgs<'_>) -> Result<(), WeaveErr
         count,
         gap,
         children,
+        inherit_align,
         metrics,
         fonts,
         knobs,
@@ -74,7 +76,16 @@ pub(super) fn layout_columns(args: LayoutColumnsArgs<'_>) -> Result<(), WeaveErr
     for child in children {
         if spans_full_measure(child) {
             flush_flow_bands(&mut flow, n, gap_pt, col_w, max_h, segments);
-            layout_block(child, metrics, fonts, knobs, segments, images, glyph_sets)?;
+            layout_block(
+                child,
+                metrics,
+                fonts,
+                knobs,
+                segments,
+                images,
+                glyph_sets,
+                inherit_align,
+            )?;
         } else {
             let mut temp: Vec<LayoutSegment> = vec![(ForcedBreak::None, Vec::new())];
             layout_block(
@@ -85,6 +96,7 @@ pub(super) fn layout_columns(args: LayoutColumnsArgs<'_>) -> Result<(), WeaveErr
                 &mut temp,
                 images,
                 glyph_sets,
+                inherit_align,
             )?;
             for (forced, items) in temp {
                 if matches!(forced, ForcedBreak::Always) && !flow.is_empty() {

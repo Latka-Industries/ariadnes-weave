@@ -38,7 +38,12 @@ Per-run underline also paints when `InlineStyle.underline` is set (independent o
 |-----|---------|
 | `[paragraph].text_align` | Body `Paragraph` runs: `left` / `center` / `right` / `justify` (bundled `left`) |
 
-Same paint rules as figure in-band justify (last soft-wrapped line stays flush-left). Lists / quotes stay left unless they gain their own knobs.
+Pack default only. A block may set `PrintBlock::Paragraph.text_align` (or a
+`Columns` region default) to override; `None` uses this knob (THI-398).
+Lists inherit the same resolution; quotes stay left unless a block/region sets
+align.
+
+Same paint rules as figure in-band justify (last soft-wrapped line stays flush-left).
 
 Figure vertical stack:
 
@@ -133,7 +138,12 @@ Newspaper / article continuous columns for `PrintBlock::Columns` (THI-391). Dist
 |-----|---------|
 | `gap` | Space between columns in points (bundled `18`) |
 
-Column count and optional per-block `gap` live on the IR (`Columns { count, gap, children }`). Headings, figures, tables, math, breaks, rows, TOC lines, and nested columns **span** full measure (flush the current band). Body paragraphs/lists/quotes/code flow down each column; paragraph `[paragraph].text_align` (including `justify`) applies inside column bands.
+Column count, optional per-block `gap`, and optional `text_align` live on the IR
+(`Columns { count, gap, children, text_align }`). Headings, figures, tables,
+math, breaks, rows, TOC lines, and nested columns **span** full measure (flush
+the current band). Body paragraphs/lists/quotes/code flow down each column.
+Child `text_align` wins; else the columns region default; else pack
+`[paragraph].text_align`.
 
 ## TOC / destinations / outline
 
