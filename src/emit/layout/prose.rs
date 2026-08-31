@@ -7,8 +7,8 @@ use crate::knobs::TextAlign;
 use crate::profile;
 
 use super::super::types::{
-    FaceMode, ForcedBreak, LaidColumns, LaidItem, LaidLine, LaidSpan, LayoutSegment, PaintCategory,
-    RunLayout, ShapeSpans, shape_and_record_spans,
+    FaceMode, ForcedBreak, LaidCallout, LaidColumns, LaidItem, LaidLine, LaidSpan, LayoutSegment,
+    PaintCategory, RunLayout, ShapeSpans, shape_and_record_spans,
 };
 use super::LayoutCtx;
 use super::block_name;
@@ -44,7 +44,7 @@ pub(super) fn layout_heading(
             gap_after: ctx.knobs.prose.heading.gap_after,
             glue_last_content: glue,
             mode: FaceMode::Heading,
-            indent: 0.0,
+            indent: ctx.knobs.prose.body.gutter(),
             max_width: None,
             paint: PaintCategory::Text,
             hard_break_overflow: true,
@@ -125,6 +125,8 @@ pub(super) fn push_toc_entry(
         text_align: TextAlign::Left,
         dest_id: None,
         chrome_heading: None,
+        line_no: None,
+        gutter_spans: Vec::new(),
     };
 
     if page_slot <= 0.0 {
@@ -144,6 +146,8 @@ pub(super) fn push_toc_entry(
         text_align: TextAlign::Right,
         dest_id: None,
         chrome_heading: None,
+        line_no: None,
+        gutter_spans: Vec::new(),
     };
 
     out.push(LaidItem::Columns(LaidColumns {
@@ -303,6 +307,100 @@ pub(super) fn layout_quote(
     )
 }
 
+/// Titled band: left rule + strong title + body (THI-412 / THI-414).
+///
+/// `callout_kind` is IR-only; paint is one band for every kind.
+pub(super) fn layout_callout(
+    title: &[TextRun],
+    body: &[TextRun],
+    ctx: &mut LayoutCtx,
+    segments: &mut [LayoutSegment],
+) -> Result<(), WeaveError> {
+    if title.is_empty() && body.is_empty() {
+        return Ok(());
+    }
+    let gutter = ctx.knobs.prose.body.gutter();
+    let band_indent = ctx.knobs.prose.callout.indent + gutter;
+    let rule_w = ctx.knobs.prose.callout.rule_thickness;
+    let rule_gap = ctx.knobs.prose.callout.rule_gap;
+    let text_indent = band_indent + rule_w + rule_gap;
+    let title_gap = ctx.knobs.prose.callout.title_gap;
+    let gap_after = ctx.knobs.prose.paragraph.gap_after;
+
+    let mut lines: Vec<LaidLine> = Vec::new();
+    if !title.is_empty() {
+        let strong: Vec<TextRun> = title
+            .iter()
+            .cloned()
+            .map(|mut r| {
+                r.style.strong = true;
+                r
+            })
+            .collect();
+        let mut items = Vec::new();
+        push_styled_runs(
+            &mut items,
+            &strong,
+            ctx,
+            RunLayout {
+                font_size: ctx.metrics.body_size,
+                leading: ctx.metrics.body_leading,
+                gap_after: 0.0,
+                glue_last_content: false,
+                mode: FaceMode::Body,
+                indent: text_indent,
+                max_width: None,
+                paint: PaintCategory::Text,
+                hard_break_overflow: true,
+                text_align: TextAlign::Left,
+            },
+        )?;
+        take_text_lines(&mut items, &mut lines);
+        if !body.is_empty() && title_gap > 0.0 {
+            lines.push(LaidLine::gap(title_gap));
+        }
+    }
+    if !body.is_empty() {
+        let mut items = Vec::new();
+        push_styled_runs(
+            &mut items,
+            body,
+            ctx,
+            RunLayout {
+                font_size: ctx.metrics.body_size,
+                leading: ctx.metrics.body_leading,
+                gap_after: 0.0,
+                glue_last_content: false,
+                mode: FaceMode::Body,
+                indent: text_indent,
+                max_width: None,
+                paint: PaintCategory::Text,
+                hard_break_overflow: true,
+                text_align: TextAlign::Left,
+            },
+        )?;
+        take_text_lines(&mut items, &mut lines);
+    }
+    let seg = segments.last_mut().expect("segment");
+    seg.1.push(LaidItem::Callout(LaidCallout {
+        lines,
+        gap_after,
+        indent: band_indent,
+        rule_thickness: rule_w,
+    }));
+    Ok(())
+}
+
+fn take_text_lines(items: &mut Vec<LaidItem>, lines: &mut Vec<LaidLine>) {
+    for item in std::mem::take(items) {
+        if let LaidItem::Text(line) = item
+            && !line.is_gap()
+        {
+            lines.push(line);
+        }
+    }
+}
+
 fn emphasized_quote_mark() -> TextRun {
     TextRun {
         text: "\"".into(),
@@ -325,7 +423,7 @@ pub(super) fn layout_code(
     let font_size = ctx.metrics.code_size;
     let leading = font_size * ctx.knobs.prose.code.leading_factor;
     for line in text.lines() {
-        seg.1.push(LaidItem::Text(LaidLine::shaped(
+        let mut laid = LaidLine::shaped(
             ctx.fonts,
             FaceRef::Bundled(FaceId::MonoRegular),
             line,
@@ -333,7 +431,9 @@ pub(super) fn layout_code(
             leading,
             ctx.glyph_sets,
             ctx.knobs.prose.text_fill_rgb01(),
-        )?));
+        )?;
+        laid.indent = ctx.knobs.prose.body.gutter();
+        seg.1.push(LaidItem::Text(laid));
     }
     seg.1.push(LaidItem::Text(LaidLine::gap(
         ctx.knobs.prose.code.gap_after,

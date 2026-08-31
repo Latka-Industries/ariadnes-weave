@@ -77,3 +77,10 @@ rule_thickness_factor = 0.045
 rule_thickness_min = 0.5
 pad_factor = 0.04
 overhang_factor = 0.06
+
+# `\bar{…}` macron (THI-385; jimis weighted mean).
+[accent]
+gap_factor = 0.08
+thickness_factor = 0.045
+thickness_min = 0.5
+overhang_factor = 0.12

@@ -10,8 +10,8 @@ use crate::ir::{
     SlideRegionContent, TableRow, TextRun, VspaceAmount,
 };
 use crate::knobs::{
-    CaptionBand, CaptionOverflow, FigureAlign, FigureTextAlign, FigureTitleAlign, HexColor,
-    LayoutKnobs, TextAlign,
+    CaptionBand, CaptionOverflow, ChromeAlign, FigureAlign, FigureTextAlign, FigureTitleAlign,
+    HexColor, LayoutKnobs, PageNumberStyle, TextAlign,
 };
 use crate::options::EmitOptions;
 use crate::profile::{self, PageSize};
@@ -1840,6 +1840,7 @@ fn math_prod_and_int_emit() {
         r"\forall x \exists y (x \circ y) \notin \nabla",
         r"A \subset B \supset C \supseteq D \mp E",
         r"\bigcup_{i=1}^{n} A_{i} \bigcap_{j} B_{j} \coprod_{k} C_{k}",
+        r"\bar{x}_w = \frac{\sum m_i x_i}{\sum m_i}",
     ] {
         let doc = PrintDocument {
             meta: PrintMeta {
@@ -1892,6 +1893,115 @@ fn math_int_display_limits_differ_from_inline() {
     assert_ne!(
         d, i,
         "display ∫ (larger) should still differ from inline even with side scripts"
+    );
+}
+
+#[test]
+fn math_bar_differs_from_plain_x() {
+    let bar = note_doc(
+        "Bar",
+        vec![PrintBlock::Math {
+            display: true,
+            latex: r"\bar{x}_w".into(),
+        }],
+    );
+    let plain = note_doc(
+        "Bar",
+        vec![PrintBlock::Math {
+            display: true,
+            latex: r"x_w".into(),
+        }],
+    );
+    let a = emit_pdf(&bar).expect("bar");
+    let b = emit_pdf(&plain).expect("plain");
+    assert_ne!(a, b, "\\bar should paint a rule over the nucleus");
+}
+
+#[test]
+fn callout_kind_does_not_fork_paint() {
+    let title = vec![TextRun::plain("Definition 1 (Trace minimale).")];
+    let body = vec![TextRun::plain("A named block with a title and a body.")];
+    let defn = note_doc(
+        "Band",
+        vec![PrintBlock::callout(
+            "definition",
+            title.clone(),
+            body.clone(),
+        )],
+    );
+    let note = note_doc("Band", vec![PrintBlock::callout("note", title, body)]);
+    let a = emit_pdf(&defn).expect("definition");
+    let b = emit_pdf(&note).expect("note");
+    assert_eq!(
+        a, b,
+        "THI-412/414 share one titled-band paint; kind is IR-only"
+    );
+    write_tmp_sample("callout_band.pdf", &a);
+}
+
+#[test]
+fn line_numbers_gutter_changes_emit() {
+    let lorem = "The quick brown fox jumps over the lazy dog. ".repeat(8);
+    let doc = note_doc(
+        "Lines",
+        vec![
+            PrintBlock::paragraph(vec![TextRun::plain(&lorem)]),
+            PrintBlock::paragraph(vec![TextRun::plain(&lorem)]),
+        ],
+    );
+    let off = emit_pdf(&doc).expect("off");
+    let on = emit_with_layout_tweak(&doc, |layout| {
+        layout.prose.body.line_numbers = true;
+    });
+    assert_ne!(off, on, "line-number gutter must change paint");
+    write_tmp_sample("line_numbers.pdf", &on);
+}
+
+#[test]
+fn roman_page_chrome_differs_from_arabic() {
+    let doc = note_doc(
+        "Pages",
+        vec![
+            PrintBlock::paragraph(vec![TextRun::plain("Front.")]),
+            PrintBlock::Break(BreakHint::PageAlways),
+            PrintBlock::paragraph(vec![TextRun::plain("Body.")]),
+        ],
+    );
+    let arabic = emit_pdf(&doc).expect("arabic");
+    let roman = emit_with_layout_tweak(&doc, |layout| {
+        layout.page.numbers.style = PageNumberStyle::Roman;
+        layout.page.footer.enabled = true;
+        layout.page.footer.format = "{page}".into();
+    });
+    assert_ne!(arabic, roman, "roman page labels must differ from arabic");
+}
+
+#[test]
+fn even_odd_chrome_align_changes_emit() {
+    let doc = note_doc(
+        "Sides",
+        vec![
+            PrintBlock::paragraph(vec![TextRun::plain("Odd page.")]),
+            PrintBlock::Break(BreakHint::PageAlways),
+            PrintBlock::paragraph(vec![TextRun::plain("Even page.")]),
+        ],
+    );
+    let oneside = emit_with_layout_tweak(&doc, |layout| {
+        layout.page.header.enabled = true;
+        layout.page.header.format = "{title}".into();
+        layout.page.header.align = ChromeAlign::Left;
+        layout.page.footer.enabled = false;
+    });
+    let twoside = emit_with_layout_tweak(&doc, |layout| {
+        layout.page.header.enabled = true;
+        layout.page.header.format = "{title}".into();
+        layout.page.header.align = ChromeAlign::Left;
+        layout.page.header.align_even = Some(ChromeAlign::Right);
+        layout.page.footer.enabled = false;
+    });
+    assert_ne!(
+        oneside, twoside,
+        "even-page align_even must change chrome paint"
     );
 }
 

@@ -202,6 +202,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "Source: f(x) = x^{2} + 2x + 1",
             r"f(x) = x^{2} + 2x + 1",
         ),
+        (
+            "27. Jimis weighted mean (THI-385 \\bar + frac)",
+            r"Source: \bar{x}_w = \frac{\sum m_i x_i}{\sum m_i}",
+            r"\bar{x}_w = \frac{\sum m_i x_i}{\sum m_i}",
+        ),
     ];
     for (title, source, latex) in display_cases {
         push_case(&mut blocks, title, source, latex);
@@ -213,19 +218,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ));
     push_inline_case(
         &mut blocks,
-        "27. Inline sum (side scripts)",
+        "28. Inline sum (side scripts)",
         r"Source (inline): \sum_{i=1}^{n} i",
         r"\sum_{i=1}^{n} i",
     );
     push_inline_case(
         &mut blocks,
-        "28. Inline integral (side scripts)",
+        "29. Inline integral (side scripts)",
         r"Source (inline): \int_{0}^{1} x dx",
         r"\int_{0}^{1} x dx",
     );
     push_inline_case(
         &mut blocks,
-        "29. Inline geo sets",
+        "30. Inline geo sets",
         r"Source (inline): a \in A \cup B",
         r"a \in A \cup B",
     );

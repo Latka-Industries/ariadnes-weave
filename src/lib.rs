@@ -40,9 +40,9 @@ pub use ir::{
 pub use knobs::{
     CaptionBand, CaptionOverflow, ChromeAlign, DeckKnobs, FigureAlign, FigureTextAlign,
     FigureTitleAlign, HexColor, LayoutKnobs, MathKnobs, MathOpKnobs, MathParenStyle,
-    PageChromeBand, PageKnobs, ProseCaptionKnobs, ProseCiteKnobs, ProseFontCategory, ProseKnobs,
-    ProseLinkKnobs, ProsePaintCategory, ProseTextKnobs, TableKnobs, TextAlign,
-    expand_chrome_format,
+    PageChromeBand, PageKnobs, PageNumberStyle, ProseCaptionKnobs, ProseCiteKnobs,
+    ProseFontCategory, ProseKnobs, ProseLinkKnobs, ProsePaintCategory, ProseTextKnobs, TableKnobs,
+    TextAlign, expand_chrome_format,
 };
 pub use options::{EmitOptions, FontResolveMode};
 pub use profile::{PageSize, ProfileMetrics, resolve_metrics};

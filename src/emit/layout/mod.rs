@@ -24,8 +24,8 @@ use columns::{LayoutColumnsArgs, layout_columns};
 use figure::PushFigureArgs;
 use ops::layout_layout_ops;
 use prose::{
-    TocEntryParts, layout_code, layout_heading, layout_quote, push_list_lines, push_row,
-    push_toc_entry,
+    TocEntryParts, layout_callout, layout_code, layout_heading, layout_quote, push_list_lines,
+    push_row, push_toc_entry,
 };
 use runs::{body_layout, layout_ctx, push_styled_runs};
 use slide::layout_slide;
@@ -65,6 +65,8 @@ pub(super) fn collect_layout(
         )?;
     }
 
+    assign_line_numbers(&mut segments, metrics, fonts, knobs, &mut glyph_sets)?;
+
     dump_endnotes(
         &notes,
         metrics,
@@ -77,6 +79,68 @@ pub(super) fn collect_layout(
     layout_footnote_bodies(&mut notes, metrics, fonts, knobs, &mut glyph_sets)?;
 
     Ok((segments, images, glyph_sets, notes))
+}
+
+/// Stamp 1-based line numbers on non-gap body lines when `[body].line_numbers`.
+fn assign_line_numbers(
+    segments: &mut [LayoutSegment],
+    metrics: &ProfileMetrics,
+    fonts: &FontBag,
+    knobs: &LayoutKnobs,
+    glyph_sets: &mut GlyphSets,
+) -> Result<(), WeaveError> {
+    if !knobs.prose.body.line_numbers {
+        return Ok(());
+    }
+    let font_size = metrics.body_size * knobs.prose.body.line_number_size_factor;
+    let face = crate::font::FaceRef::Bundled(crate::font::FaceId::SansRegular);
+    let fill = knobs.prose.text_fill_rgb01();
+    let mut n = 1_u32;
+    for (_, items) in segments.iter_mut() {
+        for item in items.iter_mut() {
+            item.for_each_content_line_mut(&mut |line| {
+                if line.is_gap() {
+                    return;
+                }
+                line.line_no = Some(n);
+                n += 1;
+            });
+        }
+    }
+    let mut failed = None;
+    for (_, items) in segments.iter_mut() {
+        for item in items.iter_mut() {
+            item.for_each_content_line_mut(&mut |line| {
+                if failed.is_some() {
+                    return;
+                }
+                let Some(no) = line.line_no else {
+                    return;
+                };
+                let text = no.to_string();
+                match super::types::shape_and_record_spans(super::types::ShapeSpans {
+                    fonts,
+                    face,
+                    text: &text,
+                    font_size,
+                    glyph_sets,
+                    fill,
+                    underline: false,
+                    link_uri: None,
+                    link_dest: None,
+                    baseline_shift: 0.0,
+                    note_id: None,
+                }) {
+                    Ok((spans, _)) => line.gutter_spans = spans,
+                    Err(e) => failed = Some(e),
+                }
+            });
+        }
+    }
+    if let Some(e) = failed {
+        return Err(e);
+    }
+    Ok(())
 }
 
 fn dump_endnotes(
@@ -252,6 +316,14 @@ fn layout_block(
                 segments,
             )?;
         }
+        PrintBlock::Callout {
+            title,
+            body,
+            callout_kind: _,
+        } => {
+            let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets, notes);
+            layout_callout(title, body, &mut ctx, segments)?;
+        }
         PrintBlock::Code { lang: _, text } => {
             let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets, notes);
             layout_code(text, &mut ctx, segments)?;
@@ -421,6 +493,7 @@ fn block_name(block: &PrintBlock) -> &'static str {
         PrintBlock::List { .. } => "list",
         PrintBlock::Code { .. } => "code",
         PrintBlock::Quote { .. } => "quote",
+        PrintBlock::Callout { .. } => "callout",
         PrintBlock::Table { .. } => "table",
         PrintBlock::Row { .. } => "row",
         PrintBlock::TocEntry { .. } => "toc_entry",

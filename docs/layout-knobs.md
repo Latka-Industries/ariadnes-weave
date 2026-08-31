@@ -4,11 +4,11 @@ Emit uses named optical defaults from per-category TOML files under `defaults/`:
 
 | File | Category | Used for |
 |------|----------|----------|
-| `prose.toml` | prose | Paragraph/heading/list/quote/code/figure/caption spacing and figure align/width, quote/caption italic, optional text/quote/cite/caption colors, cite underline, optional category font pins, `[wrap]` hyphen/widow/orphan, `[body_columns].gap` |
+| `prose.toml` | prose | Paragraph/heading/list/quote/code/figure/caption spacing and figure align/width, quote/caption italic, optional text/quote/cite/caption colors, cite underline, optional category font pins, `[wrap]` hyphen/widow/orphan, `[body_columns].gap`, `[body].line_numbers` gutter (off by default), `[callout]` titled-band rule |
 | `table.toml` | table | Cell padding, leading, and block gap |
 | `deck.toml` | deck | Slide title/subtitle/body scales and column gaps (deck region columns — not article body) |
-| `math.toml` | math | Fractions, scripts, big-op limits, matrices, arrows, display gaps |
-| `page.toml` | page | Footer/header format+align, clearance, math stroke gray |
+| `math.toml` | math | Fractions, `\bar` accent, scripts, big-op limits, matrices, arrows, display gaps |
+| `page.toml` | page | Footer/header format+align, even-page overrides, `[numbers].style`, clearance, math stroke gray |
 
 Profiles (`print@0`, `deck@0`, …) still own page size, margins, and body font size. Knobs are the hard-coded paddings, gaps, and scale factors inside emit.
 
@@ -145,6 +145,32 @@ the current band). Body paragraphs/lists/quotes/code flow down each column.
 Child `text_align` wins; else the columns region default; else pack
 `[paragraph].text_align`.
 
+## Titled band (`PrintBlock::Callout`)
+
+One paint for theorem/definition/proof (THI-414) and callout/Q&A (THI-412).
+Tessera sets `callout_kind`; weave does not fork appearance.
+
+| Key | Meaning |
+|-----|---------|
+| `[callout].indent` | Extra inset of the band (bundled `0`) |
+| `[callout].rule_thickness` | Left rule (bundled `1.5`) |
+| `[callout].rule_gap` | Gap between rule and title/body (bundled `8`) |
+| `[callout].title_gap` | Gap between title and body (bundled `4`) |
+
+Title runs are painted strong. Kind is not drawn.
+
+## Review line numbers (THI-415)
+
+| Key | Meaning |
+|-----|---------|
+| `[body].line_numbers` | Number laid-out body lines in a per-column gutter (bundled `false`) |
+| `[body].line_number_gutter` | Gutter width reserved at the start of each column (bundled `18`) |
+| `[body].line_number_size_factor` | Digit size vs body size (bundled `0.7`) |
+
+Running 1-based count through the document (not reset per page). Headings,
+paragraphs, quotes, lists, code, and callout lines are numbered; tables, math,
+figures, and footnotes are not. In `Columns`, each column paints its own gutter.
+
 ## TOC / destinations / outline
 
 Not knob-driven; IR + emit behavior:
@@ -163,8 +189,10 @@ Optional running header + page-number footer (THI-392). Tokens in `format`:
 
 | Token | Meaning |
 |-------|---------|
-| `{page}` | 1-based page index |
-| `{pages}` | total page count |
+| `{page}` | 1-based page index, formatted by `[numbers].style` (`arabic` / `roman` / `roman_upper`) |
+| `{page_roman}` | Always lowercase roman (`i`, `ii`, …) |
+| `{page_Roman}` | Always uppercase roman (`I`, `II`, …) |
+| `{pages}` | total page count (always arabic) |
 | `{title}` | `PrintMeta.title` (empty if unset) |
 | `{heading}` | Last H1 or H2 whose first line is on this page or an earlier page (empty before the first such heading). H3+ do not change the running head. |
 
@@ -175,8 +203,10 @@ Optional running header + page-number footer (THI-392). Tokens in `format`:
 | `[footer].enabled` | Draw footer (bundled `true`; `resume@0` densify forces off) |
 | `[footer].format` | Template (bundled `"{page} / {pages}"`) |
 | `[footer].align` | `left` / `center` / `right` (bundled `center`) |
+| `[footer].align_even` / `format_even` | Optional even-page overrides (THI-413; omit to use `align` / `format`) |
 | `[footer].font_size` / `y_margin_factor` | Size + baseline as a fraction of bottom margin |
 | `[header].*` | Same shape; bundled `enabled = false`, `align = left`, `format = "{title}"` |
+| `[numbers].style` | `{page}` / TOC auto-labels: `arabic` (bundled) / `roman` / `roman_upper` |
 | `[content].bottom_clearance` | Reserve above bottom margin when footer is on |
 | `[content].top_clearance` | Reserve below top margin when header is on |
 | `[chrome].stroke_gray` / `fill_gray` | Rules + math chrome gray |

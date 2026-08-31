@@ -29,9 +29,11 @@ fn atom_kind(expr: &MathExpr) -> AtomKind {
         MathExpr::Scripts { base, .. } => atom_kind(base),
         MathExpr::MathRm(inner) => atom_kind(inner),
         MathExpr::Matrix { fence, .. } if fence.is_delimited() => AtomKind::Inner,
-        MathExpr::Sqrt(_) | MathExpr::Row(_) | MathExpr::Frac(_, _) | MathExpr::Matrix { .. } => {
-            AtomKind::Ord
-        }
+        MathExpr::Sqrt(_)
+        | MathExpr::Row(_)
+        | MathExpr::Frac(_, _)
+        | MathExpr::Accent { .. }
+        | MathExpr::Matrix { .. } => AtomKind::Ord,
     }
 }
 
@@ -117,6 +119,7 @@ pub(super) fn layout_expr(
         }
         MathExpr::MathRm(inner) => ctx.with_upright_face(|ctx| layout_expr(inner, ctx, font_size)),
         MathExpr::Sqrt(inner) => layout_sqrt(inner, ctx, font_size),
+        MathExpr::Accent { inner, .. } => layout_bar_accent(inner, ctx, font_size),
         MathExpr::Matrix { fence, rows } => layout_matrix(*fence, rows, ctx, font_size),
     }
 }
@@ -315,6 +318,43 @@ fn layout_sqrt(inner: &MathExpr, ctx: &mut MathCtx, font_size: f32) -> Result<Ma
 
     Ok(MathBox {
         width: body_x + body_w + overhang,
+        height,
+        depth,
+        elements,
+    })
+}
+
+/// `\bar{…}`: short rule over the nucleus (THI-385; jimis `\bar{x}_w`).
+fn layout_bar_accent(
+    inner: &MathExpr,
+    ctx: &mut MathCtx,
+    font_size: f32,
+) -> Result<MathBox, WeaveError> {
+    let body = layout_expr(inner, ctx, font_size)?;
+    let thickness = rule_thickness(
+        font_size,
+        ctx.knobs.accent.thickness_factor,
+        ctx.knobs.accent.thickness_min,
+    );
+    let gap = font_size * ctx.knobs.accent.gap_factor;
+    let overhang = font_size * ctx.knobs.accent.overhang_factor;
+    let bar_w = (body.width - overhang).max(font_size * 0.25);
+    let width = body.width.max(bar_w);
+    let bar_x = h_center(width, bar_w);
+    let bar_y = body.height + gap + thickness / 2.0;
+    let height = bar_y + thickness / 2.0;
+    let depth = body.depth;
+    let body_x = h_center(width, body.width);
+    let mut elements = Vec::new();
+    append_box(&mut elements, body, body_x, 0.0);
+    elements.push(RelEl::Rule {
+        x: bar_x,
+        y: bar_y,
+        width: bar_w,
+        thickness,
+    });
+    Ok(MathBox {
+        width,
         height,
         depth,
         elements,

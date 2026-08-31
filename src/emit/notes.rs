@@ -104,6 +104,11 @@ fn walk_items(items: &[LaidItem], seen: &mut BTreeSet<String>, order: &mut Vec<S
     for item in items {
         match item {
             LaidItem::Text(line) => walk_line(line, seen, order),
+            LaidItem::Callout(band) => {
+                for line in &band.lines {
+                    walk_line(line, seen, order);
+                }
+            }
             LaidItem::Columns(cols) => {
                 for col in &cols.columns {
                     for line in col {

@@ -48,13 +48,14 @@ pub(super) fn body_layout(
     paint: PaintCategory,
     text_align: TextAlign,
 ) -> RunLayout {
+    let gutter = knobs.prose.body.gutter();
     RunLayout {
         font_size: metrics.body_size,
         leading: metrics.body_leading,
         gap_after: knobs.prose.paragraph.gap_after,
         glue_last_content: false,
         mode: FaceMode::Body,
-        indent,
+        indent: indent + gutter,
         max_width: None,
         paint,
         hard_break_overflow: true,
@@ -344,6 +345,8 @@ fn flush_styled_line(
         text_align,
         dest_id: None,
         chrome_heading: None,
+        line_no: None,
+        gutter_spans: Vec::new(),
     }));
 }
 
@@ -735,6 +738,8 @@ mod widow_orphan_tests {
             text_align: TextAlign::Left,
             dest_id: None,
             chrome_heading: None,
+            line_no: None,
+            gutter_spans: Vec::new(),
         })
     }
 

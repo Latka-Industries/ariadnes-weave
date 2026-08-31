@@ -1,5 +1,8 @@
 //! Structured math layout for a small LaTeX subset
-//! (fractions, scripts, display op limits, matrices).
+//! (fractions, `\bar`, scripts, display op limits, matrices).
+//!
+//! THI-385 deferrals (no jimis fixture): `align`/`cases`/`array` column specs,
+//! stretchy `\left`/`\right`, `\operatorname`. Grow when a fixture needs them.
 //!
 //! Leaf tokens still map through [`prettify::prettify_tokens`]. This is not a TeX engine.
 

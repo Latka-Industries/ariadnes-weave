@@ -10,7 +10,9 @@ use crate::knobs::{FigureAlign, LayoutKnobs, PageChromeBand, TextAlign};
 use crate::profile::ProfileMetrics;
 
 use super::math::paint_math;
-use super::types::{LaidColumns, LaidItem, LaidLine, LaidMath, LaidSpan, LaidTable, SubsetMap};
+use super::types::{
+    LaidCallout, LaidColumns, LaidItem, LaidLine, LaidMath, LaidSpan, LaidTable, SubsetMap,
+};
 
 /// Clickable box collected while painting a page (PDF user space).
 #[derive(Debug, Clone)]
@@ -379,6 +381,7 @@ impl BuildPageContent<'_> {
             band: &self.knobs.page.header,
             baseline_y: self.metrics.page_h
                 - self.metrics.margin * self.knobs.page.header.y_margin_factor(),
+            number_style: self.knobs.page.numbers.style,
         })?;
 
         let mut last_fill;
@@ -424,6 +427,7 @@ impl BuildPageContent<'_> {
             subsets: self.subsets,
             band: &self.knobs.page.footer,
             baseline_y: self.metrics.margin * self.knobs.page.footer.y_margin_factor(),
+            number_style: self.knobs.page.numbers.style,
         })?;
         Ok((content.finish().into_vec(), links))
     }
@@ -570,6 +574,7 @@ impl PageCursor<'_> {
             ),
             LaidItem::Table(table) => self.paint_table_item(table),
             LaidItem::Columns(cols) => self.paint_columns_item(cols),
+            LaidItem::Callout(band) => self.paint_callout_item(band),
             LaidItem::Math(math) => self.paint_math_item(math),
             LaidItem::Rule {
                 width,
@@ -613,6 +618,56 @@ impl PageCursor<'_> {
             &mut self.last_fill,
         );
         *self.y -= cols.height();
+        true
+    }
+
+    fn paint_callout_item(&mut self, band: &LaidCallout) -> bool {
+        let h = band.body_height();
+        if *self.y - h < self.bottom_limit {
+            return false;
+        }
+        let origin_x = self.metrics.margin + band.indent;
+        let top_y = *self.y;
+        let bot_y = top_y - h;
+        if band.rule_thickness > 0.0 {
+            self.content.save_state();
+            self.content
+                .set_stroke_gray(self.knobs.page.chrome.stroke_gray);
+            self.content.set_line_width(band.rule_thickness);
+            let x = origin_x + band.rule_thickness / 2.0;
+            self.content.move_to(x, top_y);
+            self.content.line_to(x, bot_y);
+            self.content.stroke();
+            self.content.restore_state();
+        }
+        let mut y = top_y;
+        for line in &band.lines {
+            y -= line.leading;
+            if line.is_gap() {
+                continue;
+            }
+            let text_x = self.metrics.margin + line.indent;
+            paint_gutter_spans(
+                self.content,
+                self.fonts,
+                line,
+                text_x,
+                y,
+                &mut self.last_fill,
+            );
+            let measure = line.measure.max(line.width());
+            paint_aligned_line(
+                self.content,
+                self.links,
+                line,
+                text_x,
+                y,
+                measure,
+                self.fonts,
+                &mut self.last_fill,
+            );
+        }
+        *self.y -= band.height();
         true
     }
 
@@ -677,13 +732,33 @@ fn paint_text_item(
     }
     let origin_x = metrics.margin + line.indent;
     let measure = line.measure.max(line.width());
+    paint_gutter_spans(content, fonts, line, origin_x, *y, last_fill);
     paint_aligned_line(
         content, links, line, origin_x, *y, measure, fonts, last_fill,
     );
     true
 }
 
-/// Paint one laid line at `origin_x` / `baseline_y` honoring [`LaidLine::text_align`].
+/// Paint review line-number digits just left of `text_origin_x` (THI-415).
+fn paint_gutter_spans(
+    content: &mut Content,
+    fonts: &FontBag,
+    line: &LaidLine,
+    text_origin_x: f32,
+    baseline_y: f32,
+    last_fill: &mut Option<[f32; 3]>,
+) {
+    if line.gutter_spans.is_empty() {
+        return;
+    }
+    let gw: f32 = line
+        .gutter_spans
+        .iter()
+        .map(|s| shaped_width(&s.glyphs))
+        .sum();
+    let x = (text_origin_x - gw - 2.0).max(0.0);
+    paint_laid_spans(content, fonts, &line.gutter_spans, x, baseline_y, last_fill);
+}
 #[allow(clippy::too_many_arguments)]
 fn paint_aligned_line(
     content: &mut Content,
@@ -777,6 +852,7 @@ struct PaintChromeBand<'a, B: PageChromeBand + ?Sized> {
     subsets: &'a SubsetMap,
     band: &'a B,
     baseline_y: f32,
+    number_style: crate::knobs::PageNumberStyle,
 }
 
 fn paint_page_chrome_band<B: PageChromeBand + ?Sized>(
@@ -793,12 +869,19 @@ fn paint_page_chrome_band<B: PageChromeBand + ?Sized>(
         subsets,
         band,
         baseline_y,
+        number_style,
     } = args;
     if !band.enabled() {
         return Ok(());
     }
-    let text =
-        crate::knobs::expand_chrome_format(band.format(), page_no, page_count, title, heading);
+    let text = crate::knobs::expand_chrome_format(
+        band.format_for_page(page_no),
+        page_no,
+        page_count,
+        title,
+        heading,
+        number_style,
+    );
     if text.is_empty() {
         return Ok(());
     }
@@ -811,7 +894,7 @@ fn paint_page_chrome_band<B: PageChromeBand + ?Sized>(
     }
     let text_w = shaped_width(&glyphs);
     let measure = metrics.content_width();
-    let x = metrics.margin + band.align().offset_x(measure, text_w);
+    let x = metrics.margin + band.align_for_page(page_no).offset_x(measure, text_w);
     let name = fonts.resource_name(face);
     content.begin_text();
     content.set_font(Name(&name), band.font_size());
@@ -845,6 +928,7 @@ pub(super) fn paint_columns(
             } else {
                 col_w
             };
+            paint_gutter_spans(content, fonts, line, x + line.indent, text_y, last_fill);
             paint_aligned_line(
                 content,
                 links,

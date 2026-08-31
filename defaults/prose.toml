@@ -55,3 +55,16 @@ widow_lines = 2
 # Newspaper / article body columns (THI-391). Distinct from deck [columns].
 [body_columns]
 gap = 18.0
+
+# Review line-number gutter (THI-415). Off by default; pack `[body].line_numbers`.
+[body]
+line_numbers = false
+line_number_gutter = 18.0
+line_number_size_factor = 0.7
+
+# Titled band (THI-412 / THI-414). Same paint for every `callout_kind`.
+[callout]
+indent = 0.0
+rule_thickness = 1.5
+rule_gap = 8.0
+title_gap = 4.0
