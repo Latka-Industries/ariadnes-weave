@@ -161,6 +161,12 @@ pub struct ProseKnobs {
     /// `[body_columns]` or `[prose.body_columns]`.
     #[serde(default, skip_serializing_if = "ProseBodyColumnsKnobs::is_default")]
     pub body_columns: ProseBodyColumnsKnobs,
+    /// Body-column review chrome (THI-415). Pack overlay: `[body]`.
+    #[serde(default, skip_serializing_if = "ProseBodyKnobs::is_default")]
+    pub body: ProseBodyKnobs,
+    /// Titled-band opticals for [`crate::PrintBlock::Callout`] (THI-412 / 414).
+    #[serde(default, skip_serializing_if = "ProseCalloutKnobs::is_default")]
+    pub callout: ProseCalloutKnobs,
     /// Default body text color (optional; omit for engine black).
     #[serde(default, skip_serializing_if = "ProseTextKnobs::is_empty")]
     pub text: ProseTextKnobs,
@@ -704,6 +710,106 @@ impl ProseBodyColumnsKnobs {
     }
 }
 
+/// `[body]` in `prose.toml` — review line-number gutter (THI-415).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProseBodyKnobs {
+    /// Number laid-out body lines in a per-column gutter (bundled off).
+    #[serde(default)]
+    pub line_numbers: bool,
+    /// Gutter width reserved at the start of each column (points).
+    #[serde(default = "default_line_number_gutter")]
+    pub line_number_gutter: f32,
+    /// Line-number size as a factor of profile body size.
+    #[serde(default = "default_line_number_size_factor")]
+    pub line_number_size_factor: f32,
+}
+
+fn default_line_number_gutter() -> f32 {
+    18.0
+}
+
+fn default_line_number_size_factor() -> f32 {
+    0.7
+}
+
+impl Default for ProseBodyKnobs {
+    fn default() -> Self {
+        Self {
+            line_numbers: false,
+            line_number_gutter: default_line_number_gutter(),
+            line_number_size_factor: default_line_number_size_factor(),
+        }
+    }
+}
+
+impl ProseBodyKnobs {
+    fn is_default(&self) -> bool {
+        !self.line_numbers
+            && (self.line_number_gutter - default_line_number_gutter()).abs() < f32::EPSILON
+            && (self.line_number_size_factor - default_line_number_size_factor()).abs()
+                < f32::EPSILON
+    }
+
+    /// Gutter inset when numbering is on; `0` when off.
+    #[must_use]
+    pub fn gutter(&self) -> f32 {
+        if self.line_numbers {
+            self.line_number_gutter.max(0.0)
+        } else {
+            0.0
+        }
+    }
+}
+
+/// `[callout]` in `prose.toml` — titled-band paint (THI-412 / THI-414).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProseCalloutKnobs {
+    /// Extra indent of the band from the content left (points).
+    #[serde(default)]
+    pub indent: f32,
+    /// Left-rule thickness (points).
+    #[serde(default = "default_callout_rule_thickness")]
+    pub rule_thickness: f32,
+    /// Gap between the rule and title/body (points).
+    #[serde(default = "default_callout_rule_gap")]
+    pub rule_gap: f32,
+    /// Gap between title line and body (points).
+    #[serde(default = "default_callout_title_gap")]
+    pub title_gap: f32,
+}
+
+fn default_callout_rule_thickness() -> f32 {
+    1.5
+}
+
+fn default_callout_rule_gap() -> f32 {
+    8.0
+}
+
+fn default_callout_title_gap() -> f32 {
+    4.0
+}
+
+impl Default for ProseCalloutKnobs {
+    fn default() -> Self {
+        Self {
+            indent: 0.0,
+            rule_thickness: default_callout_rule_thickness(),
+            rule_gap: default_callout_rule_gap(),
+            title_gap: default_callout_title_gap(),
+        }
+    }
+}
+
+impl ProseCalloutKnobs {
+    fn is_default(&self) -> bool {
+        self.indent.abs() < f32::EPSILON
+            && (self.rule_thickness - default_callout_rule_thickness()).abs() < f32::EPSILON
+            && (self.rule_gap - default_callout_rule_gap()).abs() < f32::EPSILON
+            && (self.title_gap - default_callout_title_gap()).abs() < f32::EPSILON
+    }
+}
+
 /// Mutually exclusive prose fill categories (`[text]` / `[quote]` / `[caption]`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProsePaintCategory {
@@ -941,6 +1047,9 @@ pub struct MathKnobs {
     pub paren: MathParenKnobs,
     /// Square-root radical + vinculum.
     pub sqrt: MathSqrtKnobs,
+    /// `\bar` accent (THI-385).
+    #[serde(default)]
+    pub accent: MathAccentKnobs,
 }
 
 /// `[display]` in `math.toml`.
@@ -1110,6 +1219,47 @@ pub struct MathSqrtKnobs {
     pub overhang_factor: f32,
 }
 
+/// `[accent]` in `math.toml` — `\bar{…}` macron (THI-385).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MathAccentKnobs {
+    /// Gap between nucleus and bar (factor of font size).
+    #[serde(default = "default_accent_gap")]
+    pub gap_factor: f32,
+    /// Bar thickness factor.
+    #[serde(default = "default_accent_thickness_factor")]
+    pub thickness_factor: f32,
+    /// Bar thickness minimum (points).
+    #[serde(default = "default_accent_thickness_min")]
+    pub thickness_min: f32,
+    /// How much shorter the bar is than the nucleus (factor of font size).
+    #[serde(default = "default_accent_overhang")]
+    pub overhang_factor: f32,
+}
+
+fn default_accent_gap() -> f32 {
+    0.08
+}
+fn default_accent_thickness_factor() -> f32 {
+    0.045
+}
+fn default_accent_thickness_min() -> f32 {
+    0.5
+}
+fn default_accent_overhang() -> f32 {
+    0.12
+}
+
+impl Default for MathAccentKnobs {
+    fn default() -> Self {
+        Self {
+            gap_factor: default_accent_gap(),
+            thickness_factor: default_accent_thickness_factor(),
+            thickness_min: default_accent_thickness_min(),
+            overhang_factor: default_accent_overhang(),
+        }
+    }
+}
+
 /// Page chrome knobs (`defaults/page.toml`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PageKnobs {
@@ -1125,6 +1275,9 @@ pub struct PageKnobs {
     /// Footnote band above footer chrome (THI-410).
     #[serde(default)]
     pub footnote: FootnoteKnobs,
+    /// Page-number style for `{page}` / TOC labels (THI-413).
+    #[serde(default)]
+    pub numbers: PageNumbersKnobs,
 }
 
 /// Minimum vertical reserve (pt) when a chrome band is enabled.
@@ -1183,12 +1336,34 @@ pub trait PageChromeBand {
     fn enabled(&self) -> bool;
     /// Format template (`{page}`, `{pages}`, `{title}`, `{heading}`).
     fn format(&self) -> &str;
+    /// Optional even-page format override (THI-413). `None` → [`Self::format`].
+    fn format_even(&self) -> Option<&str>;
     /// Font size in points.
     fn font_size(&self) -> f32;
     /// Horizontal alignment within the content width.
     fn align(&self) -> ChromeAlign;
+    /// Optional even-page align override (THI-413). `None` → [`Self::align`].
+    fn align_even(&self) -> Option<ChromeAlign>;
     /// Baseline as a factor of the corresponding margin.
     fn y_margin_factor(&self) -> f32;
+
+    /// Format for this 1-based page (even pages use `format_even` when set).
+    fn format_for_page(&self, page_no: usize) -> &str {
+        if page_no.is_multiple_of(2) {
+            self.format_even().unwrap_or_else(|| self.format())
+        } else {
+            self.format()
+        }
+    }
+
+    /// Align for this 1-based page (even pages use `align_even` when set).
+    fn align_for_page(&self, page_no: usize) -> ChromeAlign {
+        if page_no.is_multiple_of(2) {
+            self.align_even().unwrap_or_else(|| self.align())
+        } else {
+            self.align()
+        }
+    }
 }
 
 /// Horizontal align for page chrome bands (no justify).
@@ -1232,6 +1407,12 @@ pub struct PageFooterKnobs {
     /// Template with `{page}`, `{pages}`, `{title}`, `{heading}`.
     #[serde(default = "default_footer_format")]
     pub format: String,
+    /// Even-page format override (THI-413). `None` → [`Self::format`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format_even: Option<String>,
+    /// Even-page align override (THI-413). `None` → [`Self::align`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub align_even: Option<ChromeAlign>,
 }
 
 macro_rules! impl_page_chrome_band {
@@ -1243,11 +1424,17 @@ macro_rules! impl_page_chrome_band {
             fn format(&self) -> &str {
                 &self.format
             }
+            fn format_even(&self) -> Option<&str> {
+                self.format_even.as_deref()
+            }
             fn font_size(&self) -> f32 {
                 self.font_size
             }
             fn align(&self) -> ChromeAlign {
                 self.align
+            }
+            fn align_even(&self) -> Option<ChromeAlign> {
+                self.align_even
             }
             fn y_margin_factor(&self) -> f32 {
                 self.y_margin_factor
@@ -1284,6 +1471,12 @@ pub struct PageHeaderKnobs {
     /// Template with `{page}`, `{pages}`, `{title}`, `{heading}`.
     #[serde(default = "default_header_format")]
     pub format: String,
+    /// Even-page format override (THI-413). `None` → [`Self::format`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format_even: Option<String>,
+    /// Even-page align override (THI-413). `None` → [`Self::align`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub align_even: Option<ChromeAlign>,
 }
 
 impl_page_chrome_band!(PageHeaderKnobs);
@@ -1296,6 +1489,8 @@ impl Default for PageHeaderKnobs {
             enabled: false,
             align: default_header_align(),
             format: default_header_format(),
+            format_even: None,
+            align_even: None,
         }
     }
 }
@@ -1316,10 +1511,102 @@ fn default_header_format() -> String {
     "{title}".into()
 }
 
+/// `[numbers]` in `page.toml` — roman vs arabic page labels (THI-413).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PageNumbersKnobs {
+    /// Style for `{page}` and auto-resolved TOC labels.
+    #[serde(default)]
+    pub style: PageNumberStyle,
+}
+
+impl Default for PageNumbersKnobs {
+    fn default() -> Self {
+        Self {
+            style: PageNumberStyle::Arabic,
+        }
+    }
+}
+
+/// Page index style for chrome `{page}` and TOC labels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PageNumberStyle {
+    /// Decimal `1`, `2`, `3` (bundled).
+    #[default]
+    Arabic,
+    /// Lowercase roman `i`, `ii`, `iii`.
+    Roman,
+    /// Uppercase roman `I`, `II`, `III`.
+    RomanUpper,
+}
+
+impl PageNumberStyle {
+    /// Format a 1-based page index.
+    #[must_use]
+    pub fn format(self, page_no: usize) -> String {
+        match self {
+            Self::Arabic => page_no.to_string(),
+            Self::Roman => to_roman(page_no, false),
+            Self::RomanUpper => to_roman(page_no, true),
+        }
+    }
+}
+
+/// Convert `n` (1-based) to roman numerals. Values outside 1..=3999 fall back to arabic.
+#[must_use]
+pub fn to_roman(n: usize, upper: bool) -> String {
+    if !(1..=3999).contains(&n) {
+        return n.to_string();
+    }
+    let table: &[(&str, usize)] = if upper {
+        &[
+            ("M", 1000),
+            ("CM", 900),
+            ("D", 500),
+            ("CD", 400),
+            ("C", 100),
+            ("XC", 90),
+            ("L", 50),
+            ("XL", 40),
+            ("X", 10),
+            ("IX", 9),
+            ("V", 5),
+            ("IV", 4),
+            ("I", 1),
+        ]
+    } else {
+        &[
+            ("m", 1000),
+            ("cm", 900),
+            ("d", 500),
+            ("cd", 400),
+            ("c", 100),
+            ("xc", 90),
+            ("l", 50),
+            ("xl", 40),
+            ("x", 10),
+            ("ix", 9),
+            ("v", 5),
+            ("iv", 4),
+            ("i", 1),
+        ]
+    };
+    let mut rest = n;
+    let mut out = String::new();
+    for &(sym, val) in table {
+        while rest >= val {
+            out.push_str(sym);
+            rest -= val;
+        }
+    }
+    out
+}
+
 /// Expand chrome `format` tokens for one page.
 ///
 /// Unknown `{…}` tokens are left unchanged. Empty `title` / `heading` yield
-/// empty substitutions.
+/// empty substitutions. `{page}` follows `number_style`; `{page_roman}` /
+/// `{page_Roman}` are always roman (THI-413).
 #[must_use]
 pub fn expand_chrome_format(
     format: &str,
@@ -1327,6 +1614,7 @@ pub fn expand_chrome_format(
     page_count: usize,
     title: &str,
     heading: &str,
+    number_style: PageNumberStyle,
 ) -> String {
     let mut out = String::with_capacity(format.len() + title.len() + heading.len() + 8);
     let mut rest = format;
@@ -1340,7 +1628,9 @@ pub fn expand_chrome_format(
         };
         let key = &after[..end];
         match key {
-            "page" => out.push_str(&page_no.to_string()),
+            "page" => out.push_str(&number_style.format(page_no)),
+            "page_roman" => out.push_str(&to_roman(page_no, false)),
+            "page_Roman" => out.push_str(&to_roman(page_no, true)),
             "pages" => out.push_str(&page_count.to_string()),
             "title" => out.push_str(title),
             "heading" => out.push_str(heading),
@@ -1358,12 +1648,19 @@ pub fn expand_chrome_format(
 
 #[cfg(test)]
 mod chrome_format_tests {
-    use super::expand_chrome_format;
+    use super::{PageNumberStyle, expand_chrome_format, to_roman};
 
     #[test]
     fn expands_page_pages_title() {
         assert_eq!(
-            expand_chrome_format("{title} — {page}/{pages}", 2, 5, "Notes", ""),
+            expand_chrome_format(
+                "{title} — {page}/{pages}",
+                2,
+                5,
+                "Notes",
+                "",
+                PageNumberStyle::Arabic
+            ),
             "Notes — 2/5"
         );
     }
@@ -1371,7 +1668,14 @@ mod chrome_format_tests {
     #[test]
     fn empty_title_and_unknown_token() {
         assert_eq!(
-            expand_chrome_format("{title}|{page}|{bogus}", 1, 1, "", ""),
+            expand_chrome_format(
+                "{title}|{page}|{bogus}",
+                1,
+                1,
+                "",
+                "",
+                PageNumberStyle::Arabic
+            ),
             "|1|{bogus}"
         );
     }
@@ -1379,10 +1683,45 @@ mod chrome_format_tests {
     #[test]
     fn expands_heading_token() {
         assert_eq!(
-            expand_chrome_format("{heading} · {page}", 3, 8, "Doc", "Methods"),
+            expand_chrome_format(
+                "{heading} · {page}",
+                3,
+                8,
+                "Doc",
+                "Methods",
+                PageNumberStyle::Arabic
+            ),
             "Methods · 3"
         );
-        assert_eq!(expand_chrome_format("{heading}", 1, 1, "Doc", ""), "");
+        assert_eq!(
+            expand_chrome_format("{heading}", 1, 1, "Doc", "", PageNumberStyle::Arabic),
+            ""
+        );
+    }
+
+    #[test]
+    fn roman_page_style_and_tokens() {
+        assert_eq!(to_roman(4, false), "iv");
+        assert_eq!(to_roman(14, true), "XIV");
+        assert_eq!(
+            expand_chrome_format("{page}", 4, 12, "", "", PageNumberStyle::Roman),
+            "iv"
+        );
+        assert_eq!(
+            expand_chrome_format("{page}", 4, 12, "", "", PageNumberStyle::RomanUpper),
+            "IV"
+        );
+        assert_eq!(
+            expand_chrome_format(
+                "{page_roman}/{page_Roman}",
+                9,
+                9,
+                "",
+                "",
+                PageNumberStyle::Arabic
+            ),
+            "ix/IX"
+        );
     }
 }
 

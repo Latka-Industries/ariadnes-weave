@@ -24,7 +24,7 @@ use pdf_writer::{Pdf, Ref, TextStr};
 use crate::error::WeaveError;
 use crate::font::{FaceId, FaceRef, FontBag, collect_glyph_set};
 use crate::ir::{PrintBlock, PrintDocument};
-use crate::knobs::LayoutKnobs;
+use crate::knobs::{LayoutKnobs, PageNumberStyle};
 use crate::options::EmitOptions;
 use crate::profile::{self, ProfileMetrics};
 use crate::resolve_fonts::build_font_bag;
@@ -83,7 +83,7 @@ pub fn emit_pdf_with(doc: &PrintDocument, opts: &EmitOptions) -> Result<Vec<u8>,
             layout.page.chrome_reserve() + layout.page.footnote_reserve(notes.has_footnote_defs()),
         );
         let dest_pages = collect_dest_pages(&pages);
-        fill_toc_page_labels(&mut work, &dest_pages);
+        fill_toc_page_labels(&mut work, &dest_pages, layout.page.numbers.style);
     }
 
     emit_laid_pdf(&work, &fonts, &metrics, &layout)
@@ -107,17 +107,21 @@ fn collect_dest_pages(pages: &[Vec<LaidItem>]) -> BTreeMap<String, usize> {
     let mut map = BTreeMap::new();
     for (page_idx, items) in pages.iter().enumerate() {
         for item in items {
-            if let LaidItem::Text(line) = item
-                && let Some(id) = line.dest_id.as_ref()
-            {
-                map.entry(id.clone()).or_insert(page_idx);
+            for line in item.dest_lines() {
+                if let Some(id) = line.dest_id.as_ref() {
+                    map.entry(id.clone()).or_insert(page_idx);
+                }
             }
         }
     }
     map
 }
 
-fn fill_toc_page_labels(doc: &mut PrintDocument, dest_pages: &BTreeMap<String, usize>) {
+fn fill_toc_page_labels(
+    doc: &mut PrintDocument,
+    dest_pages: &BTreeMap<String, usize>,
+    style: PageNumberStyle,
+) {
     for block in &mut doc.blocks {
         if let PrintBlock::TocEntry {
             page_label,
@@ -128,7 +132,7 @@ fn fill_toc_page_labels(doc: &mut PrintDocument, dest_pages: &BTreeMap<String, u
             && let Some(id) = dest_id.as_ref()
             && let Some(&page_idx) = dest_pages.get(id)
         {
-            *page_label = Some((page_idx + 1).to_string());
+            *page_label = Some(style.format(page_idx + 1));
         }
     }
 }
@@ -160,11 +164,12 @@ fn emit_laid_pdf(
                 continue;
             }
             let text = crate::knobs::expand_chrome_format(
-                band.format(),
+                band.format_for_page(page_no),
                 page_no,
                 page_count,
                 title,
                 heading,
+                layout.page.numbers.style,
             );
             collect_glyph_set(
                 fonts,

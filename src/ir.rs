@@ -148,6 +148,21 @@ pub enum PrintBlock {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         text_align: Option<TextAlign>,
     },
+    /// Titled band: kind + optional title + body (THI-412 / THI-414).
+    ///
+    /// One paint primitive. Tessera chooses `callout_kind` (`definition`,
+    /// `theorem`, `proof`, `note`, `question`, …); weave does not fork paint.
+    Callout {
+        /// Opaque Tessprek kind. Named `callout_kind` because internally tagged
+        /// serde already uses `kind` for the [`PrintBlock`] variant.
+        callout_kind: String,
+        /// Title runs (empty = body-only band). Tessera owns visible label text.
+        #[serde(default)]
+        title: Vec<TextRun>,
+        /// Body runs (one wrapped paragraph).
+        #[serde(default)]
+        body: Vec<TextRun>,
+    },
     /// Structured table (drawn grid + wrapped cell text).
     Table {
         /// Row-major cells.
@@ -355,6 +370,20 @@ impl PrintBlock {
     #[must_use]
     pub fn quote_align(runs: Vec<TextRun>, text_align: Option<TextAlign>) -> Self {
         Self::Quote { runs, text_align }
+    }
+
+    /// Titled band (theorem / definition / callout / Q&A). Same paint for every kind.
+    #[must_use]
+    pub fn callout(
+        callout_kind: impl Into<String>,
+        title: Vec<TextRun>,
+        body: Vec<TextRun>,
+    ) -> Self {
+        Self::Callout {
+            callout_kind: callout_kind.into(),
+            title,
+            body,
+        }
     }
 
     /// Two-pane meta row (classic left / right `\hfill`).

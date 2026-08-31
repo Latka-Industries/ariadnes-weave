@@ -287,6 +287,7 @@ impl WritePageDictArgs<'_> {
                 LaidItem::Text(_)
                 | LaidItem::Table(_)
                 | LaidItem::Columns(_)
+                | LaidItem::Callout(_)
                 | LaidItem::Math(_)
                 | LaidItem::Rule { .. } => None,
             })
@@ -344,6 +345,11 @@ pub(super) fn remap_items(items: &mut [LaidItem], subsets: &SubsetMap) {
                     }
                 }
             }
+            LaidItem::Callout(band) => {
+                for line in &mut band.lines {
+                    remap_line(line, subsets);
+                }
+            }
             LaidItem::Math(math) => {
                 for el in &mut math.elements {
                     if let super::types::LaidMathEl::Text { face, glyphs, .. } = el {
@@ -358,6 +364,9 @@ pub(super) fn remap_items(items: &mut [LaidItem], subsets: &SubsetMap) {
 
 fn remap_line(line: &mut LaidLine, subsets: &SubsetMap) {
     for span in &mut line.spans {
+        remap_glyphs(span.face, &mut span.glyphs, subsets);
+    }
+    for span in &mut line.gutter_spans {
         remap_glyphs(span.face, &mut span.glyphs, subsets);
     }
 }

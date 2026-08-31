@@ -1,5 +1,7 @@
 # Page chrome (header/footer, clearance, stroke/fill gray).
 # Format tokens: {page}, {pages}, {title}, {heading} (THI-409).
+# {page} follows [numbers].style; {page_roman}/{page_Roman} always roman (THI-413).
+# Optional format_even / align_even on header/footer for twoside chrome.
 # Footnote band sits above footer chrome (THI-410).
 
 [footer]
@@ -31,3 +33,7 @@ rule_thickness = 0.4
 size_factor = 0.8
 leading_factor = 1.15
 gap_before_rule = 4.0
+
+# `{page}` style (THI-413). Tokens `{page_roman}` / `{page_Roman}` always roman.
+[numbers]
+style = "arabic"

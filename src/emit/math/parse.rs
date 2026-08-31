@@ -16,10 +16,22 @@ pub(super) enum MathExpr {
     MathRm(Box<MathExpr>),
     /// Square root (`\sqrt{…}`) with vinculum over the radicand.
     Sqrt(Box<MathExpr>),
+    /// Math accent over a nucleus (`\bar{x}`; THI-385 / jimis).
+    Accent {
+        kind: MathAccent,
+        inner: Box<MathExpr>,
+    },
     Matrix {
         fence: MatrixFence,
         rows: Vec<Vec<MathExpr>>,
     },
+}
+
+/// Accents we layout (dogfood-driven; not a TeX accent wishlist).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum MathAccent {
+    /// `\bar{…}` — short rule over the nucleus (jimis `\bar{x}_w`).
+    Bar,
 }
 
 /// Matrix delimiters: none, `pmatrix` (knob style), or `bmatrix` (always square).
@@ -81,6 +93,10 @@ fn flatten(expr: MathExpr) -> MathExpr {
         },
         MathExpr::MathRm(inner) => MathExpr::MathRm(Box::new(flatten(*inner))),
         MathExpr::Sqrt(inner) => MathExpr::Sqrt(Box::new(flatten(*inner))),
+        MathExpr::Accent { kind, inner } => MathExpr::Accent {
+            kind,
+            inner: Box::new(flatten(*inner)),
+        },
         MathExpr::Matrix { fence, rows } => MathExpr::Matrix {
             fence,
             rows: rows
@@ -254,6 +270,15 @@ impl Parser {
             let den = self.parse_nucleus()?;
             return Ok(MathExpr::Frac(Box::new(num), Box::new(den)));
         }
+        if self.starts_with("bar") {
+            self.eat_str("bar")?;
+            self.skip_spaces();
+            let inner = self.parse_nucleus()?;
+            return Ok(MathExpr::Accent {
+                kind: MathAccent::Bar,
+                inner: Box::new(inner),
+            });
+        }
         if self.starts_with("mathrm") {
             self.eat_str("mathrm")?;
             self.skip_spaces();
@@ -353,7 +378,7 @@ impl Parser {
 
 #[cfg(test)]
 mod parse_tests {
-    use super::{MathExpr, parse_math};
+    use super::{MathAccent, MathExpr, parse_math};
 
     #[test]
     fn parses_frac_and_scripts() {
@@ -446,6 +471,38 @@ mod parse_tests {
         match e {
             MathExpr::Sqrt(inner) => assert!(matches!(*inner, MathExpr::Row(_))),
             other => panic!("expected sqrt, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_bar_then_subscript() {
+        // jimis: `\bar{x}_w` — accent is the nucleus; `_w` attaches after.
+        let e = parse_math(r"\bar{x}_w").expect("parse");
+        match e {
+            MathExpr::Scripts { base, sub, sup } => {
+                assert!(sup.is_none());
+                assert_eq!(sub.as_deref(), Some(&MathExpr::Ord("w".into())));
+                match *base {
+                    MathExpr::Accent {
+                        kind: MathAccent::Bar,
+                        inner,
+                    } => assert_eq!(*inner, MathExpr::Ord("x".into())),
+                    other => panic!("expected bar accent, got {other:?}"),
+                }
+            }
+            other => panic!("expected scripts around bar, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_jimis_weighted_mean() {
+        let e = parse_math(r"\bar{x}_w = \frac{\sum m_i x_i}{\sum m_i}").expect("parse");
+        match e {
+            MathExpr::Row(items) => {
+                assert!(matches!(&items[0], MathExpr::Scripts { .. }), "{items:?}");
+                assert!(items.iter().any(|it| matches!(it, MathExpr::Frac(_, _))));
+            }
+            other => panic!("expected row, got {other:?}"),
         }
     }
 }

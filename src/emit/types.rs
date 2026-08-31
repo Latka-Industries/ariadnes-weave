@@ -133,6 +133,10 @@ pub(super) struct LaidLine {
     pub dest_id: Option<String>,
     /// Running-head text when this line is the first content of an H1/H2 (THI-409).
     pub chrome_heading: Option<String>,
+    /// 1-based review line number when `[body].line_numbers` is on (THI-415).
+    pub line_no: Option<u32>,
+    /// Shaped gutter digits for [`Self::line_no`] (empty when numbering is off).
+    pub gutter_spans: Vec<LaidSpan>,
 }
 
 impl LaidLine {
@@ -152,6 +156,8 @@ impl LaidLine {
             text_align: TextAlign::Left,
             dest_id: None,
             chrome_heading: None,
+            line_no: None,
+            gutter_spans: Vec::new(),
         }
     }
 
@@ -166,6 +172,8 @@ impl LaidLine {
             text_align: TextAlign::Left,
             dest_id: None,
             chrome_heading: None,
+            line_no: None,
+            gutter_spans: Vec::new(),
         }
     }
 
@@ -208,6 +216,8 @@ impl LaidLine {
             text_align: TextAlign::Left,
             dest_id: None,
             chrome_heading: None,
+            line_no: None,
+            gutter_spans: Vec::new(),
         })
     }
 
@@ -263,6 +273,25 @@ impl LaidColumns {
             .map(|lines| lines.iter().map(|l| l.leading).sum::<f32>())
             .fold(0.0_f32, f32::max);
         col_h + self.gap_after
+    }
+}
+
+/// Titled band (THI-412 / THI-414): left rule + title + body lines.
+#[derive(Debug, Clone)]
+pub(super) struct LaidCallout {
+    pub lines: Vec<LaidLine>,
+    pub gap_after: f32,
+    pub indent: f32,
+    pub rule_thickness: f32,
+}
+
+impl LaidCallout {
+    pub(super) fn height(&self) -> f32 {
+        self.lines.iter().map(|l| l.leading).sum::<f32>() + self.gap_after
+    }
+
+    pub(super) fn body_height(&self) -> f32 {
+        self.lines.iter().map(|l| l.leading).sum::<f32>()
     }
 }
 
@@ -379,6 +408,7 @@ pub(super) enum LaidItem {
     },
     Table(LaidTable),
     Columns(LaidColumns),
+    Callout(LaidCallout),
     Math(LaidMath),
     /// Horizontal rule from a layout `rule` op.
     Rule {
@@ -416,6 +446,7 @@ impl LaidItem {
             } => *height + *gap_after,
             Self::Table(table) => table.height(),
             Self::Columns(cols) => cols.height(),
+            Self::Callout(band) => band.height(),
             Self::Math(math) => math.height + math.gap_after,
             Self::Rule {
                 leading, gap_after, ..
@@ -428,7 +459,11 @@ impl LaidItem {
         match self {
             Self::Text(line) => line.glue_after,
             Self::Image { glue_after, .. } => *glue_after,
-            Self::Table(_) | Self::Columns(_) | Self::Math(_) | Self::Rule { .. } => false,
+            Self::Table(_)
+            | Self::Columns(_)
+            | Self::Callout(_)
+            | Self::Math(_)
+            | Self::Rule { .. } => false,
         }
     }
 
@@ -436,7 +471,41 @@ impl LaidItem {
         match self {
             Self::Text(line) => line.glue_after = glue,
             Self::Image { glue_after, .. } => *glue_after = glue,
-            Self::Table(_) | Self::Columns(_) | Self::Math(_) | Self::Rule { .. } => {}
+            Self::Table(_)
+            | Self::Columns(_)
+            | Self::Callout(_)
+            | Self::Math(_)
+            | Self::Rule { .. } => {}
+        }
+    }
+
+    /// Lines that may carry `dest_id` / chrome heading (body text + callout).
+    pub(super) fn dest_lines(&self) -> Vec<&LaidLine> {
+        match self {
+            Self::Text(line) => vec![line],
+            Self::Callout(band) => band.lines.iter().collect(),
+            Self::Columns(cols) => cols.columns.iter().flatten().collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// Mutable walk of numbered body lines (text, callout, column flow).
+    pub(super) fn for_each_content_line_mut(&mut self, f: &mut impl FnMut(&mut LaidLine)) {
+        match self {
+            Self::Text(line) => f(line),
+            Self::Callout(band) => {
+                for line in &mut band.lines {
+                    f(line);
+                }
+            }
+            Self::Columns(cols) => {
+                for col in &mut cols.columns {
+                    for line in col {
+                        f(line);
+                    }
+                }
+            }
+            _ => {}
         }
     }
 }

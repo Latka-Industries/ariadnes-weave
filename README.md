@@ -19,16 +19,17 @@ crates.io. Local suite work can still path-dep when cutting paired releases.
 
 **Prose + structure emit** via `emit_pdf` / `emit_pdf_with`:
 
-- Blocks: `Heading` / `Paragraph` / `List` / `Code` / `Quote` / `Break` /
-  `Table` / `Figure` / `Row` / `TocEntry` / `Columns` / `Note` / `Slide` / `Math` /
-  `Layout` (`place` / `vspace` / `rule`)
-- Long-doc print (THI-316 / 398 / 409 / 410): page chrome headers/footers
-  (`{page}` / `{pages}` / `{title}` / `{heading}`); per-block `text_align` on
-  prose/list/columns; `Note` footnotes (band above footer) and endnotes (dump
-  after body); ASCII hyphenation + widow/orphan knobs; in-doc `TocEntry`
-  (leaders, page resolve, `GoTo`); native PDF `/Outlines` from heading
-  `dest_id`s; multi-column body flow; figure/table `dest_id` stamps for LOF/LOT
-  lists (same `TocEntry` paint)
+- Blocks: `Heading` / `Paragraph` / `List` / `Code` / `Quote` / `Callout` /
+  `Break` / `Table` / `Figure` / `Row` / `TocEntry` / `Columns` / `Note` /
+  `Slide` / `Math` / `Layout` (`place` / `vspace` / `rule`)
+- Long-doc print (THI-316 / 398 / 409 / 410 / 385 / 412–415): page chrome
+  (`{page}` / `{page_roman}` / `{pages}` / `{title}` / `{heading}`; optional
+  even-page `align_even` / `format_even`; `[numbers].style` arabic/roman);
+  per-block `text_align`; `Note` footnotes/endnotes; `Callout` titled band
+  (one paint for theorem/definition and callout/Q&A); pack `[body].line_numbers`
+  gutter per column (off by default); ASCII hyphenation + widow/orphan knobs;
+  in-doc `TocEntry`; native PDF `/Outlines`; multi-column body flow;
+  figure/table `dest_id` stamps for LOF/LOT
 - Faces: Liberation Sans (R/B/I/BI), Serif (R/B/I/BI) for `manuscript@0`, Mono
   for `code`; optional Font Awesome Free behind `--features icons`; optional
   sealed CJK / emoji subsets behind `--features cjk` / `emoji` (script fallback)
@@ -65,8 +66,10 @@ crates.io. Local suite work can still path-dep when cutting paired releases.
   `max_width_factor` / `title_align`; caption `band` / `overflow`);
   `Slide` → one page with `layout_id` templates (`title-body`,
   `two-column`, …); `Math` → structured layout for
-  `\frac`, multi-char scripts, `matrix`/`pmatrix`/`bmatrix`, and display
-  under/over limits on `\sum`/`\prod`/…; `\int` keeps side limits (not full TeX)
+  `\frac`, `\bar`, multi-char scripts, `matrix`/`pmatrix`/`bmatrix`, and display
+  under/over limits on `\sum`/`\prod`/…; `\int` keeps side limits (not full TeX).
+  Deferred until a fixture needs them: `align`/`cases`, stretchy `\left`/`\right`,
+  `\operatorname` (THI-385).
 
 Not yet: sidenotes / perfect TeX footnote algorithms, full TeX/MathML, OS font
 collection/CFF polish, full-coverage CJK/emoji packs (only tiny sealed subsets

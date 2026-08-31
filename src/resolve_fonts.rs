@@ -67,6 +67,10 @@ mod hydrate {
             | PrintBlock::Paragraph { runs, .. }
             | PrintBlock::Quote { runs, .. }
             | PrintBlock::TocEntry { title: runs, .. } => collect_run_faces(runs, out),
+            PrintBlock::Callout { title, body, .. } => {
+                collect_run_faces(title, out);
+                collect_run_faces(body, out);
+            }
             PrintBlock::Row { panes, .. } => {
                 for pane in panes {
                     collect_run_faces(pane, out);

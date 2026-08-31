@@ -105,8 +105,10 @@ These are IR/emit features, not separate profile ids:
 
 | Feature | Notes |
 | --- | --- |
-| Page chrome | `[header]` / `[footer]` knobs (`{page}` / `{pages}` / `{title}` / `{heading}`); `resume@0` densify forces both off |
+| Page chrome | `[header]` / `[footer]` knobs (`{page}` / `{page_roman}` / `{pages}` / `{title}` / `{heading}`); optional `align_even` / `format_even`; `[numbers].style`; `resume@0` densify forces both off |
 | Per-block align | Optional `text_align` on `Paragraph` / `List` / `Quote` / `Columns` (else pack `[paragraph].text_align`) |
+| Titled band | `PrintBlock::Callout` — one paint for theorem and callout kinds |
+| Line numbers | `[body].line_numbers` (off by default); per-column gutter |
 | Notes | `PrintBlock::Note` + `TextRun.note_id`; footnote band above footer; endnotes dump after body |
 | Hyphen / widows | `[wrap]` knobs; `resume@0` densify forces `hyphenate = false` |
 | `TocEntry` | Leaders + page resolve + `GoTo` from `dest_id` |

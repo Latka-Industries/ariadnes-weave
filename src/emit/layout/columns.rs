@@ -34,6 +34,7 @@ fn spans_full_measure(block: &PrintBlock) -> bool {
         | PrintBlock::Code { .. }
         | PrintBlock::List { .. } => false,
         PrintBlock::Heading { .. }
+        | PrintBlock::Callout { .. }
         | PrintBlock::TocEntry { .. }
         | PrintBlock::Table { .. }
         | PrintBlock::Row { .. }
