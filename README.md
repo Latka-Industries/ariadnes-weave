@@ -22,11 +22,13 @@ crates.io. Local suite work can still path-dep when cutting paired releases.
 - Blocks: `Heading` / `Paragraph` / `List` / `Code` / `Quote` / `Break` /
   `Table` / `Figure` / `Row` / `TocEntry` / `Columns` / `Note` / `Slide` / `Math` /
   `Layout` (`place` / `vspace` / `rule`)
-- Long-doc print (THI-316 slice): page chrome headers/footers (`{page}` /
-  `{pages}` / `{title}` / `{heading}`); ASCII hyphenation
-  + widow/orphan knobs; in-doc `TocEntry` (leaders, page resolve, `GoTo`); native
-  PDF `/Outlines` from heading `dest_id`s; multi-column body flow; figure/table
-  `dest_id` stamps for LOF/LOT lists (same `TocEntry` paint)
+- Long-doc print (THI-316 / 398 / 409 / 410): page chrome headers/footers
+  (`{page}` / `{pages}` / `{title}` / `{heading}`); per-block `text_align` on
+  prose/list/columns; `Note` footnotes (band above footer) and endnotes (dump
+  after body); ASCII hyphenation + widow/orphan knobs; in-doc `TocEntry`
+  (leaders, page resolve, `GoTo`); native PDF `/Outlines` from heading
+  `dest_id`s; multi-column body flow; figure/table `dest_id` stamps for LOF/LOT
+  lists (same `TocEntry` paint)
 - Faces: Liberation Sans (R/B/I/BI), Serif (R/B/I/BI) for `manuscript@0`, Mono
   for `code`; optional Font Awesome Free behind `--features icons`; optional
   sealed CJK / emoji subsets behind `--features cjk` / `emoji` (script fallback)
@@ -66,9 +68,9 @@ crates.io. Local suite work can still path-dep when cutting paired releases.
   `\frac`, multi-char scripts, `matrix`/`pmatrix`/`bmatrix`, and display
   under/over limits on `\sum`/`\prod`/…; `\int` keeps side limits (not full TeX)
 
-Not yet: footnotes/endnotes, full TeX/MathML, OS font collection/CFF polish,
-full-coverage CJK/emoji packs (only tiny sealed subsets behind features),
-color-emoji PDF paint.
+Not yet: sidenotes / perfect TeX footnote algorithms, full TeX/MathML, OS font
+collection/CFF polish, full-coverage CJK/emoji packs (only tiny sealed subsets
+behind features), color-emoji PDF paint.
 
 | Later                                           | Where                                                                   |
 | ----------------------------------------------- | ----------------------------------------------------------------------- |

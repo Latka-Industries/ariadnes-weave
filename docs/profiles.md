@@ -105,7 +105,9 @@ These are IR/emit features, not separate profile ids:
 
 | Feature | Notes |
 | --- | --- |
-| Page chrome | `[header]` / `[footer]` knobs; `resume@0` densify forces both off |
+| Page chrome | `[header]` / `[footer]` knobs (`{page}` / `{pages}` / `{title}` / `{heading}`); `resume@0` densify forces both off |
+| Per-block align | Optional `text_align` on `Paragraph` / `List` / `Quote` / `Columns` (else pack `[paragraph].text_align`) |
+| Notes | `PrintBlock::Note` + `TextRun.note_id`; footnote band above footer; endnotes dump after body |
 | Hyphen / widows | `[wrap]` knobs; `resume@0` densify forces `hyphenate = false` |
 | `TocEntry` | Leaders + page resolve + `GoTo` from `dest_id` |
 | PDF outline | `/Outlines` from heading `dest_id`s |
