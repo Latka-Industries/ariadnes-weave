@@ -203,7 +203,6 @@ impl ProseIndentKnobs {
     }
 }
 
-
 /// `[figure]` in `prose.toml`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProseFigureKnobs {
