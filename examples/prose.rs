@@ -50,6 +50,7 @@ fn doc() -> PrintDocument {
                      (left / center / right / justify).",
                 )],
                 indent: 0,
+                text_align: None,
             },
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain(LOREM)],

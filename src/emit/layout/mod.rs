@@ -12,11 +12,12 @@ mod table;
 use crate::error::WeaveError;
 use crate::font::FontBag;
 use crate::image_prep::PreparedImage;
-use crate::ir::{PrintBlock, PrintDocument};
+use crate::ir::{BreakHint, NoteKind, PrintBlock, PrintDocument, TextRun};
 use crate::knobs::{LayoutKnobs, TextAlign};
 use crate::profile::ProfileMetrics;
 
 use super::math::layout_math;
+use super::notes::NoteBook;
 use super::types::{ForcedBreak, GlyphSets, LaidItem, LayoutDoc, LayoutSegment, PaintCategory};
 
 use columns::{LayoutColumnsArgs, layout_columns};
@@ -35,6 +36,7 @@ pub(super) struct LayoutCtx<'a> {
     pub(super) fonts: &'a FontBag,
     pub(super) knobs: &'a LayoutKnobs,
     pub(super) glyph_sets: &'a mut GlyphSets,
+    pub(super) notes: &'a mut super::notes::NoteBook,
 }
 
 /// Walk document blocks into layout segments (reading order + break hints).
@@ -47,6 +49,7 @@ pub(super) fn collect_layout(
     let mut segments: Vec<(ForcedBreak, Vec<LaidItem>)> = vec![(ForcedBreak::None, Vec::new())];
     let mut images: Vec<PreparedImage> = Vec::new();
     let mut glyph_sets: GlyphSets = std::collections::BTreeMap::new();
+    let mut notes = NoteBook::collect(doc);
 
     for block in &doc.blocks {
         layout_block(
@@ -57,11 +60,100 @@ pub(super) fn collect_layout(
             &mut segments,
             &mut images,
             &mut glyph_sets,
+            &mut notes,
             None,
         )?;
     }
 
-    Ok((segments, images, glyph_sets))
+    dump_endnotes(
+        &notes,
+        metrics,
+        fonts,
+        knobs,
+        &mut segments,
+        &mut images,
+        &mut glyph_sets,
+    )?;
+    layout_footnote_bodies(&mut notes, metrics, fonts, knobs, &mut glyph_sets)?;
+
+    Ok((segments, images, glyph_sets, notes))
+}
+
+fn dump_endnotes(
+    notes: &NoteBook,
+    metrics: &ProfileMetrics,
+    fonts: &FontBag,
+    knobs: &LayoutKnobs,
+    segments: &mut Vec<LayoutSegment>,
+    images: &mut Vec<PreparedImage>,
+    glyph_sets: &mut GlyphSets,
+) -> Result<(), WeaveError> {
+    let ids = notes.referenced_ids(NoteKind::Endnote);
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let extra = {
+        let mut blocks = vec![PrintBlock::heading(
+            1,
+            vec![TextRun::plain("Notes")],
+            BreakHint::None,
+        )];
+        for id in &ids {
+            blocks.push(PrintBlock::paragraph(notes.labeled_runs(id)));
+        }
+        blocks
+    };
+    let mut unused = NoteBook::default();
+    for block in &extra {
+        layout_block(
+            block,
+            metrics,
+            fonts,
+            knobs,
+            segments,
+            images,
+            glyph_sets,
+            &mut unused,
+            None,
+        )?;
+    }
+    Ok(())
+}
+
+fn layout_footnote_bodies(
+    notes: &mut NoteBook,
+    metrics: &ProfileMetrics,
+    fonts: &FontBag,
+    knobs: &LayoutKnobs,
+    glyph_sets: &mut GlyphSets,
+) -> Result<(), WeaveError> {
+    let ids = notes.referenced_ids(NoteKind::Footnote);
+    let layout = footnote_run_layout(metrics, knobs);
+    for id in ids {
+        let runs = notes.labeled_runs(&id);
+        let mut items = Vec::new();
+        let mut unused = NoteBook::default();
+        let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets, &mut unused);
+        push_styled_runs(&mut items, &runs, &mut ctx, layout)?;
+        notes.laid_footnotes.insert(id, items);
+    }
+    Ok(())
+}
+
+fn footnote_run_layout(metrics: &ProfileMetrics, knobs: &LayoutKnobs) -> super::types::RunLayout {
+    let font_size = metrics.body_size * knobs.page.footnote.size_factor;
+    super::types::RunLayout {
+        font_size,
+        leading: font_size * knobs.page.footnote.leading_factor,
+        gap_after: 2.0,
+        glue_last_content: false,
+        mode: super::types::FaceMode::Body,
+        indent: 0.0,
+        max_width: None,
+        paint: PaintCategory::Text,
+        hard_break_overflow: true,
+        text_align: TextAlign::Left,
+    }
 }
 
 /// Pack `[paragraph].text_align`, overridden by inherit then explicit (THI-398).
@@ -80,6 +172,7 @@ fn resolved_quote_align(explicit: Option<TextAlign>, inherit: Option<TextAlign>)
     explicit.or(inherit).unwrap_or(TextAlign::Left)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn layout_block(
     block: &PrintBlock,
     metrics: &ProfileMetrics,
@@ -88,6 +181,7 @@ fn layout_block(
     segments: &mut Vec<LayoutSegment>,
     images: &mut Vec<PreparedImage>,
     glyph_sets: &mut GlyphSets,
+    notes: &mut NoteBook,
     inherit_align: Option<TextAlign>,
 ) -> Result<(), WeaveError> {
     match block {
@@ -96,13 +190,14 @@ fn layout_block(
                 segments.push((ForcedBreak::Always, Vec::new()));
             }
         }
+        PrintBlock::Note { .. } => {}
         PrintBlock::Heading {
             level,
             runs,
             break_before,
             dest_id,
         } => {
-            let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
+            let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets, notes);
             layout_heading(
                 *level,
                 runs,
@@ -129,6 +224,7 @@ fn layout_block(
             knobs,
             segments,
             glyph_sets,
+            notes,
         }
         .run()?,
         PrintBlock::Paragraph {
@@ -136,7 +232,7 @@ fn layout_block(
             indent,
             text_align,
         } => {
-            let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
+            let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets, notes);
             let seg = segments.last_mut().expect("segment");
             let band = knobs.prose.indent.pts(*indent);
             let align = resolved_prose_align(*text_align, inherit_align, knobs);
@@ -148,7 +244,7 @@ fn layout_block(
             )?;
         }
         PrintBlock::Quote { runs, text_align } => {
-            let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
+            let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets, notes);
             layout_quote(
                 runs,
                 resolved_quote_align(*text_align, inherit_align),
@@ -157,7 +253,7 @@ fn layout_block(
             )?;
         }
         PrintBlock::Code { lang: _, text } => {
-            let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
+            let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets, notes);
             layout_code(text, &mut ctx, segments)?;
         }
         PrintBlock::List {
@@ -166,7 +262,7 @@ fn layout_block(
             indent,
             text_align,
         } => {
-            let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
+            let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets, notes);
             let seg = segments.last_mut().expect("segment");
             let align = resolved_prose_align(*text_align, inherit_align, knobs);
             push_list_lines(&mut seg.1, *ordered, items, *indent, 0, align, &mut ctx)?;
@@ -179,12 +275,14 @@ fn layout_block(
             segments,
             images,
             glyph_sets,
+            notes,
             inherit_align,
         )?,
     }
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn layout_structure_block(
     block: &PrintBlock,
     metrics: &ProfileMetrics,
@@ -193,16 +291,17 @@ fn layout_structure_block(
     segments: &mut Vec<LayoutSegment>,
     images: &mut Vec<PreparedImage>,
     glyph_sets: &mut GlyphSets,
+    notes: &mut NoteBook,
     inherit_align: Option<TextAlign>,
 ) -> Result<(), WeaveError> {
     match block {
         PrintBlock::Table { rows, dest_id } => {
-            let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
+            let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets, notes);
             let seg = segments.last_mut().expect("segment");
             push_table(&mut seg.1, rows, dest_id.as_deref(), &mut ctx)?;
         }
         PrintBlock::Row { panes, indent } => {
-            let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
+            let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets, notes);
             let seg = segments.last_mut().expect("segment");
             push_row(&mut seg.1, panes, *indent, &mut ctx)?;
         }
@@ -226,6 +325,7 @@ fn layout_structure_block(
             fonts,
             knobs,
             glyph_sets,
+            notes,
         }
         .run()?,
         PrintBlock::Math { display, latex } => {
@@ -240,11 +340,11 @@ fn layout_structure_block(
             )?;
         }
         PrintBlock::Slide { layout_id, regions } => {
-            let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
+            let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets, notes);
             layout_slide(layout_id, regions, &mut ctx, segments)?;
         }
         PrintBlock::Layout { ops } => {
-            let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
+            let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets, notes);
             layout_layout_ops(ops, &mut ctx, segments)?;
         }
         PrintBlock::Columns {
@@ -263,7 +363,9 @@ fn layout_structure_block(
             segments,
             images,
             glyph_sets,
+            notes,
         })?,
+        PrintBlock::Note { .. } => {}
         _ => unreachable!("text-like blocks handled in layout_block"),
     }
     Ok(())
@@ -281,15 +383,22 @@ struct PushTocEntryArgs<'a> {
     knobs: &'a LayoutKnobs,
     segments: &'a mut [LayoutSegment],
     glyph_sets: &'a mut GlyphSets,
+    notes: &'a mut NoteBook,
 }
 
 impl PushTocEntryArgs<'_> {
     fn run(self) -> Result<(), WeaveError> {
-        let mut ctx = layout_ctx(self.metrics, self.fonts, self.knobs, self.glyph_sets);
+        let mut ctx = layout_ctx(
+            self.metrics,
+            self.fonts,
+            self.knobs,
+            self.glyph_sets,
+            self.notes,
+        );
         let seg = self.segments.last_mut().expect("segment");
         push_toc_entry(
             &mut seg.1,
-            TocEntryParts {
+            &TocEntryParts {
                 title: self.title,
                 page_label: self.page_label,
                 dest_id: self.dest_id,
@@ -320,6 +429,7 @@ fn block_name(block: &PrintBlock) -> &'static str {
         PrintBlock::Slide { .. } => "slide",
         PrintBlock::Layout { .. } => "layout",
         PrintBlock::Columns { .. } => "columns",
+        PrintBlock::Note { .. } => "note",
         PrintBlock::Break(_) => "break",
     }
 }

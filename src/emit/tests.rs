@@ -5,7 +5,7 @@ use super::{emit_pdf, emit_pdf_with};
 use crate::error::WeaveError;
 use crate::font::{FaceId, FaceRef, FontBag, shape_text, shaped_width};
 use crate::ir::{
-    BreakHint, EmAmount, FigurePlacement, InlineStyle, LayoutOp, MeasureFrac, PlaceSkip,
+    BreakHint, EmAmount, FigurePlacement, InlineStyle, LayoutOp, MeasureFrac, NoteKind, PlaceSkip,
     PrintBlock, PrintDocument, PrintImage, PrintMeta, PrintProfileId, RuleWidth,
     SlideRegionContent, TableRow, TextRun, VspaceAmount,
 };
@@ -39,6 +39,7 @@ fn hello_doc() -> PrintDocument {
                     style: InlineStyle::default(),
                     face: None,
                     link_uri: None,
+                    note_id: None,
                 }],
                 break_before: BreakHint::None,
                 dest_id: None,
@@ -136,6 +137,146 @@ fn page_chrome_format_and_header_affect_emit() {
     assert!(custom.starts_with(b"%PDF-"));
     assert_ne!(baseline, custom);
     write_tmp_sample("page_chrome.pdf", &custom);
+}
+
+#[test]
+fn live_heading_chrome_token_tracks_h1() {
+    let blocks = vec![
+        PrintBlock::heading(1, vec![TextRun::plain("Alpha")], BreakHint::None),
+        PrintBlock::Paragraph {
+            runs: vec![TextRun::plain("First section body.")],
+            indent: 0,
+            text_align: None,
+        },
+        PrintBlock::heading(1, vec![TextRun::plain("Beta")], BreakHint::None),
+        PrintBlock::Paragraph {
+            runs: vec![TextRun::plain("Second section body.")],
+            indent: 0,
+            text_align: None,
+        },
+    ];
+    let mut alpha_beta = note_doc("DocTitle", blocks);
+    alpha_beta.profile = PrintProfileId::manuscript_v0();
+
+    let with_heading = emit_with_layout_tweak(&alpha_beta, |layout| {
+        layout.page.header.enabled = true;
+        layout.page.header.format = "{heading}".into();
+        layout.page.content.top_clearance = 18.0;
+        layout.page.footer.enabled = false;
+    });
+    let with_title = emit_with_layout_tweak(&alpha_beta, |layout| {
+        layout.page.header.enabled = true;
+        layout.page.header.format = "{title}".into();
+        layout.page.content.top_clearance = 18.0;
+        layout.page.footer.enabled = false;
+    });
+    assert_ne!(
+        with_heading, with_title,
+        "{{heading}} chrome should differ from {{title}}"
+    );
+
+    let mut gamma = alpha_beta.clone();
+    if let PrintBlock::Heading { runs, .. } = &mut gamma.blocks[2] {
+        runs[0].text = "Gamma".into();
+    }
+    let gamma_pdf = emit_with_layout_tweak(&gamma, |layout| {
+        layout.page.header.enabled = true;
+        layout.page.header.format = "{heading}".into();
+        layout.page.content.top_clearance = 18.0;
+        layout.page.footer.enabled = false;
+    });
+    assert_ne!(
+        with_heading, gamma_pdf,
+        "page-2 running head should follow the live H1"
+    );
+    write_tmp_sample("heading_chrome.pdf", &with_heading);
+}
+
+#[test]
+fn footnote_marker_and_body_emit() {
+    let with_note = note_doc(
+        "Notes",
+        vec![
+            PrintBlock::paragraph(vec![TextRun::plain("See the appendix").with_note("n1")]),
+            PrintBlock::note(
+                "n1",
+                NoteKind::Footnote,
+                vec![TextRun::plain("A short clarification.")],
+            ),
+        ],
+    );
+    let pdf = emit_pdf(&with_note).expect("footnote pdf");
+    assert!(pdf.starts_with(b"%PDF"), "valid pdf");
+    let without = note_doc(
+        "Notes",
+        vec![PrintBlock::paragraph(vec![TextRun::plain(
+            "See the appendix",
+        )])],
+    );
+    let plain = emit_pdf(&without).expect("plain pdf");
+    assert_ne!(pdf, plain, "footnote band should change the page stream");
+    write_tmp_sample("footnote_short.pdf", &pdf);
+}
+
+#[test]
+fn endnote_dumps_after_body() {
+    let doc = note_doc(
+        "Endnotes",
+        vec![
+            PrintBlock::paragraph(vec![
+                TextRun::plain("Body cites an endnote").with_note("e1"),
+            ]),
+            PrintBlock::note(
+                "e1",
+                NoteKind::Endnote,
+                vec![TextRun::plain("Dumped at the end.")],
+            ),
+        ],
+    );
+    let pdf = emit_pdf(&doc).expect("endnote pdf");
+    assert!(pdf.starts_with(b"%PDF"));
+    write_tmp_sample("endnote.pdf", &pdf);
+}
+
+#[test]
+fn footnote_overflow_still_emits() {
+    let long = "Overflow note. ".repeat(80);
+    let doc = note_doc(
+        "Overflow",
+        vec![
+            PrintBlock::paragraph(vec![TextRun::plain("Callout.").with_note("big")]),
+            PrintBlock::note("big", NoteKind::Footnote, vec![TextRun::plain(long)]),
+        ],
+    );
+    let pdf = emit_with_layout_tweak(&doc, |layout| {
+        layout.page.footnote.max_band = 36.0;
+        layout.page.footer.enabled = true;
+    });
+    assert!(pdf.starts_with(b"%PDF"));
+    write_tmp_sample("footnote_overflow.pdf", &pdf);
+}
+
+#[test]
+fn footnote_band_and_footer_coexist() {
+    let doc = note_doc(
+        "Chrome",
+        vec![
+            PrintBlock::paragraph(vec![TextRun::plain("Hello").with_note("n1")]),
+            PrintBlock::note("n1", NoteKind::Footnote, vec![TextRun::plain("Note body.")]),
+        ],
+    );
+    let with_footer = emit_with_layout_tweak(&doc, |layout| {
+        layout.page.footer.enabled = true;
+        layout.page.header.enabled = false;
+    });
+    let no_footer = emit_with_layout_tweak(&doc, |layout| {
+        layout.page.footer.enabled = false;
+        layout.page.header.enabled = false;
+    });
+    assert_ne!(
+        with_footer, no_footer,
+        "footer chrome should still paint beside the footnote band"
+    );
 }
 
 #[test]
@@ -390,6 +531,7 @@ fn category_cite_font_pin() {
                 },
                 face: None,
                 link_uri: None,
+                note_id: None,
             }],
             indent: 0,
             text_align: None,
@@ -559,6 +701,7 @@ fn styled_runs_embed_bold_font() {
                 },
                 face: None,
                 link_uri: None,
+                note_id: None,
             },
         ],
         indent: 0,
@@ -765,6 +908,7 @@ fn manuscript_emphasis_uses_serif_italic() {
                     },
                     face: None,
                     link_uri: None,
+                    note_id: None,
                 },
                 TextRun::plain(" "),
                 TextRun {
@@ -775,6 +919,7 @@ fn manuscript_emphasis_uses_serif_italic() {
                     },
                     face: None,
                     link_uri: None,
+                    note_id: None,
                 },
             ],
             indent: 0,
@@ -869,6 +1014,7 @@ fn aesthetic_colors_and_cite_underline_affect_emit() {
                     },
                     face: None,
                     link_uri: None,
+                    note_id: None,
                 }],
                 indent: 0,
                 text_align: None,
@@ -1321,6 +1467,7 @@ fn inline_style_underline_without_cite() {
                 },
                 face: None,
                 link_uri: None,
+                note_id: None,
             }],
             indent: 0,
             text_align: None,
@@ -1409,7 +1556,10 @@ fn cite_link_color_does_not_leak_across_lines() {
     let pdf = emit_pdf_with(&doc, &EmitOptions::bundled_only().with_layout(layout)).expect("pdf");
     let s = String::from_utf8_lossy(&pdf);
     let cite = s.find("0.6 0 0 rg").or_else(|| s.find("0.60000002 0 0 rg"));
-    assert!(cite.is_some(), "expected cite/link fill in content stream: {s}");
+    assert!(
+        cite.is_some(),
+        "expected cite/link fill in content stream: {s}"
+    );
     let rest = &s[cite.unwrap()..];
     assert!(
         rest.contains("0 0 0 rg"),

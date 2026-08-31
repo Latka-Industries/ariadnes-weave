@@ -32,6 +32,7 @@ fn prose_doc() -> PrintDocument {
                         },
                         face: None,
                         link_uri: None,
+                        note_id: None,
                     },
                     TextRun::plain(" and "),
                     TextRun {
@@ -42,6 +43,7 @@ fn prose_doc() -> PrintDocument {
                         },
                         face: None,
                         link_uri: None,
+                        note_id: None,
                     },
                     TextRun::plain(" before a list, a quote, and a code block."),
                 ],

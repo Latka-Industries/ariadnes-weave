@@ -166,8 +166,9 @@ Optional running header + page-number footer (THI-392). Tokens in `format`:
 | `{page}` | 1-based page index |
 | `{pages}` | total page count |
 | `{title}` | `PrintMeta.title` (empty if unset) |
+| `{heading}` | Last H1 or H2 whose first line is on this page or an earlier page (empty before the first such heading). H3+ do not change the running head. |
 
-`{heading}` / live section titles are deferred (need layout tracking).
+`{chapter}` as a separate numbering system is out of scope (reuse heading text).
 
 | Key | Meaning |
 |-----|---------|
@@ -179,6 +180,14 @@ Optional running header + page-number footer (THI-392). Tokens in `format`:
 | `[content].bottom_clearance` | Reserve above bottom margin when footer is on |
 | `[content].top_clearance` | Reserve below top margin when header is on |
 | `[chrome].stroke_gray` / `fill_gray` | Rules + math chrome gray |
+| `[footnote].max_band` | Reserved height above footer for footnote bodies (bundled `72`; 0 when the doc has no footnotes) |
+| `[footnote].marker_scale` | Superscript marker size vs surrounding run (bundled `0.7`) |
+| `[footnote].rule_thickness` | Hairline above the footnote band (bundled `0.4`) |
+| `[footnote].size_factor` | Note body size vs profile body (bundled `0.8`) |
+| `[footnote].leading_factor` | Note line leading vs note size (bundled `1.15`) |
+| `[footnote].gap_before_rule` | Gap from rule to first note line (bundled `4`) |
+
+Bottom-of-page precedence: body content → footnote band → footer chrome → margin. Footnotes that do not fit `max_band` carry to the next page (simple split; no TeX multipass). Endnotes dump after the last body block as a “Notes” heading plus numbered paragraphs.
 
 ## Defaults and overrides
 

@@ -7,6 +7,7 @@ use crate::ir::PrintBlock;
 use crate::knobs::{LayoutKnobs, TextAlign};
 use crate::profile::ProfileMetrics;
 
+use super::super::notes::NoteBook;
 use super::super::types::{ForcedBreak, GlyphSets, LaidColumns, LaidItem, LaidLine, LayoutSegment};
 use super::layout_block;
 
@@ -22,6 +23,7 @@ pub(super) struct LayoutColumnsArgs<'a> {
     pub segments: &'a mut Vec<LayoutSegment>,
     pub images: &'a mut Vec<PreparedImage>,
     pub glyph_sets: &'a mut GlyphSets,
+    pub notes: &'a mut NoteBook,
 }
 
 /// True when a child must span full measure (flush column band first).
@@ -40,6 +42,7 @@ fn spans_full_measure(block: &PrintBlock) -> bool {
         | PrintBlock::Slide { .. }
         | PrintBlock::Layout { .. }
         | PrintBlock::Columns { .. }
+        | PrintBlock::Note { .. }
         | PrintBlock::Break(_) => true,
     }
 }
@@ -57,6 +60,7 @@ pub(super) fn layout_columns(args: LayoutColumnsArgs<'_>) -> Result<(), WeaveErr
         segments,
         images,
         glyph_sets,
+        notes,
     } = args;
 
     let n = usize::from(count.clamp(2, 6));
@@ -65,7 +69,10 @@ pub(super) fn layout_columns(args: LayoutColumnsArgs<'_>) -> Result<(), WeaveErr
     let col_w = ((full_w - (n.saturating_sub(1) as f32) * gap_pt) / n as f32)
         .max(knobs.prose.wrap.min_width);
     // Match paginate usable height so each full band fills one page.
-    let max_h = (metrics.content_height() - knobs.page.chrome_reserve()).max(72.0);
+    let max_h = (metrics.content_height()
+        - knobs.page.chrome_reserve()
+        - knobs.page.footnote_reserve(notes.has_footnote_defs()))
+    .max(72.0);
 
     // Narrow measure via faked page width so existing wrap paths use col_w.
     let mut col_metrics = *metrics;
@@ -84,6 +91,7 @@ pub(super) fn layout_columns(args: LayoutColumnsArgs<'_>) -> Result<(), WeaveErr
                 segments,
                 images,
                 glyph_sets,
+                notes,
                 inherit_align,
             )?;
         } else {
@@ -96,6 +104,7 @@ pub(super) fn layout_columns(args: LayoutColumnsArgs<'_>) -> Result<(), WeaveErr
                 &mut temp,
                 images,
                 glyph_sets,
+                notes,
                 inherit_align,
             )?;
             for (forced, items) in temp {

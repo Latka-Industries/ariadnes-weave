@@ -28,6 +28,7 @@ pub(super) struct PushFigureArgs<'a> {
     pub fonts: &'a FontBag,
     pub knobs: &'a LayoutKnobs,
     pub glyph_sets: &'a mut GlyphSets,
+    pub notes: &'a mut super::super::notes::NoteBook,
 }
 
 enum FigureVisual {
@@ -72,6 +73,7 @@ impl PushFigureArgs<'_> {
             fonts,
             knobs,
             glyph_sets,
+            notes,
         } = self;
         let float_near = matches!(placement, FigurePlacement::FloatNear);
         let seg = segments.last_mut().expect("segment");
@@ -129,7 +131,7 @@ impl PushFigureArgs<'_> {
         };
         let gap_after_image = knobs.prose.figure.gap_after_image;
 
-        let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets);
+        let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets, notes);
         push_figure_title(&mut seg.1, title, band_w, &mut ctx)?;
         push_visual(&mut seg.1, visual, gap_after_image);
         finish_figure_caption(&mut seg.1, caption, empty_gap, band_w, &mut ctx)

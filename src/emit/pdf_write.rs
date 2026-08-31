@@ -139,7 +139,9 @@ pub(super) struct WritePagesArgs<'a> {
     pub subsets: &'a SubsetMap,
     pub knobs: &'a LayoutKnobs,
     pub title: &'a str,
+    pub headings: &'a [String],
     pub dest_pages: &'a BTreeMap<String, usize>,
+    pub notes: &'a super::notes::NoteBook,
     pub next_id: &'a mut i32,
 }
 
@@ -159,10 +161,13 @@ impl WritePagesArgs<'_> {
             subsets,
             knobs,
             title,
+            headings,
             dest_pages,
+            notes,
             next_id,
         } = self;
         let page_count = pages.len().max(1);
+        let mut footnote_carry = Vec::new();
         for (page_idx, ((page_id, content_id), page_items)) in page_ids
             .iter()
             .copied()
@@ -170,15 +175,19 @@ impl WritePagesArgs<'_> {
             .zip(pages.iter())
             .enumerate()
         {
+            let heading = headings.get(page_idx).map_or("", String::as_str);
             let (content_bytes, page_links) = build_page_content(BuildPageContent {
                 items: page_items,
                 metrics,
                 page_no: page_idx + 1,
                 page_count,
                 title,
+                heading,
                 fonts,
                 subsets,
                 knobs,
+                notes,
+                footnote_carry: &mut footnote_carry,
             })?;
             let mut annot_ids = Vec::with_capacity(page_links.len());
             for _ in &page_links {
@@ -311,34 +320,38 @@ impl WritePageDictArgs<'_> {
 /// Remap shaped GIDs from full-face space into subset GID space.
 pub(super) fn remap_pages(pages: &mut [Vec<LaidItem>], subsets: &SubsetMap) {
     for page in pages {
-        for item in page {
-            match item {
-                LaidItem::Text(line) => remap_line(line, subsets),
-                LaidItem::Table(table) => {
-                    for row in &mut table.rows {
-                        for cell in &mut row.cells {
-                            for line in cell {
-                                remap_line(line, subsets);
-                            }
-                        }
-                    }
-                }
-                LaidItem::Columns(cols) => {
-                    for column in &mut cols.columns {
-                        for line in column {
+        remap_items(page, subsets);
+    }
+}
+
+pub(super) fn remap_items(items: &mut [LaidItem], subsets: &SubsetMap) {
+    for item in items {
+        match item {
+            LaidItem::Text(line) => remap_line(line, subsets),
+            LaidItem::Table(table) => {
+                for row in &mut table.rows {
+                    for cell in &mut row.cells {
+                        for line in cell {
                             remap_line(line, subsets);
                         }
                     }
                 }
-                LaidItem::Math(math) => {
-                    for el in &mut math.elements {
-                        if let super::types::LaidMathEl::Text { face, glyphs, .. } = el {
-                            remap_glyphs(*face, glyphs, subsets);
-                        }
+            }
+            LaidItem::Columns(cols) => {
+                for column in &mut cols.columns {
+                    for line in column {
+                        remap_line(line, subsets);
                     }
                 }
-                LaidItem::Image { .. } | LaidItem::Rule { .. } => {}
             }
+            LaidItem::Math(math) => {
+                for el in &mut math.elements {
+                    if let super::types::LaidMathEl::Text { face, glyphs, .. } = el {
+                        remap_glyphs(*face, glyphs, subsets);
+                    }
+                }
+            }
+            LaidItem::Image { .. } | LaidItem::Rule { .. } => {}
         }
     }
 }

@@ -326,6 +326,7 @@ fn slide_run(text: impl Into<String>, style: InlineStyle) -> TextRun {
         style,
         face: None,
         link_uri: None,
+        note_id: None,
     }
 }
 

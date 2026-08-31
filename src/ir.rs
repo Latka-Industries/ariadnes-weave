@@ -250,8 +250,34 @@ pub enum PrintBlock {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         text_align: Option<TextAlign>,
     },
+    /// Footnote or endnote definition (THI-410). Not painted in body flow.
+    ///
+    /// Markers in prose set [`TextRun::note_id`] to this `id`. Footnotes paint
+    /// in a reserved band above footer chrome; endnotes dump after the last
+    /// body block.
+    Note {
+        /// Stable id referenced by [`TextRun::note_id`].
+        id: String,
+        /// Footnote (page band) vs endnote (end dump).
+        ///
+        /// Named `note_kind` because internally tagged serde already uses `kind`
+        /// for the [`PrintBlock`] variant.
+        note_kind: NoteKind,
+        /// Note body runs.
+        runs: Vec<TextRun>,
+    },
     /// Explicit author/export break (e.g. chapter boundary).
     Break(BreakHint),
+}
+
+/// Footnote vs endnote placement (THI-410).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NoteKind {
+    /// Page-bottom band above footer chrome.
+    Footnote,
+    /// Dumped after the last body block.
+    Endnote,
 }
 
 /// One closed layout op inside [`PrintBlock::Layout`] (D24).
@@ -487,6 +513,16 @@ impl PrintBlock {
             text_align,
         }
     }
+
+    /// Footnote or endnote definition (not in-flow body).
+    #[must_use]
+    pub fn note(id: impl Into<String>, kind: NoteKind, runs: Vec<TextRun>) -> Self {
+        Self::Note {
+            id: id.into(),
+            note_kind: kind,
+            runs,
+        }
+    }
 }
 
 /// Horizontal skip for [`LayoutOp::Place`].
@@ -704,6 +740,9 @@ pub struct TextRun {
     /// as well for hosts that only inspect style flags.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub link_uri: Option<String>,
+    /// Id of a [`PrintBlock::Note`] this run cites (superscript marker).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note_id: Option<String>,
 }
 
 impl TextRun {
@@ -714,6 +753,7 @@ impl TextRun {
             style: InlineStyle::default(),
             face: None,
             link_uri: None,
+            note_id: None,
         }
     }
 
@@ -727,6 +767,7 @@ impl TextRun {
             },
             face: None,
             link_uri: None,
+            note_id: None,
         }
     }
 
@@ -737,6 +778,7 @@ impl TextRun {
             style: InlineStyle::default(),
             face: Some(face.into()),
             link_uri: None,
+            note_id: None,
         }
     }
 
@@ -750,7 +792,15 @@ impl TextRun {
             },
             face: None,
             link_uri: Some(uri.into()),
+            note_id: None,
         }
+    }
+
+    /// Attach a footnote/endnote id (superscript at layout).
+    #[must_use]
+    pub fn with_note(mut self, id: impl Into<String>) -> Self {
+        self.note_id = Some(id.into());
+        self
     }
 }
 

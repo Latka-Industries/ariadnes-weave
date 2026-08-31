@@ -38,30 +38,6 @@ pub(super) fn record_shaped_chunk(
     }
 }
 
-/// Convert shaped fallback runs into paint spans.
-pub(super) fn spans_from_shaped_runs(
-    font_size: f32,
-    runs: Vec<(FaceRef, Vec<ShapedGlyph>)>,
-    fill: [f32; 3],
-    underline: bool,
-    link_uri: Option<&str>,
-    link_dest: Option<&str>,
-    baseline_shift: f32,
-) -> Vec<LaidSpan> {
-    runs.into_iter()
-        .map(|(face, glyphs)| LaidSpan {
-            face,
-            font_size,
-            glyphs,
-            fill,
-            underline,
-            link_uri: link_uri.map(str::to_owned),
-            link_dest: link_dest.map(str::to_owned),
-            baseline_shift,
-        })
-        .collect()
-}
-
 /// Inputs for [`ShapeSpans::run`].
 pub(super) struct ShapeSpans<'a> {
     pub fonts: &'a FontBag,
@@ -74,6 +50,7 @@ pub(super) struct ShapeSpans<'a> {
     pub link_uri: Option<&'a str>,
     pub link_dest: Option<&'a str>,
     pub baseline_shift: f32,
+    pub note_id: Option<&'a str>,
 }
 
 impl ShapeSpans<'_> {
@@ -83,15 +60,19 @@ impl ShapeSpans<'_> {
         let width = shaped_runs_width(&runs);
         record_shaped_chunk(self.fonts, self.face, self.text, &runs, self.glyph_sets);
         Ok((
-            spans_from_shaped_runs(
-                self.font_size,
-                runs,
-                self.fill,
-                self.underline,
-                self.link_uri,
-                self.link_dest,
-                self.baseline_shift,
-            ),
+            runs.into_iter()
+                .map(|(face, glyphs)| LaidSpan {
+                    face,
+                    font_size: self.font_size,
+                    glyphs,
+                    fill: self.fill,
+                    underline: self.underline,
+                    link_uri: self.link_uri.map(str::to_owned),
+                    link_dest: self.link_dest.map(str::to_owned),
+                    baseline_shift: self.baseline_shift,
+                    note_id: self.note_id.map(str::to_owned),
+                })
+                .collect(),
             width,
         ))
     }
@@ -106,8 +87,13 @@ pub(super) fn shape_and_record_spans(
 
 /// One forced-break boundary plus the items that follow until the next segment.
 pub(super) type LayoutSegment = (ForcedBreak, Vec<LaidItem>);
-/// Segments, decoded images, and glyph sets from [`super::layout::collect_layout`].
-pub(super) type LayoutDoc = (Vec<LayoutSegment>, Vec<PreparedImage>, GlyphSets);
+/// Segments, decoded images, glyph sets, and notes from [`super::layout::collect_layout`].
+pub(super) type LayoutDoc = (
+    Vec<LayoutSegment>,
+    Vec<PreparedImage>,
+    GlyphSets,
+    super::notes::NoteBook,
+);
 
 /// One shaped run on a line (single face + size).
 #[derive(Debug, Clone)]
@@ -125,6 +111,8 @@ pub(super) struct LaidSpan {
     pub link_dest: Option<String>,
     /// Raise baseline by this many points (FA icon optical alignment).
     pub baseline_shift: f32,
+    /// Footnote/endnote id when this span is a marker (THI-410).
+    pub note_id: Option<String>,
 }
 
 /// One horizontal line of text (or an empty gap).
@@ -143,6 +131,8 @@ pub(super) struct LaidLine {
     pub text_align: TextAlign,
     /// Optional internal destination id registered on this line (heading `GoTo` target).
     pub dest_id: Option<String>,
+    /// Running-head text when this line is the first content of an H1/H2 (THI-409).
+    pub chrome_heading: Option<String>,
 }
 
 impl LaidLine {
@@ -161,6 +151,7 @@ impl LaidLine {
             measure: 0.0,
             text_align: TextAlign::Left,
             dest_id: None,
+            chrome_heading: None,
         }
     }
 
@@ -174,6 +165,7 @@ impl LaidLine {
             measure,
             text_align: TextAlign::Left,
             dest_id: None,
+            chrome_heading: None,
         }
     }
 
@@ -205,6 +197,7 @@ impl LaidLine {
             link_uri: None,
             link_dest: None,
             baseline_shift: 0.0,
+            note_id: None,
         })?;
         Ok(Self {
             spans,
@@ -214,6 +207,7 @@ impl LaidLine {
             measure: 0.0,
             text_align: TextAlign::Left,
             dest_id: None,
+            chrome_heading: None,
         })
     }
 

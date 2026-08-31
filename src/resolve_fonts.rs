@@ -93,6 +93,7 @@ mod hydrate {
                     collect_block_faces(child, out);
                 }
             }
+            PrintBlock::Note { runs, .. } => collect_run_faces(runs, out),
             PrintBlock::Slide { .. }
             | PrintBlock::Code { .. }
             | PrintBlock::Table { .. }

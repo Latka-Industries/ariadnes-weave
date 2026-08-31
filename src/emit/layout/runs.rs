@@ -20,12 +20,14 @@ pub(super) fn layout_ctx<'a>(
     fonts: &'a FontBag,
     knobs: &'a LayoutKnobs,
     glyph_sets: &'a mut super::super::types::GlyphSets,
+    notes: &'a mut super::super::notes::NoteBook,
 ) -> LayoutCtx<'a> {
     LayoutCtx {
         metrics,
         fonts,
         knobs,
         glyph_sets,
+        notes,
     }
 }
 
@@ -290,6 +292,19 @@ pub(super) fn push_styled_runs(
             layout,
             max_width,
         )?;
+        if let Some(id) = run.note_id.as_deref() {
+            append_note_marker(
+                WrapLine {
+                    out,
+                    spans: &mut current_spans,
+                    width: &mut current_width,
+                },
+                ctx,
+                layout,
+                max_width,
+                id,
+            )?;
+        }
     }
 
     flush_styled_line(&mut current_spans, out, layout, max_width, true);
@@ -328,6 +343,7 @@ fn flush_styled_line(
         measure: max_width,
         text_align,
         dest_id: None,
+        chrome_heading: None,
     }));
 }
 
@@ -347,6 +363,7 @@ struct RunPaint<'a> {
     underline: bool,
     link_uri: Option<&'a str>,
     baseline_shift: f32,
+    note_id: Option<&'a str>,
 }
 
 /// Shared wrap state for one styled run.
@@ -396,6 +413,7 @@ fn append_styled_run(
             underline,
             link_uri: run.link_uri.as_deref(),
             baseline_shift: 0.0,
+            note_id: None,
         },
         layout,
         max_width,
@@ -408,6 +426,48 @@ fn append_styled_run(
         wrap.place_chunk(&chunk, &rest, &mut queue, hyphenate)?;
     }
     Ok(())
+}
+
+fn append_note_marker(
+    line: WrapLine<'_>,
+    ctx: &mut LayoutCtx<'_>,
+    layout: RunLayout,
+    max_width: f32,
+    id: &str,
+) -> Result<(), WeaveError> {
+    let Some(n) = ctx.notes.assign(id) else {
+        return Ok(());
+    };
+    let scale = ctx.knobs.page.footnote.marker_scale;
+    let font_size = layout.font_size * scale;
+    let baseline_shift = (layout.font_size - font_size) * 0.85;
+    let marker = TextRun::plain(n.to_string());
+    let face = resolve_run_face(
+        &marker,
+        ctx.metrics,
+        layout.mode,
+        ctx.fonts,
+        ctx.knobs,
+        layout.paint,
+    )?;
+    let (fill, _) = ctx.knobs.prose.run_paint_rgb01(false, layout.paint, false);
+    let mut wrap = WrapCtx {
+        line,
+        ctx,
+        paint: RunPaint {
+            face,
+            font_size,
+            fill,
+            underline: false,
+            link_uri: None,
+            baseline_shift,
+            note_id: Some(id),
+        },
+        layout,
+        max_width,
+    };
+    let text = n.to_string();
+    wrap.place_chunk(&text, "", &mut String::new(), false)
 }
 
 impl WrapCtx<'_, '_> {
@@ -424,6 +484,7 @@ impl WrapCtx<'_, '_> {
             link_uri: paint.link_uri,
             link_dest: None,
             baseline_shift: paint.baseline_shift,
+            note_id: paint.note_id,
         })
     }
 
@@ -485,7 +546,7 @@ impl WrapCtx<'_, '_> {
         for piece in pieces {
             self.place_shaped_flush(&piece)?;
         }
-        *queue = rest.to_owned();
+        rest.clone_into(queue);
         Ok(())
     }
 
@@ -500,7 +561,7 @@ impl WrapCtx<'_, '_> {
         // Keep trailing spaces so inter-word advances are shaped; drop
         // whitespace-only chunks at the start of a line.
         if self.line.spans.is_empty() && skip_wrap_chunk_at_line_start(chunk) {
-            *queue = rest.to_owned();
+            rest.clone_into(queue);
             return Ok(());
         }
         let (spans, w) = self.shape(chunk)?;
@@ -518,7 +579,7 @@ impl WrapCtx<'_, '_> {
             );
             *self.line.width = 0.0;
             if skip_wrap_chunk_at_line_start(chunk) {
-                *queue = rest.to_owned();
+                rest.clone_into(queue);
                 return Ok(());
             }
         }
@@ -533,7 +594,7 @@ impl WrapCtx<'_, '_> {
         // soft_only: place an overlong token and let it stick out.
         self.line.spans.extend(spans);
         *self.line.width += w;
-        *queue = rest.to_owned();
+        rest.clone_into(queue);
         Ok(())
     }
 }
@@ -665,6 +726,7 @@ mod widow_orphan_tests {
                 link_uri: None,
                 link_dest: None,
                 baseline_shift: 0.0,
+                note_id: None,
             }],
             leading: 12.0,
             glue_after: glue,
@@ -672,6 +734,7 @@ mod widow_orphan_tests {
             measure: 100.0,
             text_align: TextAlign::Left,
             dest_id: None,
+            chrome_heading: None,
         })
     }
 

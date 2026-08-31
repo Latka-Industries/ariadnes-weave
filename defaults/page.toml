@@ -1,5 +1,6 @@
 # Page chrome (header/footer, clearance, stroke/fill gray).
-# Format tokens: {page}, {pages}, {title} (heading deferred — THI-392).
+# Format tokens: {page}, {pages}, {title}, {heading} (THI-409).
+# Footnote band sits above footer chrome (THI-410).
 
 [footer]
 font_size = 9.0
@@ -22,3 +23,11 @@ top_clearance = 0.0
 [chrome]
 stroke_gray = 0.12
 fill_gray = 0.12
+
+[footnote]
+max_band = 72.0
+marker_scale = 0.7
+rule_thickness = 0.4
+size_factor = 0.8
+leading_factor = 1.15
+gap_before_rule = 4.0

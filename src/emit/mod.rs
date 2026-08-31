@@ -7,6 +7,7 @@
 
 mod layout;
 mod math;
+mod notes;
 mod outline;
 mod paginate;
 mod paint;
@@ -29,10 +30,10 @@ use crate::profile::{self, ProfileMetrics};
 use crate::resolve_fonts::build_font_bag;
 
 use layout::collect_layout;
-use paginate::paginate_items;
+use paginate::{paginate_items, running_headings};
 use pdf_write::{
-    WritePagesArgs, alloc_image_refs, alloc_page_refs, embed_fonts, prepare_subsets, remap_pages,
-    write_image_xobjects,
+    WritePagesArgs, alloc_image_refs, alloc_page_refs, embed_fonts, prepare_subsets, remap_items,
+    remap_pages, write_image_xobjects,
 };
 use types::{LaidItem, LayoutDoc};
 
@@ -74,11 +75,12 @@ pub fn emit_pdf_with(doc: &PrintDocument, opts: &EmitOptions) -> Result<Vec<u8>,
 
     let mut work = doc.clone();
     if needs_toc_page_resolve(&work) {
-        let (segments, _images, _glyph_sets) = collect_layout(&work, &metrics, &fonts, &layout)?;
+        let (segments, _images, _glyph_sets, notes) =
+            collect_layout(&work, &metrics, &fonts, &layout)?;
         let pages = paginate_items(
             &segments,
             metrics.content_height(),
-            layout.page.chrome_reserve(),
+            layout.page.chrome_reserve() + layout.page.footnote_reserve(notes.has_footnote_defs()),
         );
         let dest_pages = collect_dest_pages(&pages);
         fill_toc_page_labels(&mut work, &dest_pages);
@@ -137,26 +139,33 @@ fn emit_laid_pdf(
     metrics: &ProfileMetrics,
     layout: &LayoutKnobs,
 ) -> Result<Vec<u8>, WeaveError> {
-    let (segments, images, mut glyph_sets): LayoutDoc =
+    let (segments, images, mut glyph_sets, mut notes): LayoutDoc =
         collect_layout(doc, metrics, fonts, layout)?;
 
     let chrome_face = FaceRef::Bundled(FaceId::SansRegular);
     let mut pages = paginate_items(
         &segments,
         metrics.content_height(),
-        layout.page.chrome_reserve(),
+        layout.page.chrome_reserve() + layout.page.footnote_reserve(notes.has_footnote_defs()),
     );
 
-    // Glyphs for every expanded chrome string (page digits + title + literals).
+    // Glyphs for every expanded chrome string (page digits + title + heading).
     let page_count = pages.len().max(1);
     let title = doc.meta.title.as_str();
+    let headings = running_headings(&pages);
     for page_no in 1..=page_count {
+        let heading = headings.get(page_no - 1).map_or("", String::as_str);
         for band in layout.page.bands() {
             if !band.enabled() {
                 continue;
             }
-            let text =
-                crate::knobs::expand_chrome_format(band.format(), page_no, page_count, title);
+            let text = crate::knobs::expand_chrome_format(
+                band.format(),
+                page_no,
+                page_count,
+                title,
+                heading,
+            );
             collect_glyph_set(
                 fonts,
                 chrome_face,
@@ -171,6 +180,9 @@ fn emit_laid_pdf(
 
     let subsets = prepare_subsets(fonts, &glyph_sets)?;
     remap_pages(&mut pages, &subsets);
+    for items in notes.laid_footnotes.values_mut() {
+        remap_items(items, &subsets);
+    }
 
     let mut pdf = Pdf::new();
     pdf.set_version(1, 7);
@@ -208,7 +220,9 @@ fn emit_laid_pdf(
         subsets: &subsets,
         knobs: layout,
         title,
+        headings: &headings,
         dest_pages: &dest_pages,
+        notes: &notes,
         next_id: &mut next_id,
     }
     .run()?;

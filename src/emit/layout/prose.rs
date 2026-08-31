@@ -51,15 +51,22 @@ pub(super) fn layout_heading(
             text_align: TextAlign::Left,
         },
     )?;
-    if let Some(id) = dest_id {
-        // Tag the first content line so pagination can map dest → page.
-        for item in &mut seg.1[start..] {
-            if let LaidItem::Text(line) = item
-                && !line.is_gap()
-            {
+    // Tag the first content line so pagination can map dest → page, and so
+    // page chrome can expand `{heading}` (H1/H2 only; THI-409).
+    let chrome = (level <= 2).then(|| {
+        let t: String = runs.iter().map(|r| r.text.as_str()).collect();
+        t.trim().to_string()
+    });
+    let chrome = chrome.filter(|t| !t.is_empty());
+    for item in &mut seg.1[start..] {
+        if let LaidItem::Text(line) = item
+            && !line.is_gap()
+        {
+            if let Some(id) = dest_id {
                 line.dest_id = Some(id.to_owned());
-                break;
             }
+            line.chrome_heading = chrome;
+            break;
         }
     }
     Ok(())
@@ -80,19 +87,12 @@ pub(super) struct TocEntryParts<'a> {
 
 pub(super) fn push_toc_entry(
     out: &mut Vec<LaidItem>,
-    parts: TocEntryParts<'_>,
+    parts: &TocEntryParts<'_>,
     ctx: &mut LayoutCtx,
 ) -> Result<(), WeaveError> {
-    let TocEntryParts {
-        title,
-        page_label,
-        dest_id,
-        indent,
-        leaders,
-    } = parts;
     let nest_step = ctx.knobs.prose.list.indent_per_depth.max(12.0);
     #[allow(clippy::cast_precision_loss)]
-    let nest = nest_step * indent as f32;
+    let nest = nest_step * parts.indent as f32;
     let leading = ctx.metrics.body_leading;
     let content_w = ctx.metrics.content_width();
     let font_size = ctx.metrics.body_size;
@@ -105,8 +105,8 @@ pub(super) fn push_toc_entry(
         fill,
     };
 
-    let (title_spans, title_w) = shape.shape_title(title, dest_id)?;
-    let (page_spans, page_slot) = shape.shape_page_column(page_label, dest_id)?;
+    let (title_spans, title_w) = shape.shape_title(parts.title, parts.dest_id)?;
+    let (page_spans, page_slot) = shape.shape_page_column(parts.page_label, parts.dest_id)?;
 
     let left_w = if page_slot > 0.0 {
         (content_w - col_gap - page_slot).max(shape.ctx.knobs.prose.wrap.min_width)
@@ -114,7 +114,7 @@ pub(super) fn push_toc_entry(
         content_w
     };
     let title_measure = (left_w - nest).max(shape.ctx.knobs.prose.wrap.min_width);
-    let left_spans = shape.extend_leaders(title_spans, title_w, title_measure, leaders)?;
+    let left_spans = shape.extend_leaders(title_spans, title_w, title_measure, parts.leaders)?;
 
     let left_line = LaidLine {
         spans: left_spans,
@@ -124,6 +124,7 @@ pub(super) fn push_toc_entry(
         measure: title_measure,
         text_align: TextAlign::Left,
         dest_id: None,
+        chrome_heading: None,
     };
 
     if page_slot <= 0.0 {
@@ -142,6 +143,7 @@ pub(super) fn push_toc_entry(
         measure: page_slot,
         text_align: TextAlign::Right,
         dest_id: None,
+        chrome_heading: None,
     };
 
     out.push(LaidItem::Columns(LaidColumns {
@@ -189,6 +191,7 @@ impl TocShape<'_, '_> {
                 link_uri: None,
                 link_dest,
                 baseline_shift: 0.0,
+                note_id: None,
             })?;
             title_spans.extend(run_spans);
             title_w += w;
@@ -221,6 +224,7 @@ impl TocShape<'_, '_> {
             link_uri: None,
             link_dest: dest_id,
             baseline_shift: 0.0,
+            note_id: None,
         })?;
         let (_, two_w) = shape_and_record_spans(ShapeSpans {
             fonts: self.ctx.fonts,
@@ -233,6 +237,7 @@ impl TocShape<'_, '_> {
             link_uri: None,
             link_dest: None,
             baseline_shift: 0.0,
+            note_id: None,
         })?;
         Ok((page_spans, page_w.max(two_w)))
     }
@@ -260,6 +265,7 @@ impl TocShape<'_, '_> {
             link_uri: None,
             link_dest: None,
             baseline_shift: 0.0,
+            note_id: None,
         })?;
         if unit_w > 0.0 {
             let n = (gap / unit_w).floor() as usize;
@@ -306,6 +312,7 @@ fn emphasized_quote_mark() -> TextRun {
         },
         face: None,
         link_uri: None,
+        note_id: None,
     }
 }
 
@@ -356,6 +363,7 @@ pub(super) fn push_list_lines(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn push_one_list_item(
     out: &mut Vec<LaidItem>,
     ordered: bool,
@@ -366,7 +374,66 @@ fn push_one_list_item(
     text_align: TextAlign,
     ctx: &mut LayoutCtx,
 ) -> Result<(), WeaveError> {
-    let marker = if ordered {
+    let marker = shape_list_marker(ordered, index, band_indent, depth, ctx)?;
+    let gutter = ctx.knobs.prose.list.end_gutter.max(0.0);
+    let max_width = (ctx.metrics.content_width() - marker.body_indent - gutter)
+        .max(ctx.knobs.prose.wrap.min_width);
+
+    let start = out.len();
+    let marker_run = TextRun::plain(marker.text.clone());
+    let body_runs = if item.runs.is_empty() {
+        // Marker-only item (rare): still emit the bullet on the first line.
+        std::slice::from_ref(&marker_run)
+    } else {
+        item.runs.as_slice()
+    };
+    push_styled_runs(
+        out,
+        body_runs,
+        ctx,
+        RunLayout {
+            font_size: marker.font_size,
+            leading: marker.leading,
+            gap_after: 0.0,
+            glue_last_content: false,
+            mode: FaceMode::Body,
+            indent: marker.body_indent,
+            max_width: Some(max_width),
+            paint: PaintCategory::Text,
+            hard_break_overflow: true,
+            text_align,
+        },
+    )?;
+    prepend_list_marker(
+        out,
+        start,
+        item,
+        marker.spans,
+        marker.base_indent,
+        marker.width,
+        max_width,
+    );
+    push_nested_list_children(out, item, band_indent, depth, text_align, ctx)
+}
+
+struct ListMarkerGeom {
+    text: String,
+    spans: Vec<LaidSpan>,
+    width: f32,
+    font_size: f32,
+    leading: f32,
+    base_indent: f32,
+    body_indent: f32,
+}
+
+fn shape_list_marker(
+    ordered: bool,
+    index: usize,
+    band_indent: u32,
+    depth: usize,
+    ctx: &mut LayoutCtx,
+) -> Result<ListMarkerGeom, WeaveError> {
+    let text = if ordered {
         format!("{}. ", index + 1)
     } else {
         "• ".into()
@@ -376,12 +443,11 @@ fn push_one_list_item(
     let base_indent = ctx.knobs.prose.indent.pts(band_indent) + nest;
     let font_size = ctx.metrics.body_size;
     let leading = if ctx.metrics.dense_headings {
-        // Keep list wraps on the same baseline grid as body prose.
         ctx.metrics.body_leading
     } else {
         font_size * ctx.knobs.prose.list.item_leading_factor
     };
-    let marker_run = TextRun::plain(marker.clone());
+    let marker_run = TextRun::plain(text.clone());
     let face = resolve_run_face(
         &marker_run,
         ctx.metrics,
@@ -394,10 +460,10 @@ fn push_one_list_item(
         .knobs
         .prose
         .run_paint_rgb01(false, PaintCategory::Text, false);
-    let (marker_spans, marker_w) = shape_and_record_spans(ShapeSpans {
+    let (spans, width) = shape_and_record_spans(ShapeSpans {
         fonts: ctx.fonts,
         face,
-        text: &marker,
+        text: &text,
         font_size,
         glyph_sets: ctx.glyph_sets,
         fill,
@@ -405,47 +471,27 @@ fn push_one_list_item(
         link_uri: None,
         link_dest: None,
         baseline_shift: 0.0,
+        note_id: None,
     })?;
-    // Hanging width = real shaped marker (no inflated floor — that pushed wraps
-    // right of the first-line text after a narrower bullet).
-    let body_indent = base_indent + marker_w;
-    let gutter = ctx.knobs.prose.list.end_gutter.max(0.0);
-    let max_width =
-        (ctx.metrics.content_width() - body_indent - gutter).max(ctx.knobs.prose.wrap.min_width);
-
-    let start = out.len();
-    let body_runs = if item.runs.is_empty() {
-        // Marker-only item (rare): still emit the bullet on the first line.
-        std::slice::from_ref(&marker_run)
-    } else {
-        item.runs.as_slice()
-    };
-    push_styled_runs(
-        out,
-        body_runs,
-        ctx,
-        RunLayout {
-            font_size,
-            leading,
-            gap_after: 0.0,
-            glue_last_content: false,
-            mode: FaceMode::Body,
-            indent: body_indent,
-            max_width: Some(max_width),
-            paint: PaintCategory::Text,
-            hard_break_overflow: true,
-            text_align,
-        },
-    )?;
-    prepend_list_marker(
-        out,
-        start,
-        item,
-        marker_spans,
+    Ok(ListMarkerGeom {
+        text,
+        spans,
+        width,
+        font_size,
+        leading,
         base_indent,
-        marker_w,
-        max_width,
-    );
+        body_indent: base_indent + width,
+    })
+}
+
+fn push_nested_list_children(
+    out: &mut Vec<LaidItem>,
+    item: &crate::ir::ListItem,
+    band_indent: u32,
+    depth: usize,
+    text_align: TextAlign,
+    ctx: &mut LayoutCtx,
+) -> Result<(), WeaveError> {
     for child in &item.children {
         match child {
             PrintBlock::List {
@@ -454,20 +500,18 @@ fn push_one_list_item(
                 indent: child_indent,
                 text_align: child_align,
             } => {
-                // Nested lists keep the parent's band unless explicitly set.
                 let band = if *child_indent > 0 {
                     *child_indent
                 } else {
                     band_indent
                 };
-                let child_align = child_align.unwrap_or(text_align);
                 push_list_lines(
                     out,
                     *child_ordered,
                     child_items,
                     band,
                     depth + 1,
-                    child_align,
+                    child_align.unwrap_or(text_align),
                     ctx,
                 )?;
             }
