@@ -4,9 +4,10 @@ use crate::error::WeaveError;
 use crate::font::FontBag;
 use crate::image_prep::PreparedImage;
 use crate::ir::PrintBlock;
-use crate::knobs::LayoutKnobs;
+use crate::knobs::{LayoutKnobs, TextAlign};
 use crate::profile::ProfileMetrics;
 
+use super::super::notes::NoteBook;
 use super::super::types::{ForcedBreak, GlyphSets, LaidColumns, LaidItem, LaidLine, LayoutSegment};
 use super::layout_block;
 
@@ -15,12 +16,14 @@ pub(super) struct LayoutColumnsArgs<'a> {
     pub count: u8,
     pub gap: Option<u16>,
     pub children: &'a [PrintBlock],
+    pub inherit_align: Option<TextAlign>,
     pub metrics: &'a ProfileMetrics,
     pub fonts: &'a FontBag,
     pub knobs: &'a LayoutKnobs,
     pub segments: &'a mut Vec<LayoutSegment>,
     pub images: &'a mut Vec<PreparedImage>,
     pub glyph_sets: &'a mut GlyphSets,
+    pub notes: &'a mut NoteBook,
 }
 
 /// True when a child must span full measure (flush column band first).
@@ -39,6 +42,7 @@ fn spans_full_measure(block: &PrintBlock) -> bool {
         | PrintBlock::Slide { .. }
         | PrintBlock::Layout { .. }
         | PrintBlock::Columns { .. }
+        | PrintBlock::Note { .. }
         | PrintBlock::Break(_) => true,
     }
 }
@@ -49,12 +53,14 @@ pub(super) fn layout_columns(args: LayoutColumnsArgs<'_>) -> Result<(), WeaveErr
         count,
         gap,
         children,
+        inherit_align,
         metrics,
         fonts,
         knobs,
         segments,
         images,
         glyph_sets,
+        notes,
     } = args;
 
     let n = usize::from(count.clamp(2, 6));
@@ -63,7 +69,10 @@ pub(super) fn layout_columns(args: LayoutColumnsArgs<'_>) -> Result<(), WeaveErr
     let col_w = ((full_w - (n.saturating_sub(1) as f32) * gap_pt) / n as f32)
         .max(knobs.prose.wrap.min_width);
     // Match paginate usable height so each full band fills one page.
-    let max_h = (metrics.content_height() - knobs.page.chrome_reserve()).max(72.0);
+    let max_h = (metrics.content_height()
+        - knobs.page.chrome_reserve()
+        - knobs.page.footnote_reserve(notes.has_footnote_defs()))
+    .max(72.0);
 
     // Narrow measure via faked page width so existing wrap paths use col_w.
     let mut col_metrics = *metrics;
@@ -74,7 +83,17 @@ pub(super) fn layout_columns(args: LayoutColumnsArgs<'_>) -> Result<(), WeaveErr
     for child in children {
         if spans_full_measure(child) {
             flush_flow_bands(&mut flow, n, gap_pt, col_w, max_h, segments);
-            layout_block(child, metrics, fonts, knobs, segments, images, glyph_sets)?;
+            layout_block(
+                child,
+                metrics,
+                fonts,
+                knobs,
+                segments,
+                images,
+                glyph_sets,
+                notes,
+                inherit_align,
+            )?;
         } else {
             let mut temp: Vec<LayoutSegment> = vec![(ForcedBreak::None, Vec::new())];
             layout_block(
@@ -85,6 +104,8 @@ pub(super) fn layout_columns(args: LayoutColumnsArgs<'_>) -> Result<(), WeaveErr
                 &mut temp,
                 images,
                 glyph_sets,
+                notes,
+                inherit_align,
             )?;
             for (forced, items) in temp {
                 if matches!(forced, ForcedBreak::Always) && !flow.is_empty() {

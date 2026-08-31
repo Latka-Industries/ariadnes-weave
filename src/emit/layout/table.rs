@@ -122,6 +122,7 @@ fn wrap_plain_text(
             link_uri: None,
             link_dest: None,
             baseline_shift: 0.0,
+            note_id: None,
         })?;
         if current_width + w > max_width && !current.is_empty() {
             lines.push(LaidLine::wrapped(
@@ -147,6 +148,7 @@ fn wrap_plain_text(
                     link_uri: None,
                     link_dest: None,
                     baseline_shift: 0.0,
+                    note_id: None,
                 })?;
                 lines.push(LaidLine::wrapped(spans, leading, max_width));
             }

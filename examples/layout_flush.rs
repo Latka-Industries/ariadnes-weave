@@ -28,6 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain("Before layout chunk.")],
                 indent: 0,
+                text_align: None,
             },
             PrintBlock::Layout {
                 ops: vec![
@@ -48,6 +49,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain("After layout chunk.")],
                 indent: 0,
+                text_align: None,
             },
         ],
     };

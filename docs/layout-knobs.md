@@ -38,7 +38,12 @@ Per-run underline also paints when `InlineStyle.underline` is set (independent o
 |-----|---------|
 | `[paragraph].text_align` | Body `Paragraph` runs: `left` / `center` / `right` / `justify` (bundled `left`) |
 
-Same paint rules as figure in-band justify (last soft-wrapped line stays flush-left). Lists / quotes stay left unless they gain their own knobs.
+Pack default only. A block may set `PrintBlock::Paragraph.text_align` (or a
+`Columns` region default) to override; `None` uses this knob (THI-398).
+Lists inherit the same resolution; quotes stay left unless a block/region sets
+align.
+
+Same paint rules as figure in-band justify (last soft-wrapped line stays flush-left).
 
 Figure vertical stack:
 
@@ -133,7 +138,12 @@ Newspaper / article continuous columns for `PrintBlock::Columns` (THI-391). Dist
 |-----|---------|
 | `gap` | Space between columns in points (bundled `18`) |
 
-Column count and optional per-block `gap` live on the IR (`Columns { count, gap, children }`). Headings, figures, tables, math, breaks, rows, TOC lines, and nested columns **span** full measure (flush the current band). Body paragraphs/lists/quotes/code flow down each column; paragraph `[paragraph].text_align` (including `justify`) applies inside column bands.
+Column count, optional per-block `gap`, and optional `text_align` live on the IR
+(`Columns { count, gap, children, text_align }`). Headings, figures, tables,
+math, breaks, rows, TOC lines, and nested columns **span** full measure (flush
+the current band). Body paragraphs/lists/quotes/code flow down each column.
+Child `text_align` wins; else the columns region default; else pack
+`[paragraph].text_align`.
 
 ## TOC / destinations / outline
 
@@ -156,8 +166,9 @@ Optional running header + page-number footer (THI-392). Tokens in `format`:
 | `{page}` | 1-based page index |
 | `{pages}` | total page count |
 | `{title}` | `PrintMeta.title` (empty if unset) |
+| `{heading}` | Last H1 or H2 whose first line is on this page or an earlier page (empty before the first such heading). H3+ do not change the running head. |
 
-`{heading}` / live section titles are deferred (need layout tracking).
+`{chapter}` as a separate numbering system is out of scope (reuse heading text).
 
 | Key | Meaning |
 |-----|---------|
@@ -169,6 +180,14 @@ Optional running header + page-number footer (THI-392). Tokens in `format`:
 | `[content].bottom_clearance` | Reserve above bottom margin when footer is on |
 | `[content].top_clearance` | Reserve below top margin when header is on |
 | `[chrome].stroke_gray` / `fill_gray` | Rules + math chrome gray |
+| `[footnote].max_band` | Reserved height above footer for footnote bodies (bundled `72`; 0 when the doc has no footnotes) |
+| `[footnote].marker_scale` | Superscript marker size vs surrounding run (bundled `0.7`) |
+| `[footnote].rule_thickness` | Hairline above the footnote band (bundled `0.4`) |
+| `[footnote].size_factor` | Note body size vs profile body (bundled `0.8`) |
+| `[footnote].leading_factor` | Note line leading vs note size (bundled `1.15`) |
+| `[footnote].gap_before_rule` | Gap from rule to first note line (bundled `4`) |
+
+Bottom-of-page precedence: body content → footnote band → footer chrome → margin. Footnotes that do not fit `max_band` carry to the next page (simple split; no TeX multipass). Endnotes dump after the last body block as a “Notes” heading plus numbered paragraphs.
 
 ## Defaults and overrides
 

@@ -43,6 +43,7 @@ fn para(text: &str) -> PrintBlock {
     PrintBlock::Paragraph {
         runs: vec![TextRun::plain(text)],
         indent: 0,
+        text_align: None,
     }
 }
 

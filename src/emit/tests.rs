@@ -5,7 +5,7 @@ use super::{emit_pdf, emit_pdf_with};
 use crate::error::WeaveError;
 use crate::font::{FaceId, FaceRef, FontBag, shape_text, shaped_width};
 use crate::ir::{
-    BreakHint, EmAmount, FigurePlacement, InlineStyle, LayoutOp, MeasureFrac, PlaceSkip,
+    BreakHint, EmAmount, FigurePlacement, InlineStyle, LayoutOp, MeasureFrac, NoteKind, PlaceSkip,
     PrintBlock, PrintDocument, PrintImage, PrintMeta, PrintProfileId, RuleWidth,
     SlideRegionContent, TableRow, TextRun, VspaceAmount,
 };
@@ -39,6 +39,7 @@ fn hello_doc() -> PrintDocument {
                     style: InlineStyle::default(),
                     face: None,
                     link_uri: None,
+                    note_id: None,
                 }],
                 break_before: BreakHint::None,
                 dest_id: None,
@@ -48,6 +49,7 @@ fn hello_doc() -> PrintDocument {
                     "Owned print IR to PDF with Liberation Sans + rustybuzz.",
                 )],
                 indent: 0,
+                text_align: None,
             },
         ],
     }
@@ -138,6 +140,146 @@ fn page_chrome_format_and_header_affect_emit() {
 }
 
 #[test]
+fn live_heading_chrome_token_tracks_h1() {
+    let blocks = vec![
+        PrintBlock::heading(1, vec![TextRun::plain("Alpha")], BreakHint::None),
+        PrintBlock::Paragraph {
+            runs: vec![TextRun::plain("First section body.")],
+            indent: 0,
+            text_align: None,
+        },
+        PrintBlock::heading(1, vec![TextRun::plain("Beta")], BreakHint::None),
+        PrintBlock::Paragraph {
+            runs: vec![TextRun::plain("Second section body.")],
+            indent: 0,
+            text_align: None,
+        },
+    ];
+    let mut alpha_beta = note_doc("DocTitle", blocks);
+    alpha_beta.profile = PrintProfileId::manuscript_v0();
+
+    let with_heading = emit_with_layout_tweak(&alpha_beta, |layout| {
+        layout.page.header.enabled = true;
+        layout.page.header.format = "{heading}".into();
+        layout.page.content.top_clearance = 18.0;
+        layout.page.footer.enabled = false;
+    });
+    let with_title = emit_with_layout_tweak(&alpha_beta, |layout| {
+        layout.page.header.enabled = true;
+        layout.page.header.format = "{title}".into();
+        layout.page.content.top_clearance = 18.0;
+        layout.page.footer.enabled = false;
+    });
+    assert_ne!(
+        with_heading, with_title,
+        "{{heading}} chrome should differ from {{title}}"
+    );
+
+    let mut gamma = alpha_beta.clone();
+    if let PrintBlock::Heading { runs, .. } = &mut gamma.blocks[2] {
+        runs[0].text = "Gamma".into();
+    }
+    let gamma_pdf = emit_with_layout_tweak(&gamma, |layout| {
+        layout.page.header.enabled = true;
+        layout.page.header.format = "{heading}".into();
+        layout.page.content.top_clearance = 18.0;
+        layout.page.footer.enabled = false;
+    });
+    assert_ne!(
+        with_heading, gamma_pdf,
+        "page-2 running head should follow the live H1"
+    );
+    write_tmp_sample("heading_chrome.pdf", &with_heading);
+}
+
+#[test]
+fn footnote_marker_and_body_emit() {
+    let with_note = note_doc(
+        "Notes",
+        vec![
+            PrintBlock::paragraph(vec![TextRun::plain("See the appendix").with_note("n1")]),
+            PrintBlock::note(
+                "n1",
+                NoteKind::Footnote,
+                vec![TextRun::plain("A short clarification.")],
+            ),
+        ],
+    );
+    let pdf = emit_pdf(&with_note).expect("footnote pdf");
+    assert!(pdf.starts_with(b"%PDF"), "valid pdf");
+    let without = note_doc(
+        "Notes",
+        vec![PrintBlock::paragraph(vec![TextRun::plain(
+            "See the appendix",
+        )])],
+    );
+    let plain = emit_pdf(&without).expect("plain pdf");
+    assert_ne!(pdf, plain, "footnote band should change the page stream");
+    write_tmp_sample("footnote_short.pdf", &pdf);
+}
+
+#[test]
+fn endnote_dumps_after_body() {
+    let doc = note_doc(
+        "Endnotes",
+        vec![
+            PrintBlock::paragraph(vec![
+                TextRun::plain("Body cites an endnote").with_note("e1"),
+            ]),
+            PrintBlock::note(
+                "e1",
+                NoteKind::Endnote,
+                vec![TextRun::plain("Dumped at the end.")],
+            ),
+        ],
+    );
+    let pdf = emit_pdf(&doc).expect("endnote pdf");
+    assert!(pdf.starts_with(b"%PDF"));
+    write_tmp_sample("endnote.pdf", &pdf);
+}
+
+#[test]
+fn footnote_overflow_still_emits() {
+    let long = "Overflow note. ".repeat(80);
+    let doc = note_doc(
+        "Overflow",
+        vec![
+            PrintBlock::paragraph(vec![TextRun::plain("Callout.").with_note("big")]),
+            PrintBlock::note("big", NoteKind::Footnote, vec![TextRun::plain(long)]),
+        ],
+    );
+    let pdf = emit_with_layout_tweak(&doc, |layout| {
+        layout.page.footnote.max_band = 36.0;
+        layout.page.footer.enabled = true;
+    });
+    assert!(pdf.starts_with(b"%PDF"));
+    write_tmp_sample("footnote_overflow.pdf", &pdf);
+}
+
+#[test]
+fn footnote_band_and_footer_coexist() {
+    let doc = note_doc(
+        "Chrome",
+        vec![
+            PrintBlock::paragraph(vec![TextRun::plain("Hello").with_note("n1")]),
+            PrintBlock::note("n1", NoteKind::Footnote, vec![TextRun::plain("Note body.")]),
+        ],
+    );
+    let with_footer = emit_with_layout_tweak(&doc, |layout| {
+        layout.page.footer.enabled = true;
+        layout.page.header.enabled = false;
+    });
+    let no_footer = emit_with_layout_tweak(&doc, |layout| {
+        layout.page.footer.enabled = false;
+        layout.page.header.enabled = false;
+    });
+    assert_ne!(
+        with_footer, no_footer,
+        "footer chrome should still paint beside the footnote band"
+    );
+}
+
+#[test]
 fn resume_densify_disables_page_chrome() {
     let mut doc = hello_doc();
     doc.profile = PrintProfileId::resume_v0();
@@ -163,6 +305,7 @@ fn hyphenate_changes_narrow_emit() {
         vec![PrintBlock::Paragraph {
             runs: vec![TextRun::plain(long)],
             indent: 6,
+            text_align: None,
         }],
     );
     let on = emit_with_layout_tweak(&doc, |layout| {
@@ -209,6 +352,7 @@ fn prose_word_spacing_is_wider_than_glued_words() {
         blocks: vec![PrintBlock::Paragraph {
             runs: vec![TextRun::plain("Hello world from weave")],
             indent: 0,
+            text_align: None,
         }],
     };
     let bytes = emit_pdf(&doc).expect("emit");
@@ -240,6 +384,7 @@ fn pinned_face_from_emit_options() {
         blocks: vec![PrintBlock::Paragraph {
             runs: vec![TextRun::pinned("Pinned mono run", "mono")],
             indent: 0,
+            text_align: None,
         }],
     };
     let bytes = emit_pdf_with(&doc, &opts).expect("emit pinned");
@@ -261,6 +406,7 @@ fn unknown_pinned_face_errors() {
         blocks: vec![PrintBlock::Paragraph {
             runs: vec![TextRun::pinned("x", "no-such-face")],
             indent: 0,
+            text_align: None,
         }],
     };
     let err = emit_pdf_with(&doc, &EmitOptions::default()).expect_err("unknown pin");
@@ -385,8 +531,10 @@ fn category_cite_font_pin() {
                 },
                 face: None,
                 link_uri: None,
+                note_id: None,
             }],
             indent: 0,
+            text_align: None,
         }],
     };
     let bytes = emit_pdf_with(&doc, &opts).expect("cite category font");
@@ -408,6 +556,7 @@ fn unknown_category_font_errors() {
         blocks: vec![PrintBlock::Paragraph {
             runs: vec![TextRun::plain("x")],
             indent: 0,
+            text_align: None,
         }],
     };
     let err = emit_pdf_with(&doc, &EmitOptions::bundled_only().with_layout(layout))
@@ -431,6 +580,7 @@ fn os_with_fallback_requires_feature() {
         blocks: vec![PrintBlock::Paragraph {
             runs: vec![TextRun::plain("hi")],
             indent: 0,
+            text_align: None,
         }],
     };
     let err = emit_pdf_with(&doc, &EmitOptions::os_with_fallback());
@@ -465,6 +615,7 @@ fn os_missing_family_falls_back_to_liberation() {
                 "DefinitelyNotARealFontFamily_ariadnes_weave_311",
             )],
             indent: 0,
+            text_align: None,
         }],
     };
     let bytes = emit_pdf_with(&doc, &EmitOptions::os_with_fallback()).expect("fallback emit");
@@ -496,6 +647,7 @@ fn hard_breaks_overlong_token() {
         blocks: vec![PrintBlock::Paragraph {
             runs: vec![TextRun::plain(long)],
             indent: 0,
+            text_align: None,
         }],
     };
     let bytes = emit_pdf(&doc).expect("emit overlong");
@@ -549,9 +701,11 @@ fn styled_runs_embed_bold_font() {
                 },
                 face: None,
                 link_uri: None,
+                note_id: None,
             },
         ],
         indent: 0,
+        text_align: None,
     });
     let bytes = emit_pdf(&doc).expect("emit");
     let s = String::from_utf8_lossy(&bytes);
@@ -572,6 +726,7 @@ fn emits_unicode_em_dash() {
         blocks: vec![PrintBlock::Paragraph {
             runs: vec![TextRun::plain("alpha — omega")],
             indent: 0,
+            text_align: None,
         }],
     };
     let bytes = emit_pdf(&doc).expect("emit unicode");
@@ -668,6 +823,7 @@ fn accepts_resume_v0_us_letter_mediabox() {
         blocks: vec![PrintBlock::Paragraph {
             runs: vec![TextRun::plain("Dense body.")],
             indent: 0,
+            text_align: None,
         }],
     };
     doc.profile = PrintProfileId::resume_v0();
@@ -694,6 +850,7 @@ fn slide_emits_own_page() {
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain("Before slides.")],
                 indent: 0,
+                text_align: None,
             },
             PrintBlock::Slide {
                 layout_id: "title-body".into(),
@@ -718,6 +875,7 @@ fn slide_emits_own_page() {
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain("After slides.")],
                 indent: 0,
+                text_align: None,
             },
         ],
     };
@@ -750,6 +908,7 @@ fn manuscript_emphasis_uses_serif_italic() {
                     },
                     face: None,
                     link_uri: None,
+                    note_id: None,
                 },
                 TextRun::plain(" "),
                 TextRun {
@@ -760,9 +919,11 @@ fn manuscript_emphasis_uses_serif_italic() {
                     },
                     face: None,
                     link_uri: None,
+                    note_id: None,
                 },
             ],
             indent: 0,
+            text_align: None,
         }],
     };
     let bytes = emit_pdf(&doc).expect("emit");
@@ -807,6 +968,7 @@ fn quote_only_doc(body: &str) -> PrintDocument {
         profile: PrintProfileId::print_v0(),
         blocks: vec![PrintBlock::Quote {
             runs: vec![TextRun::plain(body)],
+            text_align: None,
         }],
     }
 }
@@ -837,9 +999,11 @@ fn aesthetic_colors_and_cite_underline_affect_emit() {
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain("Body text.")],
                 indent: 0,
+                text_align: None,
             },
             PrintBlock::Quote {
                 runs: vec![TextRun::plain("Quoted.")],
+                text_align: None,
             },
             PrintBlock::Paragraph {
                 runs: vec![TextRun {
@@ -850,8 +1014,10 @@ fn aesthetic_colors_and_cite_underline_affect_emit() {
                     },
                     face: None,
                     link_uri: None,
+                    note_id: None,
                 }],
                 indent: 0,
+                text_align: None,
             },
         ],
     };
@@ -1113,6 +1279,7 @@ fn paragraph_text_align_affects_emit() {
         vec![PrintBlock::Paragraph {
             runs: vec![TextRun::plain(lorem)],
             indent: 0,
+            text_align: None,
         }],
     );
 
@@ -1131,6 +1298,107 @@ fn paragraph_text_align_affects_emit() {
     assert_ne!(left, center, "paragraph center should differ from left");
     assert_ne!(left, right, "paragraph right should differ from left");
     assert_ne!(left, justify, "paragraph justify should differ from left");
+}
+
+#[test]
+fn paragraph_block_text_align_overrides_pack_knob() {
+    let lorem = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod \
+         tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, \
+         quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo \
+         consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse \
+         cillum dolore eu fugiat nulla pariatur.";
+    let pack_left = note_doc(
+        "Block override",
+        vec![PrintBlock::paragraph(vec![TextRun::plain(lorem)])],
+    );
+    let block_justify = note_doc(
+        "Block override",
+        vec![PrintBlock::paragraph_align(
+            vec![TextRun::plain(lorem)],
+            0,
+            Some(TextAlign::Justify),
+        )],
+    );
+    let left = emit_with_layout_tweak(&pack_left, |layout| {
+        layout.prose.paragraph.text_align = TextAlign::Left;
+    });
+    let overridden = emit_with_layout_tweak(&block_justify, |layout| {
+        layout.prose.paragraph.text_align = TextAlign::Left;
+    });
+    assert_ne!(
+        left, overridden,
+        "per-block justify must differ from pack-left even when knobs stay left"
+    );
+}
+
+#[test]
+fn columns_region_text_align_applies_to_children() {
+    let lorem = "Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor \
+         incididunt ut labore et dolore magna aliqua ut enim ad minim veniam quis nostrud.";
+    let children = vec![
+        PrintBlock::paragraph(vec![TextRun::plain(lorem)]),
+        PrintBlock::paragraph(vec![TextRun::plain(lorem)]),
+    ];
+    let pack = PrintDocument {
+        meta: PrintMeta {
+            title: "Cols inherit".into(),
+            doc_kind: "document".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::columns(2, Some(12), children.clone())],
+    };
+    let region = PrintDocument {
+        meta: pack.meta.clone(),
+        profile: pack.profile.clone(),
+        blocks: vec![PrintBlock::columns_align(
+            2,
+            Some(12),
+            children,
+            Some(TextAlign::Justify),
+        )],
+    };
+    let left = emit_with_layout_tweak(&pack, |layout| {
+        layout.prose.paragraph.text_align = TextAlign::Left;
+    });
+    let inherited = emit_with_layout_tweak(&region, |layout| {
+        layout.prose.paragraph.text_align = TextAlign::Left;
+    });
+    assert_ne!(
+        left, inherited,
+        "columns text_align=justify should justify children when pack is left"
+    );
+}
+
+#[test]
+fn mixed_block_align_in_one_document() {
+    let lorem = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod \
+         tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam.";
+    let mixed = note_doc(
+        "Mixed align",
+        vec![
+            PrintBlock::paragraph_align(vec![TextRun::plain(lorem)], 0, Some(TextAlign::Left)),
+            PrintBlock::paragraph_align(vec![TextRun::plain(lorem)], 0, Some(TextAlign::Justify)),
+        ],
+    );
+    let all_left = note_doc(
+        "Mixed align",
+        vec![
+            PrintBlock::paragraph_align(vec![TextRun::plain(lorem)], 0, Some(TextAlign::Left)),
+            PrintBlock::paragraph_align(vec![TextRun::plain(lorem)], 0, Some(TextAlign::Left)),
+        ],
+    );
+    let mixed_pdf = emit_with_layout_tweak(&mixed, |layout| {
+        layout.prose.paragraph.text_align = TextAlign::Left;
+    });
+    let left_pdf = emit_with_layout_tweak(&all_left, |layout| {
+        layout.prose.paragraph.text_align = TextAlign::Left;
+    });
+    assert_ne!(
+        mixed_pdf, left_pdf,
+        "one flush-left + one justified paragraph must differ from two flush-left"
+    );
 }
 
 #[test]
@@ -1184,6 +1452,7 @@ fn inline_style_underline_without_cite() {
         blocks: vec![PrintBlock::Paragraph {
             runs: vec![TextRun::plain("No underline.")],
             indent: 0,
+            text_align: None,
         }],
     };
     let underlined = PrintDocument {
@@ -1198,8 +1467,10 @@ fn inline_style_underline_without_cite() {
                 },
                 face: None,
                 link_uri: None,
+                note_id: None,
             }],
             indent: 0,
+            text_align: None,
         }],
     };
 
@@ -1236,6 +1507,7 @@ fn link_uri_emits_pdf_uri_annotation() {
                 TextRun::plain("."),
             ],
             indent: 0,
+            text_align: None,
         }],
     };
     let pdf = emit_pdf(&doc).expect("linked pdf");
@@ -1247,6 +1519,51 @@ fn link_uri_emits_pdf_uri_annotation() {
     assert!(
         hay.contains("mailto:a@b.c"),
         "expected URI annotation for mailto link"
+    );
+}
+
+#[test]
+fn cite_link_color_does_not_leak_across_lines() {
+    // Resume rows paint left (link) then right (plain) as separate text
+    // objects; list/body lines after a colored URI must restore black.
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "Leak".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![
+            PrintBlock::Paragraph {
+                runs: vec![TextRun::link("Go", "https://example.com/")],
+                indent: 0,
+                text_align: None,
+            },
+            PrintBlock::Paragraph {
+                runs: vec![TextRun::plain("Stay black.")],
+                indent: 0,
+                text_align: None,
+            },
+            PrintBlock::row_two(
+                vec![TextRun::link("Org", "https://example.com/")],
+                vec![TextRun::plain("City, ST")],
+            ),
+        ],
+    };
+    let mut layout = LayoutKnobs::bundled();
+    layout.prose.cite.color = Some(HexColor::parse("#990000").unwrap());
+    let pdf = emit_pdf_with(&doc, &EmitOptions::bundled_only().with_layout(layout)).expect("pdf");
+    let s = String::from_utf8_lossy(&pdf);
+    let cite = s.find("0.6 0 0 rg").or_else(|| s.find("0.60000002 0 0 rg"));
+    assert!(
+        cite.is_some(),
+        "expected cite/link fill in content stream: {s}"
+    );
+    let rest = &s[cite.unwrap()..];
+    assert!(
+        rest.contains("0 0 0 rg"),
+        "expected black restore after colored link so following lines are not tinted: {s}"
     );
 }
 
@@ -1263,6 +1580,7 @@ fn link_auto_underline_is_opt_in() {
         blocks: vec![PrintBlock::Paragraph {
             runs: vec![TextRun::link("here", "https://example.com/")],
             indent: 0,
+            text_align: None,
         }],
     };
     let plain = emit_pdf(&linked).expect("default link");
@@ -1591,6 +1909,7 @@ fn float_near_figure_emits() {
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain("See the figure nearby.")],
                 indent: 0,
+                text_align: None,
             },
             figure_with_caption("Caption.", FigurePlacement::FloatNear),
         ],
@@ -1612,6 +1931,7 @@ fn sealed_cjk_fallback_embeds_in_pdf() {
         blocks: vec![PrintBlock::Paragraph {
             runs: vec![TextRun::plain("Hello 中文测试")],
             indent: 0,
+            text_align: None,
         }],
     };
     let bytes = emit_pdf(&doc).expect("emit cjk");
@@ -1638,6 +1958,7 @@ fn sealed_emoji_fallback_embeds_in_pdf() {
         blocks: vec![PrintBlock::Paragraph {
             runs: vec![TextRun::plain("Hello 😀🔥")],
             indent: 0,
+            text_align: None,
         }],
     };
     let bytes = emit_pdf(&doc).expect("emit emoji");
@@ -1803,6 +2124,7 @@ fn toc_entry_emits_goto_annotation() {
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain("Body after the heading.")],
                 indent: 0,
+                text_align: None,
             },
         ],
     };
@@ -1836,6 +2158,7 @@ fn headings_emit_pdf_outline_bookmarks() {
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain("Intro body.")],
                 indent: 0,
+                text_align: None,
             },
             PrintBlock::heading_dest(
                 2,
@@ -1853,6 +2176,7 @@ fn headings_emit_pdf_outline_bookmarks() {
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain("More body.")],
                 indent: 0,
+                text_align: None,
             },
         ],
     };

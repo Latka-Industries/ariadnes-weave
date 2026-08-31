@@ -20,9 +20,10 @@ crates.io. Local suite work can still path-dep when cutting paired releases.
 **Prose + structure emit** via `emit_pdf` / `emit_pdf_with`:
 
 - Blocks: `Heading` / `Paragraph` / `List` / `Code` / `Quote` / `Break` /
-  `Table` / `Figure` / `Row` / `TocEntry` / `Columns` / `Slide` / `Math` /
+  `Table` / `Figure` / `Row` / `TocEntry` / `Columns` / `Note` / `Slide` / `Math` /
   `Layout` (`place` / `vspace` / `rule`)
-- Long-doc print (THI-316 slice): page chrome headers/footers; ASCII hyphenation
+- Long-doc print (THI-316 slice): page chrome headers/footers (`{page}` /
+  `{pages}` / `{title}` / `{heading}`); ASCII hyphenation
   + widow/orphan knobs; in-doc `TocEntry` (leaders, page resolve, `GoTo`); native
   PDF `/Outlines` from heading `dest_id`s; multi-column body flow; figure/table
   `dest_id` stamps for LOF/LOT lists (same `TocEntry` paint)
@@ -65,10 +66,9 @@ crates.io. Local suite work can still path-dep when cutting paired releases.
   `\frac`, multi-char scripts, `matrix`/`pmatrix`/`bmatrix`, and display
   under/over limits on `\sum`/`\prod`/…; `\int` keeps side limits (not full TeX)
 
-Not yet: footnotes/endnotes, per-chunk text align (pack-global only today), full
-TeX/MathML, OS font collection/CFF polish, full-coverage CJK/emoji packs (only
-tiny sealed subsets behind features), color-emoji PDF paint, live `{heading}`
-chrome tokens.
+Not yet: footnotes/endnotes, full TeX/MathML, OS font collection/CFF polish,
+full-coverage CJK/emoji packs (only tiny sealed subsets behind features),
+color-emoji PDF paint.
 
 | Later                                           | Where                                                                   |
 | ----------------------------------------------- | ----------------------------------------------------------------------- |
@@ -138,6 +138,7 @@ let doc = PrintDocument {
         PrintBlock::Paragraph {
             runs: vec![TextRun::plain("Body.")],
             indent: 0,
+            text_align: None,
         },
         PrintBlock::List {
             ordered: false,
@@ -146,6 +147,7 @@ let doc = PrintDocument {
                 children: vec![],
             }],
             indent: 0,
+            text_align: None,
         },
     ],
 };

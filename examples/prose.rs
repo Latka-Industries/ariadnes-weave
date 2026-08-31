@@ -50,14 +50,17 @@ fn doc() -> PrintDocument {
                      (left / center / right / justify).",
                 )],
                 indent: 0,
+                text_align: None,
             },
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain(LOREM)],
                 indent: 0,
+                text_align: None,
             },
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain(LOREM)],
                 indent: 0,
+                text_align: None,
             },
             PrintBlock::List {
                 ordered: true,
@@ -76,9 +79,11 @@ fn doc() -> PrintDocument {
                     },
                 ],
                 indent: 0,
+                text_align: None,
             },
             PrintBlock::Quote {
                 runs: vec![TextRun::plain("Print IR is the PDF source of truth.")],
+                text_align: None,
             },
             PrintBlock::Code {
                 lang: Some("text".into()),

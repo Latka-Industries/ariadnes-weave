@@ -10,7 +10,7 @@ use crate::knobs::{FigureAlign, LayoutKnobs, PageChromeBand, TextAlign};
 use crate::profile::ProfileMetrics;
 
 use super::math::paint_math;
-use super::types::{LaidColumns, LaidItem, LaidLine, LaidSpan, LaidTable, SubsetMap};
+use super::types::{LaidColumns, LaidItem, LaidLine, LaidMath, LaidSpan, LaidTable, SubsetMap};
 
 /// Clickable box collected while painting a page (PDF user space).
 #[derive(Debug, Clone)]
@@ -122,21 +122,25 @@ fn paint_span_underlines(
 }
 
 /// Paint a horizontal run of spans (text object + optional underlines).
+///
+/// `last_fill` is the page content-stream fill, not per-line: PDF `/rg`
+/// survives `ET`/`BT`, so a new line that starts black must still restore
+/// after a colored link (resume rows, following bullets).
 fn paint_laid_spans(
     content: &mut Content,
     fonts: &FontBag,
     spans: &[LaidSpan],
     origin_x: f32,
     baseline_y: f32,
+    last_fill: &mut Option<[f32; 3]>,
 ) {
     if spans.is_empty() {
         return;
     }
     content.begin_text();
     let mut x = origin_x;
-    let mut last_fill = None;
     for span in spans {
-        paint_span_text(content, fonts, span, x, baseline_y, &mut last_fill);
+        paint_span_text(content, fonts, span, x, baseline_y, last_fill);
         x += shaped_width(&span.glyphs);
     }
     content.end_text();
@@ -208,6 +212,7 @@ fn paint_justified_spans(
     origin_x: f32,
     baseline_y: f32,
     measure: f32,
+    last_fill: &mut Option<[f32; 3]>,
 ) {
     if spans.is_empty() {
         return;
@@ -218,9 +223,8 @@ fn paint_justified_spans(
 
     content.begin_text();
     let mut x = origin_x;
-    let mut last_fill = None;
     for (si, span) in spans.iter().enumerate() {
-        apply_fill_rgb(content, &mut last_fill, span.fill);
+        apply_fill_rgb(content, last_fill, span.fill);
         let face_name = fonts.resource_name(span.face);
         content.set_font(Name(&face_name), span.font_size);
         for (gi, glyph) in span.glyphs.iter().enumerate() {
@@ -305,8 +309,9 @@ fn paint_span_underlines_justified(
 }
 
 /// Emit `/rg` only when fill changes. Default PDF fill is black, so the first
-/// black span stays silent (byte-stable fixtures); after a colored link we must
-/// explicitly restore black so following phone/location text is not tinted.
+/// black span stays silent (byte-stable fixtures). `last` is page-level: after
+/// a colored link, later black runs (next line, next row pane, next block)
+/// must emit `0 0 0 rg` or they inherit the cite/link accent.
 fn apply_fill_rgb(content: &mut Content, last: &mut Option<[f32; 3]>, fill: [f32; 3]) {
     let is_black = rgb_bits(fill) == rgb_bits([0.0, 0.0, 0.0]);
     match *last {
@@ -341,9 +346,12 @@ pub(super) struct BuildPageContent<'a> {
     pub page_no: usize,
     pub page_count: usize,
     pub title: &'a str,
+    pub heading: &'a str,
     pub fonts: &'a FontBag,
     pub subsets: &'a SubsetMap,
     pub knobs: &'a LayoutKnobs,
+    pub notes: &'a super::notes::NoteBook,
+    pub footnote_carry: &'a mut Vec<LaidItem>,
 }
 
 impl BuildPageContent<'_> {
@@ -351,8 +359,13 @@ impl BuildPageContent<'_> {
         let mut content = Content::new();
         let mut links = Vec::new();
         let header_drop = self.knobs.page.header_reserve();
+        let fn_reserve = self
+            .knobs
+            .page
+            .footnote_reserve(self.notes.has_footnote_defs());
         let mut y = self.metrics.page_h - self.metrics.margin - header_drop;
-        let bottom_limit = self.metrics.margin + self.knobs.page.content.bottom_clearance;
+        let bottom_limit =
+            self.metrics.margin + self.knobs.page.content.bottom_clearance + fn_reserve;
 
         paint_page_chrome_band(PaintChromeBand {
             content: &mut content,
@@ -360,6 +373,7 @@ impl BuildPageContent<'_> {
             page_no: self.page_no,
             page_count: self.page_count,
             title: self.title,
+            heading: self.heading,
             fonts: self.fonts,
             subsets: self.subsets,
             band: &self.knobs.page.header,
@@ -367,20 +381,37 @@ impl BuildPageContent<'_> {
                 - self.metrics.margin * self.knobs.page.header.y_margin_factor(),
         })?;
 
-        let mut cursor = PageCursor {
+        let mut last_fill;
+        {
+            let mut cursor = PageCursor {
+                content: &mut content,
+                links: &mut links,
+                y: &mut y,
+                bottom_limit,
+                metrics: self.metrics,
+                fonts: self.fonts,
+                knobs: self.knobs,
+                last_fill: None,
+            };
+            for item in self.items {
+                if !cursor.paint_item(item) {
+                    break;
+                }
+            }
+            last_fill = cursor.last_fill;
+        }
+
+        paint_footnote_band(PaintFootnotes {
             content: &mut content,
             links: &mut links,
-            y: &mut y,
-            bottom_limit,
+            items: self.items,
+            notes: self.notes,
+            carry: self.footnote_carry,
             metrics: self.metrics,
             fonts: self.fonts,
             knobs: self.knobs,
-        };
-        for item in self.items {
-            if !cursor.paint_item(item) {
-                break;
-            }
-        }
+            last_fill: &mut last_fill,
+        });
 
         paint_page_chrome_band(PaintChromeBand {
             content: &mut content,
@@ -388,6 +419,7 @@ impl BuildPageContent<'_> {
             page_no: self.page_no,
             page_count: self.page_count,
             title: self.title,
+            heading: self.heading,
             fonts: self.fonts,
             subsets: self.subsets,
             band: &self.knobs.page.footer,
@@ -410,6 +442,87 @@ pub(super) fn build_page_content(
     args.run()
 }
 
+struct PaintFootnotes<'a> {
+    content: &'a mut Content,
+    links: &'a mut Vec<PageLink>,
+    items: &'a [LaidItem],
+    notes: &'a super::notes::NoteBook,
+    carry: &'a mut Vec<LaidItem>,
+    metrics: &'a ProfileMetrics,
+    fonts: &'a FontBag,
+    knobs: &'a LayoutKnobs,
+    last_fill: &'a mut Option<[f32; 3]>,
+}
+
+fn paint_footnote_band(args: PaintFootnotes<'_>) {
+    let PaintFootnotes {
+        content,
+        links,
+        items,
+        notes,
+        carry,
+        metrics,
+        fonts,
+        knobs,
+        last_fill,
+    } = args;
+    if !notes.has_footnote_defs() && carry.is_empty() {
+        return;
+    }
+    let mut band = std::mem::take(carry);
+    for id in super::notes::page_note_ids(items) {
+        if notes
+            .defs
+            .get(&id)
+            .is_some_and(|d| d.kind == crate::ir::NoteKind::Footnote)
+            && let Some(laid) = notes.laid_footnotes.get(&id)
+        {
+            band.extend(laid.iter().cloned());
+        }
+    }
+    if band.is_empty() {
+        return;
+    }
+    let footer_top = metrics.margin + knobs.page.footer_reserve();
+    let max_band = knobs.page.footnote.max_band.max(0.0);
+    if max_band <= 0.0 {
+        *carry = band;
+        return;
+    }
+    let rule_y = footer_top + max_band;
+    paint_layout_rule(
+        content,
+        metrics.margin,
+        rule_y + knobs.page.footnote.gap_before_rule,
+        metrics.content_width() * 0.35,
+        knobs.page.footnote.rule_thickness,
+        knobs.page.footnote.rule_thickness,
+        knobs.page.chrome.stroke_gray,
+    );
+    let mut y = rule_y - knobs.page.footnote.gap_before_rule;
+    let mut used = 0usize;
+    for (i, item) in band.iter().enumerate() {
+        let h = item.height();
+        if y - h < footer_top {
+            break;
+        }
+        match item {
+            LaidItem::Text(line) => {
+                if !paint_text_item(
+                    content, links, line, &mut y, footer_top, metrics, fonts, last_fill,
+                ) {
+                    break;
+                }
+            }
+            _ => {
+                y -= h;
+            }
+        }
+        used = i + 1;
+    }
+    *carry = band.split_off(used);
+}
+
 struct PageCursor<'a> {
     content: &'a mut Content,
     links: &'a mut Vec<PageLink>,
@@ -418,6 +531,7 @@ struct PageCursor<'a> {
     metrics: &'a ProfileMetrics,
     fonts: &'a FontBag,
     knobs: &'a LayoutKnobs,
+    last_fill: Option<[f32; 3]>,
 }
 
 impl PageCursor<'_> {
@@ -432,6 +546,7 @@ impl PageCursor<'_> {
                 self.bottom_limit,
                 self.metrics,
                 self.fonts,
+                &mut self.last_fill,
             ),
             LaidItem::Image {
                 img_idx,
@@ -442,7 +557,7 @@ impl PageCursor<'_> {
                 align,
             } => paint_image_item(
                 self.content,
-                ImagePaint {
+                &ImagePaint {
                     img_idx: *img_idx,
                     width: *width,
                     height: *height,
@@ -453,79 +568,96 @@ impl PageCursor<'_> {
                 self.bottom_limit,
                 self.metrics,
             ),
-            LaidItem::Table(table) => {
-                let table_h = table.rows.iter().map(|r| r.height).sum::<f32>();
-                if *self.y - table_h < self.bottom_limit {
-                    return false;
-                }
-                paint_table(
-                    self.content,
-                    self.links,
-                    table,
-                    self.metrics.margin,
-                    *self.y,
-                    self.fonts,
-                );
-                *self.y -= table_h + table.gap_after;
-                true
-            }
-            LaidItem::Columns(cols) => {
-                let h = cols.height() - cols.gap_after;
-                if *self.y - h < self.bottom_limit {
-                    return false;
-                }
-                paint_columns(
-                    self.content,
-                    self.links,
-                    cols,
-                    self.metrics.margin,
-                    *self.y,
-                    self.fonts,
-                );
-                *self.y -= cols.height();
-                true
-            }
-            LaidItem::Math(math) => {
-                if *self.y - math.height < self.bottom_limit {
-                    return false;
-                }
-                paint_math(
-                    self.content,
-                    math,
-                    self.metrics.margin,
-                    *self.y,
-                    self.metrics.content_width(),
-                    self.fonts,
-                    &self.knobs.page.chrome,
-                );
-                *self.y -= math.height + math.gap_after;
-                true
-            }
+            LaidItem::Table(table) => self.paint_table_item(table),
+            LaidItem::Columns(cols) => self.paint_columns_item(cols),
+            LaidItem::Math(math) => self.paint_math_item(math),
             LaidItem::Rule {
                 width,
                 thickness,
                 leading,
                 gap_after,
-            } => {
-                if *self.y - *leading < self.bottom_limit {
-                    return false;
-                }
-                paint_layout_rule(
-                    self.content,
-                    self.metrics.margin,
-                    *self.y,
-                    *width,
-                    *thickness,
-                    *leading,
-                    self.knobs.page.chrome.stroke_gray,
-                );
-                *self.y -= *leading + *gap_after;
-                true
-            }
+            } => self.paint_rule_item(*width, *thickness, *leading, *gap_after),
         }
+    }
+
+    fn paint_table_item(&mut self, table: &LaidTable) -> bool {
+        let table_h = table.rows.iter().map(|r| r.height).sum::<f32>();
+        if *self.y - table_h < self.bottom_limit {
+            return false;
+        }
+        paint_table(
+            self.content,
+            self.links,
+            table,
+            self.metrics.margin,
+            *self.y,
+            self.fonts,
+            &mut self.last_fill,
+        );
+        *self.y -= table_h + table.gap_after;
+        true
+    }
+
+    fn paint_columns_item(&mut self, cols: &LaidColumns) -> bool {
+        let h = cols.height() - cols.gap_after;
+        if *self.y - h < self.bottom_limit {
+            return false;
+        }
+        paint_columns(
+            self.content,
+            self.links,
+            cols,
+            self.metrics.margin,
+            *self.y,
+            self.fonts,
+            &mut self.last_fill,
+        );
+        *self.y -= cols.height();
+        true
+    }
+
+    fn paint_math_item(&mut self, math: &LaidMath) -> bool {
+        if *self.y - math.height < self.bottom_limit {
+            return false;
+        }
+        paint_math(
+            self.content,
+            math,
+            self.metrics.margin,
+            *self.y,
+            self.metrics.content_width(),
+            self.fonts,
+            &self.knobs.page.chrome,
+        );
+        *self.y -= math.height + math.gap_after;
+        true
+    }
+
+    fn paint_rule_item(
+        &mut self,
+        width: f32,
+        thickness: f32,
+        leading: f32,
+        gap_after: f32,
+    ) -> bool {
+        if *self.y - leading < self.bottom_limit {
+            return false;
+        }
+        paint_layout_rule(
+            self.content,
+            self.metrics.margin,
+            *self.y,
+            width,
+            thickness,
+            leading,
+            self.knobs.page.chrome.stroke_gray,
+        );
+        *self.y -= leading + gap_after;
+        true
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn paint_text_item(
     content: &mut Content,
     links: &mut Vec<PageLink>,
@@ -534,6 +666,7 @@ fn paint_text_item(
     bottom_limit: f32,
     metrics: &ProfileMetrics,
     fonts: &FontBag,
+    last_fill: &mut Option<[f32; 3]>,
 ) -> bool {
     *y -= line.leading;
     if *y < bottom_limit {
@@ -544,11 +677,14 @@ fn paint_text_item(
     }
     let origin_x = metrics.margin + line.indent;
     let measure = line.measure.max(line.width());
-    paint_aligned_line(content, links, line, origin_x, *y, measure, fonts);
+    paint_aligned_line(
+        content, links, line, origin_x, *y, measure, fonts, last_fill,
+    );
     true
 }
 
 /// Paint one laid line at `origin_x` / `baseline_y` honoring [`LaidLine::text_align`].
+#[allow(clippy::too_many_arguments)]
 fn paint_aligned_line(
     content: &mut Content,
     links: &mut Vec<PageLink>,
@@ -557,6 +693,7 @@ fn paint_aligned_line(
     baseline_y: f32,
     measure: f32,
     fonts: &FontBag,
+    last_fill: &mut Option<[f32; 3]>,
 ) {
     match line.text_align {
         TextAlign::Justify => {
@@ -567,6 +704,7 @@ fn paint_aligned_line(
                 origin_x,
                 baseline_y,
                 measure.max(line.width()),
+                last_fill,
             );
             // Justify redistributes glyph advances; use natural boxes
             // as a best-effort hit target (resume links are short).
@@ -574,7 +712,7 @@ fn paint_aligned_line(
         }
         align => {
             let x = origin_x + align.offset_x(measure.max(line.width()), line.width());
-            paint_laid_spans(content, fonts, &line.spans, x, baseline_y);
+            paint_laid_spans(content, fonts, &line.spans, x, baseline_y, last_fill);
             push_span_links(links, &line.spans, x, baseline_y);
         }
     }
@@ -590,7 +728,7 @@ struct ImagePaint {
 
 fn paint_image_item(
     content: &mut Content,
-    image: ImagePaint,
+    image: &ImagePaint,
     y: &mut f32,
     bottom_limit: f32,
     metrics: &ProfileMetrics,
@@ -634,6 +772,7 @@ struct PaintChromeBand<'a, B: PageChromeBand + ?Sized> {
     page_no: usize,
     page_count: usize,
     title: &'a str,
+    heading: &'a str,
     fonts: &'a FontBag,
     subsets: &'a SubsetMap,
     band: &'a B,
@@ -649,6 +788,7 @@ fn paint_page_chrome_band<B: PageChromeBand + ?Sized>(
         page_no,
         page_count,
         title,
+        heading,
         fonts,
         subsets,
         band,
@@ -657,7 +797,8 @@ fn paint_page_chrome_band<B: PageChromeBand + ?Sized>(
     if !band.enabled() {
         return Ok(());
     }
-    let text = crate::knobs::expand_chrome_format(band.format(), page_no, page_count, title);
+    let text =
+        crate::knobs::expand_chrome_format(band.format(), page_no, page_count, title, heading);
     if text.is_empty() {
         return Ok(());
     }
@@ -688,6 +829,7 @@ pub(super) fn paint_columns(
     origin_x: f32,
     top_y: f32,
     fonts: &FontBag,
+    last_fill: &mut Option<[f32; 3]>,
 ) {
     let mut x = origin_x + cols.indent;
     for (i, lines) in cols.columns.iter().enumerate() {
@@ -711,6 +853,7 @@ pub(super) fn paint_columns(
                 text_y,
                 measure,
                 fonts,
+                last_fill,
             );
         }
         x += col_w + cols.gap;
@@ -725,6 +868,7 @@ pub(super) fn paint_table(
     origin_x: f32,
     top_y: f32,
     fonts: &FontBag,
+    last_fill: &mut Option<[f32; 3]>,
 ) {
     let table_w: f32 = table.col_widths.iter().sum();
     let table_h: f32 = table.rows.iter().map(|r| r.height).sum();
@@ -767,7 +911,14 @@ pub(super) fn paint_table(
             let mut text_y = row_top - table.pad;
             for line in cell_lines {
                 text_y -= line.leading;
-                paint_laid_spans(content, fonts, &line.spans, cell_x + table.pad, text_y);
+                paint_laid_spans(
+                    content,
+                    fonts,
+                    &line.spans,
+                    cell_x + table.pad,
+                    text_y,
+                    last_fill,
+                );
                 push_span_links(links, &line.spans, cell_x + table.pad, text_y);
             }
             cell_x += col_w;

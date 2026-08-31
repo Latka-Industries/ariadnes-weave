@@ -33,8 +33,8 @@ pub use emit::{emit_pdf, emit_pdf_with};
 pub use error::WeaveError;
 pub use font::{FaceId, FaceRef, FontBag};
 pub use ir::{
-    BreakHint, EmAmount, FigurePlacement, InlineStyle, LayoutOp, ListItem, MeasureFrac, PlaceSkip,
-    PrintBlock, PrintDocument, PrintImage, PrintMeta, PrintProfileId, RuleWidth,
+    BreakHint, EmAmount, FigurePlacement, InlineStyle, LayoutOp, ListItem, MeasureFrac, NoteKind,
+    PlaceSkip, PrintBlock, PrintDocument, PrintImage, PrintMeta, PrintProfileId, RuleWidth,
     SlideRegionContent, TableRow, TextRun, VspaceAmount,
 };
 pub use knobs::{

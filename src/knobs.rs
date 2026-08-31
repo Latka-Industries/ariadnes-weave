@@ -1122,6 +1122,9 @@ pub struct PageKnobs {
     pub content: PageContentKnobs,
     /// Stroke / fill gray for rules and math chrome.
     pub chrome: PageChromeKnobs,
+    /// Footnote band above footer chrome (THI-410).
+    #[serde(default)]
+    pub footnote: FootnoteKnobs,
 }
 
 /// Minimum vertical reserve (pt) when a chrome band is enabled.
@@ -1154,6 +1157,19 @@ impl PageKnobs {
         self.footer_reserve() + self.header_reserve()
     }
 
+    /// Extra body reserve when the document has footnotes (THI-410).
+    ///
+    /// Precedence (bottom of page): content → footnote band → footer chrome →
+    /// margin. The band is skipped when the document has no footnote-kind notes.
+    #[must_use]
+    pub fn footnote_reserve(&self, has_footnotes: bool) -> f32 {
+        if has_footnotes {
+            self.footnote.max_band.max(0.0)
+        } else {
+            0.0
+        }
+    }
+
     /// Enabled header/footer bands (for glyph collect / paint).
     #[must_use]
     pub fn bands(&self) -> [&dyn PageChromeBand; 2] {
@@ -1165,7 +1181,7 @@ impl PageKnobs {
 pub trait PageChromeBand {
     /// Whether this band is painted.
     fn enabled(&self) -> bool;
-    /// Format template (`{page}`, `{pages}`, `{title}`).
+    /// Format template (`{page}`, `{pages}`, `{title}`, `{heading}`).
     fn format(&self) -> &str;
     /// Font size in points.
     fn font_size(&self) -> f32;
@@ -1213,7 +1229,7 @@ pub struct PageFooterKnobs {
     /// Left / center / right within the content width.
     #[serde(default)]
     pub align: ChromeAlign,
-    /// Template with `{page}`, `{pages}`, `{title}`.
+    /// Template with `{page}`, `{pages}`, `{title}`, `{heading}`.
     #[serde(default = "default_footer_format")]
     pub format: String,
 }
@@ -1265,7 +1281,7 @@ pub struct PageHeaderKnobs {
     /// Left / center / right within the content width.
     #[serde(default = "default_header_align")]
     pub align: ChromeAlign,
-    /// Template with `{page}`, `{pages}`, `{title}`.
+    /// Template with `{page}`, `{pages}`, `{title}`, `{heading}`.
     #[serde(default = "default_header_format")]
     pub format: String,
 }
@@ -1302,16 +1318,17 @@ fn default_header_format() -> String {
 
 /// Expand chrome `format` tokens for one page.
 ///
-/// Unknown `{…}` tokens are left unchanged. Empty `title` yields an empty
-/// `{title}` substitution.
+/// Unknown `{…}` tokens are left unchanged. Empty `title` / `heading` yield
+/// empty substitutions.
 #[must_use]
 pub fn expand_chrome_format(
     format: &str,
     page_no: usize,
     page_count: usize,
     title: &str,
+    heading: &str,
 ) -> String {
-    let mut out = String::with_capacity(format.len() + title.len() + 8);
+    let mut out = String::with_capacity(format.len() + title.len() + heading.len() + 8);
     let mut rest = format;
     while let Some(start) = rest.find('{') {
         out.push_str(&rest[..start]);
@@ -1326,6 +1343,7 @@ pub fn expand_chrome_format(
             "page" => out.push_str(&page_no.to_string()),
             "pages" => out.push_str(&page_count.to_string()),
             "title" => out.push_str(title),
+            "heading" => out.push_str(heading),
             _ => {
                 out.push('{');
                 out.push_str(key);
@@ -1345,7 +1363,7 @@ mod chrome_format_tests {
     #[test]
     fn expands_page_pages_title() {
         assert_eq!(
-            expand_chrome_format("{title} — {page}/{pages}", 2, 5, "Notes"),
+            expand_chrome_format("{title} — {page}/{pages}", 2, 5, "Notes", ""),
             "Notes — 2/5"
         );
     }
@@ -1353,9 +1371,18 @@ mod chrome_format_tests {
     #[test]
     fn empty_title_and_unknown_token() {
         assert_eq!(
-            expand_chrome_format("{title}|{page}|{bogus}", 1, 1, ""),
+            expand_chrome_format("{title}|{page}|{bogus}", 1, 1, "", ""),
             "|1|{bogus}"
         );
+    }
+
+    #[test]
+    fn expands_heading_token() {
+        assert_eq!(
+            expand_chrome_format("{heading} · {page}", 3, 8, "Doc", "Methods"),
+            "Methods · 3"
+        );
+        assert_eq!(expand_chrome_format("{heading}", 1, 1, "Doc", ""), "");
     }
 }
 
@@ -1376,6 +1403,36 @@ pub struct PageChromeKnobs {
     pub stroke_gray: f32,
     /// Default fill gray for math chrome.
     pub fill_gray: f32,
+}
+
+/// `[footnote]` in `page.toml` (THI-410).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FootnoteKnobs {
+    /// Maximum footnote band height above footer chrome (points).
+    pub max_band: f32,
+    /// Marker size as a factor of the surrounding run size.
+    pub marker_scale: f32,
+    /// Rule thickness above the footnote band (points).
+    pub rule_thickness: f32,
+    /// Note body size as a factor of profile body size.
+    pub size_factor: f32,
+    /// Note line leading as a factor of note size.
+    pub leading_factor: f32,
+    /// Gap between the rule and the first note line (points).
+    pub gap_before_rule: f32,
+}
+
+impl Default for FootnoteKnobs {
+    fn default() -> Self {
+        Self {
+            max_band: 72.0,
+            marker_scale: 0.7,
+            rule_thickness: 0.4,
+            size_factor: 0.8,
+            leading_factor: 1.15,
+            gap_before_rule: 4.0,
+        }
+    }
 }
 
 #[cfg(test)]

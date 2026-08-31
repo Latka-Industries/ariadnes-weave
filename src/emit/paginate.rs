@@ -71,3 +71,23 @@ pub(super) fn paginate_items(
 
     pages
 }
+
+/// Last H1/H2 title in effect on each page (empty before the first heading).
+///
+/// Used to expand `{heading}` in page chrome (THI-409). H3+ do not change the
+/// running head. A new H1/H2 on a page applies to that page's chrome.
+pub(super) fn running_headings(pages: &[Vec<LaidItem>]) -> Vec<String> {
+    let mut current = String::new();
+    let mut out = Vec::with_capacity(pages.len());
+    for page in pages {
+        for item in page {
+            if let LaidItem::Text(line) = item
+                && let Some(heading) = line.chrome_heading.as_deref()
+            {
+                heading.clone_into(&mut current);
+            }
+        }
+        out.push(current.clone());
+    }
+    out
+}
