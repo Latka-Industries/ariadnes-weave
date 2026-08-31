@@ -711,17 +711,24 @@ impl ProseBodyColumnsKnobs {
 }
 
 /// `[body]` in `prose.toml` — review line-number gutter (THI-415).
+///
+/// TOML keeps the `line_` prefix (`line_numbers`, `line_number_gutter`,
+/// `line_number_size_factor`). Rust fields drop it so the struct does not
+/// share one prefix across every field.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProseBodyKnobs {
     /// Number laid-out body lines in a per-column gutter (bundled off).
-    #[serde(default)]
-    pub line_numbers: bool,
+    #[serde(default, rename = "line_numbers")]
+    pub numbers: bool,
     /// Gutter width reserved at the start of each column (points).
-    #[serde(default = "default_line_number_gutter")]
-    pub line_number_gutter: f32,
+    #[serde(default = "default_line_number_gutter", rename = "line_number_gutter")]
+    pub gutter_width: f32,
     /// Line-number size as a factor of profile body size.
-    #[serde(default = "default_line_number_size_factor")]
-    pub line_number_size_factor: f32,
+    #[serde(
+        default = "default_line_number_size_factor",
+        rename = "line_number_size_factor"
+    )]
+    pub size_factor: f32,
 }
 
 fn default_line_number_gutter() -> f32 {
@@ -735,26 +742,25 @@ fn default_line_number_size_factor() -> f32 {
 impl Default for ProseBodyKnobs {
     fn default() -> Self {
         Self {
-            line_numbers: false,
-            line_number_gutter: default_line_number_gutter(),
-            line_number_size_factor: default_line_number_size_factor(),
+            numbers: false,
+            gutter_width: default_line_number_gutter(),
+            size_factor: default_line_number_size_factor(),
         }
     }
 }
 
 impl ProseBodyKnobs {
     fn is_default(&self) -> bool {
-        !self.line_numbers
-            && (self.line_number_gutter - default_line_number_gutter()).abs() < f32::EPSILON
-            && (self.line_number_size_factor - default_line_number_size_factor()).abs()
-                < f32::EPSILON
+        !self.numbers
+            && (self.gutter_width - default_line_number_gutter()).abs() < f32::EPSILON
+            && (self.size_factor - default_line_number_size_factor()).abs() < f32::EPSILON
     }
 
     /// Gutter inset when numbering is on; `0` when off.
     #[must_use]
     pub fn gutter(&self) -> f32 {
-        if self.line_numbers {
-            self.line_number_gutter.max(0.0)
+        if self.numbers {
+            self.gutter_width.max(0.0)
         } else {
             0.0
         }

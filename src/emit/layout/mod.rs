@@ -89,10 +89,10 @@ fn assign_line_numbers(
     knobs: &LayoutKnobs,
     glyph_sets: &mut GlyphSets,
 ) -> Result<(), WeaveError> {
-    if !knobs.prose.body.line_numbers {
+    if !knobs.prose.body.numbers {
         return Ok(());
     }
-    let font_size = metrics.body_size * knobs.prose.body.line_number_size_factor;
+    let font_size = metrics.body_size * knobs.prose.body.size_factor;
     let face = crate::font::FaceRef::Bundled(crate::font::FaceId::SansRegular);
     let fill = knobs.prose.text_fill_rgb01();
     let mut n = 1_u32;
@@ -291,54 +291,20 @@ fn layout_block(
             notes,
         }
         .run()?,
-        PrintBlock::Paragraph {
-            runs,
-            indent,
-            text_align,
-        } => {
-            let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets, notes);
-            let seg = segments.last_mut().expect("segment");
-            let band = knobs.prose.indent.pts(*indent);
-            let align = resolved_prose_align(*text_align, inherit_align, knobs);
-            push_styled_runs(
-                &mut seg.1,
-                runs,
-                &mut ctx,
-                body_layout(metrics, knobs, band, PaintCategory::Text, align),
-            )?;
-        }
-        PrintBlock::Quote { runs, text_align } => {
-            let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets, notes);
-            layout_quote(
-                runs,
-                resolved_quote_align(*text_align, inherit_align),
-                &mut ctx,
-                segments,
-            )?;
-        }
-        PrintBlock::Callout {
-            title,
-            body,
-            callout_kind: _,
-        } => {
-            let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets, notes);
-            layout_callout(title, body, &mut ctx, segments)?;
-        }
-        PrintBlock::Code { lang: _, text } => {
-            let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets, notes);
-            layout_code(text, &mut ctx, segments)?;
-        }
-        PrintBlock::List {
-            ordered,
-            items,
-            indent,
-            text_align,
-        } => {
-            let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets, notes);
-            let seg = segments.last_mut().expect("segment");
-            let align = resolved_prose_align(*text_align, inherit_align, knobs);
-            push_list_lines(&mut seg.1, *ordered, items, *indent, 0, align, &mut ctx)?;
-        }
+        PrintBlock::Paragraph { .. }
+        | PrintBlock::Quote { .. }
+        | PrintBlock::Callout { .. }
+        | PrintBlock::Code { .. }
+        | PrintBlock::List { .. } => layout_flow_block(
+            block,
+            metrics,
+            fonts,
+            knobs,
+            segments,
+            glyph_sets,
+            notes,
+            inherit_align,
+        )?,
         other => layout_structure_block(
             other,
             metrics,
@@ -352,6 +318,60 @@ fn layout_block(
         )?,
     }
     Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn layout_flow_block(
+    block: &PrintBlock,
+    metrics: &ProfileMetrics,
+    fonts: &FontBag,
+    knobs: &LayoutKnobs,
+    segments: &mut [LayoutSegment],
+    glyph_sets: &mut GlyphSets,
+    notes: &mut NoteBook,
+    inherit_align: Option<TextAlign>,
+) -> Result<(), WeaveError> {
+    let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets, notes);
+    match block {
+        PrintBlock::Paragraph {
+            runs,
+            indent,
+            text_align,
+        } => {
+            let seg = segments.last_mut().expect("segment");
+            let band = knobs.prose.indent.pts(*indent);
+            let align = resolved_prose_align(*text_align, inherit_align, knobs);
+            push_styled_runs(
+                &mut seg.1,
+                runs,
+                &mut ctx,
+                body_layout(metrics, knobs, band, PaintCategory::Text, align),
+            )
+        }
+        PrintBlock::Quote { runs, text_align } => layout_quote(
+            runs,
+            resolved_quote_align(*text_align, inherit_align),
+            &mut ctx,
+            segments,
+        ),
+        PrintBlock::Callout {
+            title,
+            body,
+            callout_kind: _,
+        } => layout_callout(title, body, &mut ctx, segments),
+        PrintBlock::Code { lang: _, text } => layout_code(text, &mut ctx, segments),
+        PrintBlock::List {
+            ordered,
+            items,
+            indent,
+            text_align,
+        } => {
+            let seg = segments.last_mut().expect("segment");
+            let align = resolved_prose_align(*text_align, inherit_align, knobs);
+            push_list_lines(&mut seg.1, *ordered, items, *indent, 0, align, &mut ctx)
+        }
+        _ => unreachable!("non-flow block in layout_flow_block"),
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

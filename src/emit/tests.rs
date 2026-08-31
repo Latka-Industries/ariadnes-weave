@@ -1951,7 +1951,7 @@ fn line_numbers_gutter_changes_emit() {
     );
     let off = emit_pdf(&doc).expect("off");
     let on = emit_with_layout_tweak(&doc, |layout| {
-        layout.prose.body.line_numbers = true;
+        layout.prose.body.numbers = true;
     });
     assert_ne!(off, on, "line-number gutter must change paint");
     write_tmp_sample("line_numbers.pdf", &on);
