@@ -52,7 +52,7 @@ Dense one-column CV / resume layout (THI-324 dogfood).
 | H1 page break | no |
 | Deck | no |
 
-Emit also applies [`LayoutKnobs::densify_resume`](../src/knobs.rs) (tighter
+Emit also applies [`LayoutKnobs::densify_resume`](../src/knobs/mod.rs) (tighter
 paragraph/heading gaps, list `end_gutter` ≈ 1.25 in, `prose.indent.step = 14`
 for sealed band levels, smaller table pad, **no page header/footer**, **no
 hyphenation**, dark-blue link fill). Band geometry comes from authored

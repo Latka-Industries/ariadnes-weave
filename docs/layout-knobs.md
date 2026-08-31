@@ -10,7 +10,7 @@ Emit uses named optical defaults from per-category TOML files under `defaults/`:
 | `math.toml` | math | Fractions, `\bar` accent, scripts, big-op limits, matrices, arrows, display gaps |
 | `page.toml` | page | Footer/header format+align, even-page overrides, `[numbers].style`, clearance, math stroke gray |
 
-Profiles (`print@0`, `deck@0`, …) still own page size, margins, and body font size. Knobs are the hard-coded paddings, gaps, and scale factors inside emit.
+Profiles (`print@0`, `deck@0`, …) still own page size, margins, and body font size. Knobs are the hard-coded paddings, gaps, and scale factors inside emit. Rust types live under `src/knobs/` (`prose.rs` / `table.rs` / `deck.rs` / `math.rs` / `page.rs`), re-exported from [`LayoutKnobs`](../src/knobs/mod.rs).
 
 ## Aesthetic colors (optional)
 
@@ -236,5 +236,5 @@ cargo run --example dump_knobs
 
 Prints flat `category.section.key = value` lines suitable for agents or diffing.
 
-[`LayoutKnobs::bundled()`]: ../src/knobs.rs
+[`LayoutKnobs::bundled()`]: ../src/knobs/mod.rs
 [`EmitOptions::layout`]: ../src/options.rs
