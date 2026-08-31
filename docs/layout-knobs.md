@@ -171,6 +171,9 @@ Running 1-based count through the document (not reset per page). Headings,
 paragraphs, quotes, lists, code, and callout lines are numbered; tables, math,
 figures, and footnotes are not. In `Columns`, each column paints its own gutter.
 
+Rust fields on `ProseBodyKnobs` are `numbers` / `gutter_width` / `size_factor`
+(serde still reads the `line_*` keys above).
+
 ## TOC / destinations / outline
 
 Not knob-driven; IR + emit behavior:
