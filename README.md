@@ -107,6 +107,11 @@ Ubuntu · macOS · Windows (+ `--features icons`, `cjk`, `emoji`), plus an MSRV
 `cargo check` on 1.95. Path filters skip docs-only pushes. SHA-256 fixtures live in
 `tests/determinism.rs`.
 
+**Release:** push a `v*` tag that matches `Cargo.toml` (e.g. `v0.2.14`).
+`.github/workflows/release.yml` publishes a GitHub Release (not a draft) with
+generated notes and `cargo publish --locked` to crates.io. `workflow_dispatch`
+from a branch does not publish.
+
 **Pinned transitive:** `zune-core = "=0.5.1"` (via `image` → `zune-jpeg`).
 `zune-core` 0.5.2 emptied the stub `warn!` macro; `zune-jpeg` ≤0.5.15 still
 calls it as an expression (missing `;`), so a plain `cargo update` can break
