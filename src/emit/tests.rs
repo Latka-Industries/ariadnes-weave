@@ -2387,6 +2387,43 @@ fn body_columns_justify_paint_differs_from_left() {
 #[test]
 fn body_columns_keep_heading_callout_math_table() {
     let para = |s: &str| PrintBlock::paragraph(vec![TextRun::plain(s)]);
+    let long = || {
+        para(
+            "The quick brown fox jumps over the lazy dog while newspaper columns wrap \
+             a narrow measure. Lorem ipsum dolor sit amet consectetur adipiscing elit \
+             sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. ",
+        )
+    };
+    let long_block = || {
+        PrintBlock::paragraph(vec![TextRun::plain(
+            "The quick brown fox jumps over the lazy dog. ".repeat(14),
+        )])
+    };
+    let mixed_cluster = |title: &str, band: &str| {
+        vec![
+            PrintBlock::heading(2, vec![TextRun::plain(title)], BreakHint::None),
+            PrintBlock::callout(
+                "note",
+                vec![TextRun::plain(band)],
+                vec![TextRun::plain(
+                    "Titled band body stays in the column at column width.",
+                )],
+            ),
+            PrintBlock::Math {
+                display: true,
+                latex: r"x = \bar{y}".into(),
+            },
+            PrintBlock::table(vec![TableRow {
+                cells: vec!["a".into(), "b".into()],
+            }]),
+        ]
+    };
+    // Fill-left-then-right (THI-391). Enough prose that col 0 fills a page band
+    // so col 1 gets a second heading/band/math/table, not an empty gutter.
+    let mut children = mixed_cluster("Left column", "Band in col 0");
+    children.extend([long_block(), long_block(), long_block(), long()]);
+    children.extend(mixed_cluster("Right column", "Band in col 1"));
+    children.extend([long_block(), long()]);
     let mixed = PrintDocument {
         meta: PrintMeta {
             title: "Mixed cols".into(),
@@ -2395,49 +2432,14 @@ fn body_columns_keep_heading_callout_math_table() {
             source_doc_id: None,
         },
         profile: PrintProfileId::print_v0(),
-        blocks: vec![PrintBlock::columns(
-            2,
-            Some(14),
-            vec![
-                PrintBlock::heading(2, vec![TextRun::plain("In column")], BreakHint::None),
-                PrintBlock::callout(
-                    "note",
-                    vec![TextRun::plain("Band title")],
-                    vec![TextRun::plain("Titled band body stays in the column.")],
-                ),
-                PrintBlock::Math {
-                    display: true,
-                    latex: r"x = \bar{y}".into(),
-                },
-                PrintBlock::table(vec![TableRow {
-                    cells: vec!["a".into(), "b".into()],
-                }]),
-                para(
-                    "Alpha column flow paragraph with enough words to wrap inside a narrow measure.",
-                ),
-                para(
-                    "Bravo continues so the second column receives text after the first column fills.",
-                ),
-            ],
-        )],
+        blocks: vec![PrintBlock::columns(2, Some(14), children)],
     };
     let with_band = emit_pdf(&mixed).expect("mixed columns");
     assert!(with_band.starts_with(b"%PDF-"));
     let paras_only = PrintDocument {
         meta: mixed.meta.clone(),
         profile: mixed.profile.clone(),
-        blocks: vec![PrintBlock::columns(
-            2,
-            Some(14),
-            vec![
-                para(
-                    "Alpha column flow paragraph with enough words to wrap inside a narrow measure.",
-                ),
-                para(
-                    "Bravo continues so the second column receives text after the first column fills.",
-                ),
-            ],
-        )],
+        blocks: vec![PrintBlock::columns(2, Some(14), vec![long(), long()])],
     };
     let without = emit_pdf(&paras_only).expect("paras only");
     assert_ne!(
