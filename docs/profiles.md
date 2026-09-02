@@ -113,7 +113,7 @@ These are IR/emit features, not separate profile ids:
 | Hyphen / widows | `[wrap]` knobs; `resume@0` densify forces `hyphenate = false` |
 | `TocEntry` | Leaders + page resolve + `GoTo` from `dest_id` |
 | PDF outline | `/Outlines` from heading `dest_id`s |
-| `Columns` | Continuous body columns; gap from IR or `[body_columns].gap` |
+| `Columns` | Continuous body columns; headings/bands/math/tables stay in-column (THI-416); figures still span |
 | Figure/table dests | Optional `dest_id` for LOF/LOT page resolve |
 
 See [`layout-knobs.md`](layout-knobs.md).

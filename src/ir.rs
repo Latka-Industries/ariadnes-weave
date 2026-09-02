@@ -251,8 +251,10 @@ pub enum PrintBlock {
     ///
     /// Distinct from [`Self::Row`] (meta hfill panes) and slide `two-column`.
     /// Children flow down column 1, then 2… then the next page. Headings,
-    /// figures, tables, math, slides, layout ops, breaks, rows, TOC lines, and
-    /// nested columns **span** full measure (flush the current column band).
+    /// titled bands (`Callout`), tables, and display math stay **in** the
+    /// column (THI-416). Figures, slides, layout ops, breaks, rows, TOC lines,
+    /// notes, and nested columns **span** full measure (flush the current
+    /// column band).
     Columns {
         /// Column count (clamped to 2..=6 at layout).
         count: u8,

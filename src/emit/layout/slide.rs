@@ -6,7 +6,8 @@ use crate::ir::{InlineStyle, SlideRegionContent, TextRun};
 use crate::knobs::{LayoutKnobs, TextAlign};
 
 use super::super::types::{
-    FaceMode, ForcedBreak, LaidColumns, LaidItem, LaidLine, LayoutSegment, PaintCategory, RunLayout,
+    FaceMode, ForcedBreak, LaidColumns, LaidItem, LaidLine, LayoutSegment, PaintCategory,
+    RunLayout, text_column,
 };
 use super::LayoutCtx;
 use super::runs::push_styled_runs;
@@ -162,7 +163,7 @@ fn layout_slide_two_column(
     let left_lines = wrap_slide_column(&left, col_w, ctx)?;
     let right_lines = wrap_slide_column(&right, col_w, ctx)?;
     out.push(LaidItem::Columns(LaidColumns {
-        columns: vec![left_lines, right_lines],
+        columns: vec![text_column(left_lines), text_column(right_lines)],
         col_widths: vec![col_w, col_w],
         gap,
         gap_after: if ctx.metrics.is_deck {

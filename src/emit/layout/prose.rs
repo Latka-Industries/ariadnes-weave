@@ -8,7 +8,7 @@ use crate::profile;
 
 use super::super::types::{
     FaceMode, ForcedBreak, LaidCallout, LaidColumns, LaidItem, LaidLine, LaidSpan, LayoutSegment,
-    PaintCategory, RunLayout, ShapeSpans, shape_and_record_spans,
+    PaintCategory, RunLayout, ShapeSpans, shape_and_record_spans, text_column,
 };
 use super::LayoutCtx;
 use super::block_name;
@@ -151,7 +151,10 @@ pub(super) fn push_toc_entry(
     };
 
     out.push(LaidItem::Columns(LaidColumns {
-        columns: vec![vec![left_line], vec![right_line]],
+        columns: vec![
+            vec![LaidItem::Text(left_line)],
+            vec![LaidItem::Text(right_line)],
+        ],
         col_widths: vec![left_w, page_slot],
         gap: col_gap,
         gap_after: shape.ctx.knobs.prose.paragraph.gap_after,
@@ -712,7 +715,7 @@ pub(super) fn push_row(
     }
 
     out.push(LaidItem::Columns(LaidColumns {
-        columns,
+        columns: columns.into_iter().map(text_column).collect(),
         col_widths,
         gap: geom.gap,
         gap_after: geom.gap_after,

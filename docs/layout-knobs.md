@@ -132,18 +132,19 @@ Hyphenation is conservative ASCII-first (no dictionary crate): words shorter tha
 
 ## Body columns (`[body_columns]` in `defaults/prose.toml`)
 
-Newspaper / article continuous columns for `PrintBlock::Columns` (THI-391). Distinct from deck slide `[columns]` / `two-column` templates and from `PrintBlock::Row` meta panes.
+Newspaper / article continuous columns for `PrintBlock::Columns` (THI-391 / THI-416). Distinct from deck slide `[columns]` / `two-column` templates and from `PrintBlock::Row` meta panes.
 
 | Key | Meaning |
 |-----|---------|
 | `gap` | Space between columns in points (bundled `18`) |
 
 Column count, optional per-block `gap`, and optional `text_align` live on the IR
-(`Columns { count, gap, children, text_align }`). Headings, figures, tables,
-math, breaks, rows, TOC lines, and nested columns **span** full measure (flush
-the current band). Body paragraphs/lists/quotes/code flow down each column.
-Child `text_align` wins; else the columns region default; else pack
-`[paragraph].text_align`.
+(`Columns { count, gap, children, text_align }`). Headings, titled bands
+(`Callout`), tables, and display math stay **in the column** at column width.
+Figures, breaks, rows, TOC lines, notes, and nested columns **span** full
+measure (flush the current band). Body paragraphs/lists/quotes/code also flow
+down each column. Child `text_align` wins; else the columns region default; else
+pack `[paragraph].text_align`.
 
 ## Titled band (`PrintBlock::Callout`)
 

@@ -2385,6 +2385,69 @@ fn body_columns_justify_paint_differs_from_left() {
 }
 
 #[test]
+fn body_columns_keep_heading_callout_math_table() {
+    let para = |s: &str| PrintBlock::paragraph(vec![TextRun::plain(s)]);
+    let mixed = PrintDocument {
+        meta: PrintMeta {
+            title: "Mixed cols".into(),
+            doc_kind: "document".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::columns(
+            2,
+            Some(14),
+            vec![
+                PrintBlock::heading(2, vec![TextRun::plain("In column")], BreakHint::None),
+                PrintBlock::callout(
+                    "note",
+                    vec![TextRun::plain("Band title")],
+                    vec![TextRun::plain("Titled band body stays in the column.")],
+                ),
+                PrintBlock::Math {
+                    display: true,
+                    latex: r"x = \bar{y}".into(),
+                },
+                PrintBlock::table(vec![TableRow {
+                    cells: vec!["a".into(), "b".into()],
+                }]),
+                para(
+                    "Alpha column flow paragraph with enough words to wrap inside a narrow measure.",
+                ),
+                para(
+                    "Bravo continues so the second column receives text after the first column fills.",
+                ),
+            ],
+        )],
+    };
+    let with_band = emit_pdf(&mixed).expect("mixed columns");
+    assert!(with_band.starts_with(b"%PDF-"));
+    let paras_only = PrintDocument {
+        meta: mixed.meta.clone(),
+        profile: mixed.profile.clone(),
+        blocks: vec![PrintBlock::columns(
+            2,
+            Some(14),
+            vec![
+                para(
+                    "Alpha column flow paragraph with enough words to wrap inside a narrow measure.",
+                ),
+                para(
+                    "Bravo continues so the second column receives text after the first column fills.",
+                ),
+            ],
+        )],
+    };
+    let without = emit_pdf(&paras_only).expect("paras only");
+    assert_ne!(
+        with_band, without,
+        "heading/callout/math/table inside columns must not be dropped"
+    );
+    write_tmp_sample("body_columns_mixed.pdf", &with_band);
+}
+
+#[test]
 fn measure_frac_try_from_f32() {
     assert_eq!(MeasureFrac::try_from_f32(1.0).unwrap(), MeasureFrac::FULL);
     assert_eq!(MeasureFrac::try_from_f32(0.5).unwrap(), MeasureFrac::HALF);
