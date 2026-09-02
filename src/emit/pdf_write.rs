@@ -340,9 +340,7 @@ pub(super) fn remap_items(items: &mut [LaidItem], subsets: &SubsetMap) {
             }
             LaidItem::Columns(cols) => {
                 for column in &mut cols.columns {
-                    for line in column {
-                        remap_line(line, subsets);
-                    }
+                    remap_items(column, subsets);
                 }
             }
             LaidItem::Callout(band) => {

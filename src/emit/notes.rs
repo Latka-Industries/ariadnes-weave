@@ -111,9 +111,7 @@ fn walk_items(items: &[LaidItem], seen: &mut BTreeSet<String>, order: &mut Vec<S
             }
             LaidItem::Columns(cols) => {
                 for col in &cols.columns {
-                    for line in col {
-                        walk_line(line, seen, order);
-                    }
+                    walk_items(col, seen, order);
                 }
             }
             LaidItem::Table(table) => {

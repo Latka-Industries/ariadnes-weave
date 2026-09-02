@@ -251,11 +251,12 @@ impl LaidTable {
     }
 }
 
-/// Side-by-side column band (slide `two-column` layouts).
+/// Side-by-side column band (body `\columns`, slide `two-column`, CV rows).
 #[derive(Debug, Clone)]
 pub(super) struct LaidColumns {
-    /// Per-column wrapped lines (same length as `col_widths`).
-    pub columns: Vec<Vec<LaidLine>>,
+    /// Per-column items (same length as `col_widths`). Body columns may mix
+    /// text, titled bands, math, and tables (THI-416).
+    pub columns: Vec<Vec<LaidItem>>,
     pub col_widths: Vec<f32>,
     /// Gap between columns (points).
     pub gap: f32,
@@ -270,10 +271,15 @@ impl LaidColumns {
         let col_h = self
             .columns
             .iter()
-            .map(|lines| lines.iter().map(|l| l.leading).sum::<f32>())
+            .map(|items| items.iter().map(LaidItem::height).sum::<f32>())
             .fold(0.0_f32, f32::max);
         col_h + self.gap_after
     }
+}
+
+/// Wrap wrapped lines as a column of text items (slides, TOC, CV rows).
+pub(super) fn text_column(lines: Vec<LaidLine>) -> Vec<LaidItem> {
+    lines.into_iter().map(LaidItem::Text).collect()
 }
 
 /// Titled band (THI-412 / THI-414): left rule + title + body lines.
@@ -484,7 +490,12 @@ impl LaidItem {
         match self {
             Self::Text(line) => vec![line],
             Self::Callout(band) => band.lines.iter().collect(),
-            Self::Columns(cols) => cols.columns.iter().flatten().collect(),
+            Self::Columns(cols) => cols
+                .columns
+                .iter()
+                .flatten()
+                .flat_map(Self::dest_lines)
+                .collect(),
             _ => Vec::new(),
         }
     }
@@ -500,8 +511,8 @@ impl LaidItem {
             }
             Self::Columns(cols) => {
                 for col in &mut cols.columns {
-                    for line in col {
-                        f(line);
+                    for item in col {
+                        item.for_each_content_line_mut(f);
                     }
                 }
             }

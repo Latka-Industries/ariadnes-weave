@@ -28,7 +28,8 @@ crates.io. Local suite work can still path-dep when cutting paired releases.
   per-block `text_align`; `Note` footnotes/endnotes; `Callout` titled band
   (one paint for theorem/definition and callout/Q&A); pack `[body].line_numbers`
   gutter per column (off by default); ASCII hyphenation + widow/orphan knobs;
-  in-doc `TocEntry`; native PDF `/Outlines`; multi-column body flow;
+  in-doc `TocEntry`; native PDF `/Outlines`; multi-column body flow (headings,
+  titled bands, math, and tables stay in-column; figures still span);
   figure/table `dest_id` stamps for LOF/LOT
 - Faces: Liberation Sans (R/B/I/BI), Serif (R/B/I/BI) for `manuscript@0`, Mono
   for `code`; optional Font Awesome Free behind `--features icons`; optional

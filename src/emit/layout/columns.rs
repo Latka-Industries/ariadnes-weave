@@ -1,4 +1,4 @@
-//! Continuous multi-column body flow (THI-391).
+//! Continuous multi-column body flow (THI-391 / THI-416).
 
 use crate::error::WeaveError;
 use crate::font::FontBag;
@@ -8,7 +8,7 @@ use crate::knobs::{LayoutKnobs, TextAlign};
 use crate::profile::ProfileMetrics;
 
 use super::super::notes::NoteBook;
-use super::super::types::{ForcedBreak, GlyphSets, LaidColumns, LaidItem, LaidLine, LayoutSegment};
+use super::super::types::{ForcedBreak, GlyphSets, LaidColumns, LaidItem, LayoutSegment};
 use super::layout_block;
 
 /// Arguments for [`layout_columns`].
@@ -32,14 +32,14 @@ fn spans_full_measure(block: &PrintBlock) -> bool {
         PrintBlock::Paragraph { .. }
         | PrintBlock::Quote { .. }
         | PrintBlock::Code { .. }
-        | PrintBlock::List { .. } => false,
-        PrintBlock::Heading { .. }
+        | PrintBlock::List { .. }
+        | PrintBlock::Heading { .. }
         | PrintBlock::Callout { .. }
-        | PrintBlock::TocEntry { .. }
         | PrintBlock::Table { .. }
+        | PrintBlock::Math { .. } => false,
+        PrintBlock::TocEntry { .. }
         | PrintBlock::Row { .. }
         | PrintBlock::Figure { .. }
-        | PrintBlock::Math { .. }
         | PrintBlock::Slide { .. }
         | PrintBlock::Layout { .. }
         | PrintBlock::Columns { .. }
@@ -132,41 +132,30 @@ fn flush_flow_bands(
     if flow.is_empty() {
         return;
     }
-    let lines = take_flow_lines(flow);
-    if lines.is_empty() {
+    let items = std::mem::take(flow);
+    if items.is_empty() {
         return;
     }
-    let bands = pack_lines_into_columns(&lines, n, gap, col_w, max_h);
+    let bands = pack_items_into_columns(items, n, gap, col_w, max_h);
     let seg = segments.last_mut().expect("segment");
     seg.1.extend(bands);
 }
 
-fn take_flow_lines(flow: &mut Vec<LaidItem>) -> Vec<LaidLine> {
-    let items = std::mem::take(flow);
-    let mut lines = Vec::with_capacity(items.len());
-    for item in items {
-        if let LaidItem::Text(line) = item {
-            lines.push(line);
-        }
-    }
-    lines
-}
-
-/// Pack wrapped lines into page-height column bands (fill col 0, then 1, …).
-fn pack_lines_into_columns(
-    lines: &[LaidLine],
+/// Pack laid items into page-height column bands (fill col 0, then 1, …).
+fn pack_items_into_columns(
+    items: Vec<LaidItem>,
     n: usize,
     gap: f32,
     col_w: f32,
     max_h: f32,
 ) -> Vec<LaidItem> {
     let mut out = Vec::new();
-    let mut cols: Vec<Vec<LaidLine>> = vec![Vec::new(); n];
+    let mut cols: Vec<Vec<LaidItem>> = vec![Vec::new(); n];
     let mut heights = vec![0.0_f32; n];
     let mut col_i = 0_usize;
 
     let flush_band =
-        |cols: &mut Vec<Vec<LaidLine>>, heights: &mut [f32], out: &mut Vec<LaidItem>| {
+        |cols: &mut Vec<Vec<LaidItem>>, heights: &mut [f32], out: &mut Vec<LaidItem>| {
             if cols.iter().all(Vec::is_empty) {
                 return;
             }
@@ -180,8 +169,8 @@ fn pack_lines_into_columns(
             heights.fill(0.0);
         };
 
-    for line in lines {
-        let h = line.leading;
+    for item in items {
+        let h = item.height();
         if heights[col_i] + h > max_h && !cols[col_i].is_empty() {
             col_i += 1;
             if col_i >= n {
@@ -189,7 +178,7 @@ fn pack_lines_into_columns(
                 col_i = 0;
             }
         }
-        cols[col_i].push(line.clone());
+        cols[col_i].push(item);
         heights[col_i] += h;
     }
     flush_band(&mut cols, &mut heights, &mut out);
@@ -198,14 +187,18 @@ fn pack_lines_into_columns(
 
 #[cfg(test)]
 mod tests {
+    use super::super::super::types::{LaidCallout, LaidLine};
     use super::*;
-    use crate::ir::TextRun;
+    use crate::ir::{BreakHint, NoteKind, TableRow, TextRun};
+
+    fn gap_item(leading: f32) -> LaidItem {
+        LaidItem::Text(LaidLine::gap(leading))
+    }
 
     #[test]
     fn packs_into_two_columns_then_next_band() {
-        let line = |leading: f32| LaidLine::gap(leading);
-        let lines = vec![line(40.0), line(40.0), line(40.0)];
-        let bands = pack_lines_into_columns(&lines, 2, 12.0, 200.0, 100.0);
+        let items = vec![gap_item(40.0), gap_item(40.0), gap_item(40.0)];
+        let bands = pack_items_into_columns(items, 2, 12.0, 200.0, 100.0);
         assert_eq!(bands.len(), 1);
         let LaidItem::Columns(cols) = &bands[0] else {
             panic!("expected Columns");
@@ -216,9 +209,8 @@ mod tests {
 
     #[test]
     fn fills_next_page_band_when_columns_full() {
-        let line = |leading: f32| LaidLine::gap(leading);
-        let lines: Vec<_> = (0..5).map(|_| line(40.0)).collect();
-        let bands = pack_lines_into_columns(&lines, 2, 10.0, 180.0, 80.0);
+        let items: Vec<_> = (0..5).map(|_| gap_item(40.0)).collect();
+        let bands = pack_items_into_columns(items, 2, 10.0, 180.0, 80.0);
         assert_eq!(bands.len(), 2);
         let LaidItem::Columns(a) = &bands[0] else {
             panic!("band0");
@@ -233,9 +225,78 @@ mod tests {
     }
 
     #[test]
-    fn paragraph_does_not_span() {
+    fn packing_keeps_callout_in_column() {
+        let callout = LaidItem::Callout(LaidCallout {
+            lines: vec![LaidLine::gap(20.0)],
+            gap_after: 0.0,
+            indent: 0.0,
+            rule_thickness: 1.5,
+        });
+        let items = vec![gap_item(40.0), callout, gap_item(40.0)];
+        let bands = pack_items_into_columns(items, 2, 12.0, 200.0, 50.0);
+        let has_callout = bands.iter().any(|band| {
+            let LaidItem::Columns(cols) = band else {
+                return false;
+            };
+            cols.columns
+                .iter()
+                .flatten()
+                .any(|item| matches!(item, LaidItem::Callout(_)))
+        });
+        assert!(
+            has_callout,
+            "THI-416 must not drop titled bands from columns"
+        );
+    }
+
+    #[test]
+    fn paragraph_heading_callout_math_table_stay_in_column() {
         assert!(!spans_full_measure(&PrintBlock::paragraph(vec![
             TextRun::plain("x")
         ])));
+        assert!(!spans_full_measure(&PrintBlock::heading(
+            2,
+            vec![TextRun::plain("Title")],
+            BreakHint::None,
+        )));
+        assert!(!spans_full_measure(&PrintBlock::callout(
+            "note",
+            vec![TextRun::plain("Note")],
+            vec![TextRun::plain("body")],
+        )));
+        assert!(!spans_full_measure(&PrintBlock::Math {
+            display: true,
+            latex: "x".into(),
+        }));
+        assert!(!spans_full_measure(&PrintBlock::table(vec![TableRow {
+            cells: vec!["a".into()],
+        }])));
+    }
+
+    #[test]
+    fn figure_toc_row_nested_columns_still_span() {
+        assert!(spans_full_measure(&PrintBlock::toc_entry(
+            vec![TextRun::plain("A")],
+            None,
+            None,
+            0,
+        )));
+        assert!(spans_full_measure(&PrintBlock::row(vec![
+            vec![TextRun::plain("L")],
+            vec![TextRun::plain("R")],
+        ])));
+        assert!(spans_full_measure(&PrintBlock::columns(
+            2,
+            None,
+            vec![PrintBlock::paragraph(vec![TextRun::plain("x")])],
+        )));
+        assert!(spans_full_measure(&PrintBlock::Break(
+            BreakHint::PageAlways
+        )));
+        assert!(spans_full_measure(&PrintBlock::Note {
+            id: "n1".into(),
+            note_kind: NoteKind::Footnote,
+            runs: vec![TextRun::plain("f")],
+        }));
     }
 }

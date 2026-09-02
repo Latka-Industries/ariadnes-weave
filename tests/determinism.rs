@@ -200,22 +200,22 @@ fn page_dict_count(pdf: &[u8]) -> usize {
 
 /// Pin: bump intentionally when emit layout/fonts/version (PDF Producer) change.
 const HELLO_PRINT_V0_SHA256: &str =
-    "b394657c2c66ce67df0a8378d1cfc7823adeacb29ef1f8f632c09483876b2be9";
+    "62165c1d492404693b2c11a9d24b8f4a667fe544c47142216e63f2080cc647c8";
 
 /// Pin: bump intentionally when manuscript literary layout/fonts/version change.
 const MANUSCRIPT_TWO_CHAPTER_SHA256: &str =
-    "3cd4efdd89117f5bce1560e2ad352c845936a2058e0a0fde3ee40bc57d83fee7";
+    "f8944c7456a23cfb310d8d290a042173b63af7a1caae609b7a6c4a046c5ab50a";
 
 /// Pin: bump intentionally when math box layout/version change.
 const QUADRATIC_FORMULA_SHA256: &str =
-    "874deb392a9a951737bd4b6311ad0b585f54c845d4fa443ff09ca7daac1c4b9a";
+    "f53ef3f530de6ba84c1e3cdd55f12d9e382199bf9d2de5545400000a60e56cb1";
 
 /// Pin: bump intentionally when display ∑/∏ under/over limit layout changes.
-const SUM_LIMITS_SHA256: &str = "6fcf00ea19590f855d0e43607570eb9b7c9e91d3213588f2c05452aa849fc336";
+const SUM_LIMITS_SHA256: &str = "2740c9c4b5430f74d9f69ab09cfeef1fa420451c8133a437f253642af7cd958e";
 
 /// Pin: bump intentionally when layout place/vspace/rule paint changes.
 const LAYOUT_PLACE_FLUSH_SHA256: &str =
-    "73224b4e8965a9dba3639dbb4ca432941940ceb47029cbc4bbee838c8b71565a";
+    "672e52ee5dca17c2e187b15b4dc9a579f04128d79b95a098c3dd9ec496e31cfa";
 
 #[test]
 fn emit_is_byte_identical_across_runs() {

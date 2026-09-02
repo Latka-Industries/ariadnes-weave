@@ -6,7 +6,7 @@ use pdf_writer::{Content, Name, Str};
 
 use crate::error::WeaveError;
 use crate::font::{FaceId, FaceRef, FontBag, encode_gids, shape_text, shaped_width};
-use crate::knobs::{FigureAlign, LayoutKnobs, PageChromeBand, TextAlign};
+use crate::knobs::{FigureAlign, LayoutKnobs, PageChromeBand, PageChromeKnobs, TextAlign};
 use crate::profile::ProfileMetrics;
 
 use super::math::paint_math;
@@ -616,6 +616,7 @@ impl PageCursor<'_> {
             *self.y,
             self.fonts,
             &mut self.last_fill,
+            &self.knobs.page.chrome,
         );
         *self.y -= cols.height();
         true
@@ -626,47 +627,16 @@ impl PageCursor<'_> {
         if *self.y - h < self.bottom_limit {
             return false;
         }
-        let origin_x = self.metrics.margin + band.indent;
-        let top_y = *self.y;
-        let bot_y = top_y - h;
-        if band.rule_thickness > 0.0 {
-            self.content.save_state();
-            self.content
-                .set_stroke_gray(self.knobs.page.chrome.stroke_gray);
-            self.content.set_line_width(band.rule_thickness);
-            let x = origin_x + band.rule_thickness / 2.0;
-            self.content.move_to(x, top_y);
-            self.content.line_to(x, bot_y);
-            self.content.stroke();
-            self.content.restore_state();
-        }
-        let mut y = top_y;
-        for line in &band.lines {
-            y -= line.leading;
-            if line.is_gap() {
-                continue;
-            }
-            let text_x = self.metrics.margin + line.indent;
-            paint_gutter_spans(
-                self.content,
-                self.fonts,
-                line,
-                text_x,
-                y,
-                &mut self.last_fill,
-            );
-            let measure = line.measure.max(line.width());
-            paint_aligned_line(
-                self.content,
-                self.links,
-                line,
-                text_x,
-                y,
-                measure,
-                self.fonts,
-                &mut self.last_fill,
-            );
-        }
+        paint_callout_band(
+            self.content,
+            self.links,
+            band,
+            self.metrics.margin,
+            *self.y,
+            self.fonts,
+            &mut self.last_fill,
+            self.knobs.page.chrome.stroke_gray,
+        );
         *self.y -= band.height();
         true
     }
@@ -905,6 +875,7 @@ fn paint_page_chrome_band<B: PageChromeBand + ?Sized>(
 }
 
 /// Paint side-by-side columns; `top_y` is the top edge in PDF space.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn paint_columns(
     content: &mut Content,
     links: &mut Vec<PageLink>,
@@ -913,34 +884,100 @@ pub(super) fn paint_columns(
     top_y: f32,
     fonts: &FontBag,
     last_fill: &mut Option<[f32; 3]>,
+    chrome: &PageChromeKnobs,
 ) {
     let mut x = origin_x + cols.indent;
-    for (i, lines) in cols.columns.iter().enumerate() {
+    for (i, items) in cols.columns.iter().enumerate() {
         let col_w = cols.col_widths.get(i).copied().unwrap_or(0.0);
         let mut text_y = top_y;
-        for line in lines {
-            text_y -= line.leading;
-            if line.is_gap() {
-                continue;
+        for item in items {
+            match item {
+                LaidItem::Text(line) => {
+                    text_y -= line.leading;
+                    if line.is_gap() {
+                        continue;
+                    }
+                    let measure = if line.measure > 0.0 {
+                        line.measure
+                    } else {
+                        col_w
+                    };
+                    paint_gutter_spans(content, fonts, line, x + line.indent, text_y, last_fill);
+                    paint_aligned_line(
+                        content,
+                        links,
+                        line,
+                        x + line.indent,
+                        text_y,
+                        measure,
+                        fonts,
+                        last_fill,
+                    );
+                }
+                LaidItem::Callout(band) => {
+                    paint_callout_band(
+                        content,
+                        links,
+                        band,
+                        x,
+                        text_y,
+                        fonts,
+                        last_fill,
+                        chrome.stroke_gray,
+                    );
+                    text_y -= band.height();
+                }
+                LaidItem::Table(table) => {
+                    paint_table(content, links, table, x, text_y, fonts, last_fill);
+                    text_y -= table.height();
+                }
+                LaidItem::Math(math) => {
+                    paint_math(content, math, x, text_y, col_w, fonts, chrome);
+                    text_y -= math.height + math.gap_after;
+                }
+                other => {
+                    text_y -= other.height();
+                }
             }
-            let measure = if line.measure > 0.0 {
-                line.measure
-            } else {
-                col_w
-            };
-            paint_gutter_spans(content, fonts, line, x + line.indent, text_y, last_fill);
-            paint_aligned_line(
-                content,
-                links,
-                line,
-                x + line.indent,
-                text_y,
-                measure,
-                fonts,
-                last_fill,
-            );
         }
         x += col_w + cols.gap;
+    }
+}
+
+/// Paint a titled band; `content_left` is indent 0 (page margin or column origin).
+#[allow(clippy::too_many_arguments)]
+fn paint_callout_band(
+    content: &mut Content,
+    links: &mut Vec<PageLink>,
+    band: &LaidCallout,
+    content_left: f32,
+    top_y: f32,
+    fonts: &FontBag,
+    last_fill: &mut Option<[f32; 3]>,
+    stroke_gray: f32,
+) {
+    let origin_x = content_left + band.indent;
+    let bot_y = top_y - band.body_height();
+    if band.rule_thickness > 0.0 {
+        content.save_state();
+        content.set_stroke_gray(stroke_gray);
+        content.set_line_width(band.rule_thickness);
+        let x = origin_x + band.rule_thickness / 2.0;
+        content.move_to(x, top_y);
+        content.line_to(x, bot_y);
+        content.stroke();
+        content.restore_state();
+    }
+    let mut y = top_y;
+    for line in &band.lines {
+        y -= line.leading;
+        if line.is_gap() {
+            continue;
+        }
+        let text_x = content_left + line.indent;
+        paint_gutter_spans(content, fonts, line, text_x, y, last_fill);
+        let measure = line.measure.max(line.width());
+        paint_aligned_line(content, links, line, text_x, y, measure, fonts, last_fill);
     }
 }
 
