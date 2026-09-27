@@ -183,6 +183,7 @@ Not knob-driven; IR + emit behavior:
 |---------|----------|
 | `PrintBlock::TocEntry` | Title + optional leaders + flush-right page column; `page_label: None` + `dest_id` → resolve after layout; `GoTo` when dest resolves |
 | `Heading` / `Figure` / `Table` `dest_id` | Zero-height dest markers for page resolve (TOC / LOF / LOT) |
+| `Heading.body_size` | Optional `u16` PDF points. Section body (and derived heading/quote/caption sizes) from that heading until the next same-or-higher-level heading. Absent → profile body size (**0.2.15**, THI-435) |
 | PDF `/Outlines` | Built from headings that carry a resolvable `dest_id` (same Fit dests as TOC `GoTo`) |
 
 Tessera owns `\toc` / `\lof` / `\lot` expansion into these blocks; weave only paints and links.

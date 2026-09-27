@@ -12,7 +12,7 @@ HTML + CSS stays Tessera’s browser preview path. This crate owns pagination an
 PDF bytes so the same document + print profile yields the same layout (see
 Tessera `docs/print_ir.md` / D21).
 
-Consumers: Tessera `0.2` (`--features native-pdf`) depends on this crate from
+Consumers: Tessera `0.3` (`--features native-pdf`) depends on this crate from
 crates.io. Local suite work can still path-dep when cutting paired releases.
 
 ## Status
@@ -22,7 +22,7 @@ crates.io. Local suite work can still path-dep when cutting paired releases.
 - Blocks: `Heading` / `Paragraph` / `List` / `Code` / `Quote` / `Callout` /
   `Break` / `Table` / `Figure` / `Row` / `TocEntry` / `Columns` / `Note` /
   `Slide` / `Math` / `Layout` (`place` / `vspace` / `rule`)
-- Long-doc print (THI-316 / 398 / 409 / 410 / 385 / 412–415): page chrome
+- Long-doc print (THI-316 / 398 / 409 / 410 / 385 / 412–415 / 435): page chrome
   (`{page}` / `{page_roman}` / `{pages}` / `{title}` / `{heading}`; optional
   even-page `align_even` / `format_even`; `[numbers].style` arabic/roman);
   per-block `text_align`; `Note` footnotes/endnotes; `Callout` titled band
@@ -30,7 +30,9 @@ crates.io. Local suite work can still path-dep when cutting paired releases.
   gutter per column (off by default); ASCII hyphenation + widow/orphan knobs;
   in-doc `TocEntry`; native PDF `/Outlines`; multi-column body flow (headings,
   titled bands, math, and tables stay in-column; figures still span);
-  figure/table `dest_id` stamps for LOF/LOT
+  figure/table `dest_id` stamps for LOF/LOT; optional `Heading.body_size`
+  (PDF points) for per-section body type from that heading through the next
+  same-or-higher-level heading (absent → profile body size; THI-435)
 - Faces: Liberation Sans (R/B/I/BI), Serif (R/B/I/BI) for `manuscript@0`, Mono
   for `code`; optional Font Awesome Free behind `--features icons`; optional
   sealed CJK / emoji subsets behind `--features cjk` / `emoji` (script fallback)
@@ -107,7 +109,7 @@ Ubuntu · macOS · Windows (+ `--features icons`, `cjk`, `emoji`), plus an MSRV
 `cargo check` on 1.95. Path filters skip docs-only pushes. SHA-256 fixtures live in
 `tests/determinism.rs`.
 
-**Release:** push a `v*` tag that matches `Cargo.toml` (e.g. `v0.2.14`).
+**Release:** push a `v*` tag that matches `Cargo.toml` (e.g. `v0.2.15`).
 `.github/workflows/release.yml` publishes a GitHub Release (not a draft) with
 generated notes and `cargo publish --locked` to crates.io. `workflow_dispatch`
 from a branch does not publish.
@@ -140,13 +142,8 @@ let doc = PrintDocument {
     },
     profile: PrintProfileId::print_v0(),
     blocks: vec![
-        PrintBlock::Heading {
-            level: 1,
-            runs: vec![TextRun::plain("Title")],
-            break_before: BreakHint::None,
-            dest_id: None,
-        },body_size: None,
-        },
+        // Or PrintBlock::heading_sized(1, …, Some(14)) for a 14 pt section body.
+        PrintBlock::heading(1, vec![TextRun::plain("Title")], BreakHint::None),
         PrintBlock::Paragraph {
             runs: vec![TextRun::plain("Body.")],
             indent: 0,

@@ -115,6 +115,7 @@ These are IR/emit features, not separate profile ids:
 | PDF outline | `/Outlines` from heading `dest_id`s |
 | `Columns` | Continuous body columns; headings/bands/math/tables stay in-column (THI-416); figures still span |
 | Figure/table dests | Optional `dest_id` for LOF/LOT page resolve |
+| Section body size | Optional `Heading.body_size` (`u16` PDF points). Applies from that heading through the next heading of the same or higher level. Absent → profile body size; leading scales with the section ratio. Helpers: `heading_sized` / `heading_dest_sized` (THI-435, **0.2.15**) |
 
 See [`layout-knobs.md`](layout-knobs.md).
 
