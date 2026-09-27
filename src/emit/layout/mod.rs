@@ -584,6 +584,27 @@ fn segment_has_content(segments: &[LayoutSegment]) -> bool {
     segments.last().is_some_and(|(_, items)| !items.is_empty())
 }
 
+fn block_name(block: &PrintBlock) -> &'static str {
+    match block {
+        PrintBlock::Heading { .. } => "heading",
+        PrintBlock::Paragraph { .. } => "paragraph",
+        PrintBlock::List { .. } => "list",
+        PrintBlock::Code { .. } => "code",
+        PrintBlock::Quote { .. } => "quote",
+        PrintBlock::Callout { .. } => "callout",
+        PrintBlock::Table { .. } => "table",
+        PrintBlock::Row { .. } => "row",
+        PrintBlock::TocEntry { .. } => "toc_entry",
+        PrintBlock::Figure { .. } => "figure",
+        PrintBlock::Math { .. } => "math",
+        PrintBlock::Slide { .. } => "slide",
+        PrintBlock::Layout { .. } => "layout",
+        PrintBlock::Columns { .. } => "columns",
+        PrintBlock::Note { .. } => "note",
+        PrintBlock::Break(_) => "break",
+    }
+}
+
 #[cfg(test)]
 mod section_body_tests {
     use super::collect_layout;
@@ -662,26 +683,5 @@ mod section_body_tests {
             metrics.body_size, 14.0,
             "test needs a profile default distinct from 14pt"
         );
-    }
-}
-
-fn block_name(block: &PrintBlock) -> &'static str {
-    match block {
-        PrintBlock::Heading { .. } => "heading",
-        PrintBlock::Paragraph { .. } => "paragraph",
-        PrintBlock::List { .. } => "list",
-        PrintBlock::Code { .. } => "code",
-        PrintBlock::Quote { .. } => "quote",
-        PrintBlock::Callout { .. } => "callout",
-        PrintBlock::Table { .. } => "table",
-        PrintBlock::Row { .. } => "row",
-        PrintBlock::TocEntry { .. } => "toc_entry",
-        PrintBlock::Figure { .. } => "figure",
-        PrintBlock::Math { .. } => "math",
-        PrintBlock::Slide { .. } => "slide",
-        PrintBlock::Layout { .. } => "layout",
-        PrintBlock::Columns { .. } => "columns",
-        PrintBlock::Note { .. } => "note",
-        PrintBlock::Break(_) => "break",
     }
 }
