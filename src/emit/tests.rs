@@ -43,6 +43,7 @@ fn hello_doc() -> PrintDocument {
                 }],
                 break_before: BreakHint::None,
                 dest_id: None,
+                body_size: None,
             },
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain(
@@ -437,6 +438,7 @@ fn category_heading_font_pin_without_run_face() {
             runs: vec![TextRun::plain("Display heading")],
             break_before: BreakHint::None,
             dest_id: None,
+            body_size: None,
         }],
     };
     let bytes = emit_pdf_with(&doc, &opts).expect("emit category heading font");
@@ -470,6 +472,7 @@ fn explicit_run_face_wins_over_category_font() {
             runs: vec![TextRun::pinned("Explicit other", "other")],
             break_before: BreakHint::None,
             dest_id: None,
+            body_size: None,
         }],
     };
     let category_only = {
@@ -494,6 +497,7 @@ fn explicit_run_face_wins_over_category_font() {
                 runs: vec![TextRun::plain("Explicit other")],
                 break_before: BreakHint::None,
                 dest_id: None,
+                body_size: None,
             }],
         };
         emit_pdf_with(&doc, &opts).expect("category only")
@@ -1609,6 +1613,7 @@ fn figure_png_embeds_xobject() {
                 runs: vec![TextRun::plain("With figure")],
                 break_before: BreakHint::None,
                 dest_id: None,
+                body_size: None,
             },
             figure_with_caption("A tiny PNG.", FigurePlacement::Flow),
         ],

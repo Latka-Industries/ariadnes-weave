@@ -22,6 +22,7 @@ fn h1(text: &str) -> PrintBlock {
         runs: vec![TextRun::plain(text)],
         break_before: BreakHint::None,
         dest_id: None,
+        body_size: None,
     }
 }
 
@@ -31,6 +32,7 @@ fn h2(text: &str) -> PrintBlock {
         runs: vec![TextRun::plain(text)],
         break_before: BreakHint::None,
         dest_id: None,
+        body_size: None,
     }
 }
 

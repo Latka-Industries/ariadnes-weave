@@ -50,10 +50,12 @@ pub(super) fn collect_layout(
     let mut images: Vec<PreparedImage> = Vec::new();
     let mut glyph_sets: GlyphSets = std::collections::BTreeMap::new();
     let mut notes = NoteBook::collect(doc);
+    let mut section_stack: Vec<(u8, f32)> = Vec::new();
 
     for block in &doc.blocks {
         layout_block(
             block,
+            metrics,
             metrics,
             fonts,
             knobs,
@@ -62,6 +64,7 @@ pub(super) fn collect_layout(
             &mut glyph_sets,
             &mut notes,
             None,
+            &mut section_stack,
         )?;
     }
 
@@ -168,9 +171,11 @@ fn dump_endnotes(
         blocks
     };
     let mut unused = NoteBook::default();
+    let mut section_stack: Vec<(u8, f32)> = Vec::new();
     for block in &extra {
         layout_block(
             block,
+            metrics,
             metrics,
             fonts,
             knobs,
@@ -179,6 +184,7 @@ fn dump_endnotes(
             glyph_sets,
             &mut unused,
             None,
+            &mut section_stack,
         )?;
     }
     Ok(())
@@ -236,10 +242,48 @@ fn resolved_quote_align(explicit: Option<TextAlign>, inherit: Option<TextAlign>)
     explicit.or(inherit).unwrap_or(TextAlign::Left)
 }
 
+/// Active section body size, or document profile default when no heading opened a section.
+fn current_section_body(section_stack: &[(u8, f32)], doc_metrics: &ProfileMetrics) -> f32 {
+    section_stack
+        .last()
+        .map(|(_, body)| *body)
+        .unwrap_or(doc_metrics.body_size)
+}
+
+/// Clone layout metrics with section-scaled body size and leading (THI-435).
+fn effective_section_metrics(
+    layout_metrics: &ProfileMetrics,
+    doc_metrics: &ProfileMetrics,
+    section_body: f32,
+) -> ProfileMetrics {
+    let mut m = *layout_metrics;
+    m.body_size = section_body;
+    m.body_leading = doc_metrics.body_leading * (section_body / doc_metrics.body_size);
+    m
+}
+
+fn push_heading_section(
+    level: u8,
+    body_size: Option<u16>,
+    section_stack: &mut Vec<(u8, f32)>,
+    doc_metrics: &ProfileMetrics,
+) -> f32 {
+    while section_stack
+        .last()
+        .is_some_and(|(stack_level, _)| *stack_level >= level)
+    {
+        section_stack.pop();
+    }
+    let body = body_size.map(f32::from).unwrap_or(doc_metrics.body_size);
+    section_stack.push((level, body));
+    body
+}
+
 #[allow(clippy::too_many_arguments)]
 fn layout_block(
     block: &PrintBlock,
-    metrics: &ProfileMetrics,
+    layout_metrics: &ProfileMetrics,
+    doc_metrics: &ProfileMetrics,
     fonts: &FontBag,
     knobs: &LayoutKnobs,
     segments: &mut Vec<LayoutSegment>,
@@ -247,6 +291,7 @@ fn layout_block(
     glyph_sets: &mut GlyphSets,
     notes: &mut NoteBook,
     inherit_align: Option<TextAlign>,
+    section_stack: &mut Vec<(u8, f32)>,
 ) -> Result<(), WeaveError> {
     match block {
         PrintBlock::Break(hint) => {
@@ -260,8 +305,11 @@ fn layout_block(
             runs,
             break_before,
             dest_id,
+            body_size,
         } => {
-            let mut ctx = layout_ctx(metrics, fonts, knobs, glyph_sets, notes);
+            let section_body = push_heading_section(*level, *body_size, section_stack, doc_metrics);
+            let metrics = effective_section_metrics(layout_metrics, doc_metrics, section_body);
+            let mut ctx = layout_ctx(&metrics, fonts, knobs, glyph_sets, notes);
             layout_heading(
                 *level,
                 runs,
@@ -277,45 +325,69 @@ fn layout_block(
             dest_id,
             indent,
             leaders,
-        } => PushTocEntryArgs {
-            title,
-            page_label: page_label.as_deref(),
-            dest_id: dest_id.as_deref(),
-            indent: *indent,
-            leaders: *leaders,
-            metrics,
-            fonts,
-            knobs,
-            segments,
-            glyph_sets,
-            notes,
+        } => {
+            let metrics = effective_section_metrics(
+                layout_metrics,
+                doc_metrics,
+                current_section_body(section_stack, doc_metrics),
+            );
+            PushTocEntryArgs {
+                title,
+                page_label: page_label.as_deref(),
+                dest_id: dest_id.as_deref(),
+                indent: *indent,
+                leaders: *leaders,
+                metrics: &metrics,
+                fonts,
+                knobs,
+                segments,
+                glyph_sets,
+                notes,
+            }
+            .run()?
         }
-        .run()?,
         PrintBlock::Paragraph { .. }
         | PrintBlock::Quote { .. }
         | PrintBlock::Callout { .. }
         | PrintBlock::Code { .. }
-        | PrintBlock::List { .. } => layout_flow_block(
-            block,
-            metrics,
-            fonts,
-            knobs,
-            segments,
-            glyph_sets,
-            notes,
-            inherit_align,
-        )?,
-        other => layout_structure_block(
-            other,
-            metrics,
-            fonts,
-            knobs,
-            segments,
-            images,
-            glyph_sets,
-            notes,
-            inherit_align,
-        )?,
+        | PrintBlock::List { .. } => {
+            let metrics = effective_section_metrics(
+                layout_metrics,
+                doc_metrics,
+                current_section_body(section_stack, doc_metrics),
+            );
+            layout_flow_block(
+                block,
+                &metrics,
+                fonts,
+                knobs,
+                segments,
+                glyph_sets,
+                notes,
+                inherit_align,
+            )?
+        }
+        other => {
+            let metrics = effective_section_metrics(
+                layout_metrics,
+                doc_metrics,
+                current_section_body(section_stack, doc_metrics),
+            );
+            layout_structure_block(
+                other,
+                layout_metrics,
+                doc_metrics,
+                &metrics,
+                fonts,
+                knobs,
+                segments,
+                images,
+                glyph_sets,
+                notes,
+                inherit_align,
+                section_stack,
+            )?
+        }
     }
     Ok(())
 }
@@ -377,6 +449,8 @@ fn layout_flow_block(
 #[allow(clippy::too_many_arguments)]
 fn layout_structure_block(
     block: &PrintBlock,
+    layout_metrics: &ProfileMetrics,
+    doc_metrics: &ProfileMetrics,
     metrics: &ProfileMetrics,
     fonts: &FontBag,
     knobs: &LayoutKnobs,
@@ -385,6 +459,7 @@ fn layout_structure_block(
     glyph_sets: &mut GlyphSets,
     notes: &mut NoteBook,
     inherit_align: Option<TextAlign>,
+    section_stack: &mut Vec<(u8, f32)>,
 ) -> Result<(), WeaveError> {
     match block {
         PrintBlock::Table { rows, dest_id } => {
@@ -449,6 +524,8 @@ fn layout_structure_block(
             gap: *gap,
             children,
             inherit_align: text_align.or(inherit_align),
+            layout_metrics,
+            doc_metrics,
             metrics,
             fonts,
             knobs,
@@ -456,6 +533,7 @@ fn layout_structure_block(
             images,
             glyph_sets,
             notes,
+            section_stack,
         })?,
         PrintBlock::Note { .. } => {}
         _ => unreachable!("text-like blocks handled in layout_block"),
@@ -504,6 +582,87 @@ impl PushTocEntryArgs<'_> {
 
 fn segment_has_content(segments: &[LayoutSegment]) -> bool {
     segments.last().is_some_and(|(_, items)| !items.is_empty())
+}
+
+#[cfg(test)]
+mod section_body_tests {
+    use super::collect_layout;
+    use crate::font::FontBag;
+    use crate::ir::{BreakHint, PrintBlock, PrintDocument, PrintMeta, PrintProfileId, TextRun};
+    use crate::knobs::LayoutKnobs;
+    use crate::options::EmitOptions;
+    use crate::profile;
+    use crate::resolve_fonts::build_font_bag;
+
+    use super::super::types::{LaidItem, LayoutSegment};
+
+    fn span_font_sizes(segments: &[LayoutSegment]) -> Vec<f32> {
+        let mut sizes = Vec::new();
+        for (_, items) in segments {
+            for item in items {
+                let LaidItem::Text(line) = item else {
+                    continue;
+                };
+                if line.is_gap() {
+                    continue;
+                }
+                for span in &line.spans {
+                    if !span.glyphs.is_empty() {
+                        sizes.push(span.font_size);
+                    }
+                }
+            }
+        }
+        sizes
+    }
+
+    /// THI-435: per-heading `body_size` scales body (and derived heading) runs in each section.
+    #[test]
+    fn heading_section_body_size_scales_section_paragraphs() {
+        let doc = PrintDocument {
+            meta: PrintMeta {
+                title: "Sections".into(),
+                doc_kind: "note".into(),
+                language: None,
+                source_doc_id: None,
+            },
+            profile: PrintProfileId::print_v0(),
+            blocks: vec![
+                PrintBlock::heading_sized(
+                    1,
+                    vec![TextRun::plain("Large section")],
+                    BreakHint::None,
+                    Some(14),
+                ),
+                PrintBlock::paragraph(vec![TextRun::plain("Large body text.")]),
+                PrintBlock::heading_sized(
+                    1,
+                    vec![TextRun::plain("Small section")],
+                    BreakHint::None,
+                    Some(9),
+                ),
+                PrintBlock::paragraph(vec![TextRun::plain("Small body text.")]),
+            ],
+        };
+        let metrics = profile::resolve_metrics(&doc.profile).expect("metrics");
+        let opts = EmitOptions::bundled_only();
+        let layout = LayoutKnobs::bundled();
+        let fonts: FontBag = build_font_bag(&doc, &opts).expect("fonts");
+        let (segments, _, _, _) = collect_layout(&doc, &metrics, &fonts, &layout).expect("layout");
+        let sizes = span_font_sizes(&segments);
+        assert!(
+            sizes.iter().any(|s| (*s - 14.0).abs() < 0.01),
+            "expected 14pt section body in layout, got {sizes:?}"
+        );
+        assert!(
+            sizes.iter().any(|s| (*s - 9.0).abs() < 0.01),
+            "expected 9pt section body in layout, got {sizes:?}"
+        );
+        assert_ne!(
+            metrics.body_size, 14.0,
+            "test needs a profile default distinct from 14pt"
+        );
+    }
 }
 
 fn block_name(block: &PrintBlock) -> &'static str {

@@ -42,6 +42,7 @@ fn doc() -> PrintDocument {
                 runs: vec![TextRun::plain("Prose example")],
                 break_before: BreakHint::None,
                 dest_id: None,
+                body_size: None,
             },
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain(
