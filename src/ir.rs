@@ -105,6 +105,10 @@ pub enum PrintBlock {
         /// Optional internal destination id (TOC / outline `GoTo`; THI-390/393).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         dest_id: Option<String>,
+        /// Section body size in PDF points (THI-435). Applies from this heading through
+        /// the next heading of the same or higher level; absent → profile body size.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        body_size: Option<u16>,
     },
     /// Body paragraph.
     Paragraph {
@@ -441,11 +445,23 @@ impl PrintBlock {
     /// Heading with optional internal destination id.
     #[must_use]
     pub fn heading(level: u8, runs: Vec<TextRun>, break_before: BreakHint) -> Self {
+        Self::heading_sized(level, runs, break_before, None)
+    }
+
+    /// Heading with optional section body size (PDF points; THI-435).
+    #[must_use]
+    pub fn heading_sized(
+        level: u8,
+        runs: Vec<TextRun>,
+        break_before: BreakHint,
+        body_size: Option<u16>,
+    ) -> Self {
         Self::Heading {
             level,
             runs,
             break_before,
             dest_id: None,
+            body_size,
         }
     }
 
@@ -457,11 +473,24 @@ impl PrintBlock {
         break_before: BreakHint,
         dest_id: impl Into<String>,
     ) -> Self {
+        Self::heading_dest_sized(level, runs, break_before, dest_id, None)
+    }
+
+    /// Heading with destination and optional section body size (THI-435).
+    #[must_use]
+    pub fn heading_dest_sized(
+        level: u8,
+        runs: Vec<TextRun>,
+        break_before: BreakHint,
+        dest_id: impl Into<String>,
+        body_size: Option<u16>,
+    ) -> Self {
         Self::Heading {
             level,
             runs,
             break_before,
             dest_id: Some(dest_id.into()),
+            body_size,
         }
     }
 

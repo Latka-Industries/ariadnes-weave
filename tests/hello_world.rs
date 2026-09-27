@@ -20,6 +20,7 @@ fn heading_and_paragraph_emit_pdf_magic() {
                 runs: vec![TextRun::plain("Hello, ariadnes-weave")],
                 break_before: BreakHint::None,
                 dest_id: None,
+                body_size: None,
             },
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain(

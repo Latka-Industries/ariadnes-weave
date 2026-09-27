@@ -21,6 +21,7 @@ fn hello_doc() -> PrintDocument {
                 runs: vec![TextRun::plain("Hello, ariadnes-weave")],
                 break_before: BreakHint::None,
                 dest_id: None,
+                body_size: None,
             },
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain(
@@ -48,6 +49,7 @@ fn quadratic_formula_doc() -> PrintDocument {
                 runs: vec![TextRun::plain("Quadratic formula")],
                 break_before: BreakHint::None,
                 dest_id: None,
+                body_size: None,
             },
             PrintBlock::Math {
                 display: true,
@@ -73,6 +75,7 @@ fn sum_limits_doc() -> PrintDocument {
                 runs: vec![TextRun::plain("Sum with limits")],
                 break_before: BreakHint::None,
                 dest_id: None,
+                body_size: None,
             },
             PrintBlock::Math {
                 display: true,
@@ -142,6 +145,7 @@ fn manuscript_two_chapters() -> PrintDocument {
                 runs: vec![TextRun::plain("Chapter One")],
                 break_before: BreakHint::None,
                 dest_id: None,
+                body_size: None,
             },
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain("Body of chapter one.")],
@@ -153,6 +157,7 @@ fn manuscript_two_chapters() -> PrintDocument {
                 runs: vec![TextRun::plain("Chapter Two")],
                 break_before: BreakHint::None,
                 dest_id: None,
+                body_size: None,
             },
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain("Body of chapter two.")],
@@ -200,22 +205,22 @@ fn page_dict_count(pdf: &[u8]) -> usize {
 
 /// Pin: bump intentionally when emit layout/fonts/version (PDF Producer) change.
 const HELLO_PRINT_V0_SHA256: &str =
-    "62165c1d492404693b2c11a9d24b8f4a667fe544c47142216e63f2080cc647c8";
+    "c1ec17ddcb466dc245cbb6a10b5823d429eb8a610726b0d559c141caf84cab4e";
 
 /// Pin: bump intentionally when manuscript literary layout/fonts/version change.
 const MANUSCRIPT_TWO_CHAPTER_SHA256: &str =
-    "f8944c7456a23cfb310d8d290a042173b63af7a1caae609b7a6c4a046c5ab50a";
+    "bae427d4b70a98ba55d505cc7f9737895281db639af40c28b49808aef88e05ad";
 
 /// Pin: bump intentionally when math box layout/version change.
 const QUADRATIC_FORMULA_SHA256: &str =
-    "f53ef3f530de6ba84c1e3cdd55f12d9e382199bf9d2de5545400000a60e56cb1";
+    "7454fe41c708f6399b233210b874cfb40f7005c56bb6b0b2d7099c6e43600e64";
 
 /// Pin: bump intentionally when display ∑/∏ under/over limit layout changes.
-const SUM_LIMITS_SHA256: &str = "2740c9c4b5430f74d9f69ab09cfeef1fa420451c8133a437f253642af7cd958e";
+const SUM_LIMITS_SHA256: &str = "f952e7c319deb4452159657986b6a5f1b1cd617bf18181f23b84eab496dfd346";
 
 /// Pin: bump intentionally when layout place/vspace/rule paint changes.
 const LAYOUT_PLACE_FLUSH_SHA256: &str =
-    "672e52ee5dca17c2e187b15b4dc9a579f04128d79b95a098c3dd9ec496e31cfa";
+    "35db4dd416daf89a059d0af32c7ca9715bd95c31ba28a4c39638aee35f186bb7";
 
 #[test]
 fn emit_is_byte_identical_across_runs() {

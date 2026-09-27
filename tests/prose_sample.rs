@@ -20,6 +20,7 @@ fn prose_doc() -> PrintDocument {
                 runs: vec![TextRun::plain("Chapter One")],
                 break_before: BreakHint::None,
                 dest_id: None,
+                body_size: None,
             },
             PrintBlock::Paragraph {
                 runs: vec![
@@ -91,6 +92,7 @@ fn prose_doc() -> PrintDocument {
                 runs: vec![TextRun::plain("Chapter Two")],
                 break_before: BreakHint::PageAlways,
                 dest_id: None,
+                body_size: None,
             },
             PrintBlock::Paragraph {
                 runs: vec![TextRun::plain("Second page after an explicit break.")],

@@ -17,6 +17,8 @@ pub(super) struct LayoutColumnsArgs<'a> {
     pub gap: Option<u16>,
     pub children: &'a [PrintBlock],
     pub inherit_align: Option<TextAlign>,
+    pub layout_metrics: &'a ProfileMetrics,
+    pub doc_metrics: &'a ProfileMetrics,
     pub metrics: &'a ProfileMetrics,
     pub fonts: &'a FontBag,
     pub knobs: &'a LayoutKnobs,
@@ -24,6 +26,7 @@ pub(super) struct LayoutColumnsArgs<'a> {
     pub images: &'a mut Vec<PreparedImage>,
     pub glyph_sets: &'a mut GlyphSets,
     pub notes: &'a mut NoteBook,
+    pub section_stack: &'a mut Vec<(u8, f32)>,
 }
 
 /// True when a child must span full measure (flush column band first).
@@ -55,6 +58,8 @@ pub(super) fn layout_columns(args: LayoutColumnsArgs<'_>) -> Result<(), WeaveErr
         gap,
         children,
         inherit_align,
+        layout_metrics: _layout_metrics,
+        doc_metrics,
         metrics,
         fonts,
         knobs,
@@ -62,6 +67,7 @@ pub(super) fn layout_columns(args: LayoutColumnsArgs<'_>) -> Result<(), WeaveErr
         images,
         glyph_sets,
         notes,
+        section_stack,
     } = args;
 
     let n = usize::from(count.clamp(2, 6));
@@ -87,6 +93,7 @@ pub(super) fn layout_columns(args: LayoutColumnsArgs<'_>) -> Result<(), WeaveErr
             layout_block(
                 child,
                 metrics,
+                doc_metrics,
                 fonts,
                 knobs,
                 segments,
@@ -94,12 +101,14 @@ pub(super) fn layout_columns(args: LayoutColumnsArgs<'_>) -> Result<(), WeaveErr
                 glyph_sets,
                 notes,
                 inherit_align,
+                section_stack,
             )?;
         } else {
             let mut temp: Vec<LayoutSegment> = vec![(ForcedBreak::None, Vec::new())];
             layout_block(
                 child,
                 &col_metrics,
+                doc_metrics,
                 fonts,
                 knobs,
                 &mut temp,
@@ -107,6 +116,7 @@ pub(super) fn layout_columns(args: LayoutColumnsArgs<'_>) -> Result<(), WeaveErr
                 glyph_sets,
                 notes,
                 inherit_align,
+                section_stack,
             )?;
             for (forced, items) in temp {
                 if matches!(forced, ForcedBreak::Always) && !flow.is_empty() {
