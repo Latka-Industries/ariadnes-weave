@@ -81,9 +81,9 @@ Figure title lives on `PrintBlock::Figure.title` (empty = none). Prefer that ove
 
 Category / caption size is **`size_factor` vs body**, not absolute points — profiles keep owning default body size.
 
-### Mid-document run size (THI-713)
+### Mid-document run size (THI-713, **0.2.16**)
 
-`TextRun.size_milli_pt` (`Option<u32>`, 12000 = 12pt) overrides the active `RunLayout.font_size` for that run only. When unset, category/section knobs apply as before. Tessera maps `\size{N}{…}` into this field.
+`TextRun.size_milli_pt` (`Option<u32>`, 12000 = 12pt) overrides the active `RunLayout.font_size` for that run only. When unset, category/section knobs apply as before. Tessera maps `\size{N}{…}` into this field. Distinct from pack `[page.setup].body_pt` (document default) and `Heading.body_size` (section default).
 
 ## Math knobs (`defaults/math.toml`)
 
@@ -188,15 +188,16 @@ Not knob-driven; IR + emit behavior:
 | `PrintBlock::TocEntry` | Title + optional leaders + flush-right page column; `page_label: None` + `dest_id` → resolve after layout; `GoTo` when dest resolves |
 | `Heading` / `Figure` / `Table` `dest_id` | Zero-height dest markers for page resolve (TOC / LOF / LOT) |
 | `Heading.body_size` | Optional `u16` PDF points. Section body (and derived heading/quote/caption sizes) from that heading until the next same-or-higher-level heading. Absent → profile body size (**0.2.15**, THI-435) |
+| `TextRun.size_milli_pt` | Optional mid-doc size in milli-points (12000 = 12pt). Overrides category/section size for that run only (**0.2.16**, THI-713) |
 | PDF `/Outlines` | Built from headings that carry a resolvable `dest_id` (same Fit dests as TOC `GoTo`) |
 
 Tessera owns `\toc` / `\lof` / `\lot` expansion into these blocks; weave only paints and links.
 
-## Page setup (`[page.setup]` in pack `weave.toml`)
+## Page setup (`[page.setup]` in pack `weave.toml`) — **0.2.16** / THI-722
 
-Vault-editable document metrics for Tesscriptor **Page setup** (THI-722). Live in
-pack `weave.toml` under `[page.setup]` (D23 — never sealed into `.tes`). Absent
-keys keep the coupled profile (`print@0`, `print-letter@0`, …).
+Vault-editable document metrics for Tesscriptor **Page setup**. Live in pack
+`weave.toml` under `[page.setup]` (D23 — never sealed into `.tes`). Absent keys
+keep the coupled profile (`print@0`, `print-letter@0`, …).
 
 | Key | Meaning |
 |-----|---------|

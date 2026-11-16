@@ -120,6 +120,8 @@ These are IR/emit features, not separate profile ids:
 | `Columns` | Continuous body columns; headings/bands/math/tables stay in-column (THI-416); figures still span |
 | Figure/table dests | Optional `dest_id` for LOF/LOT page resolve |
 | Section body size | Optional `Heading.body_size` (`u16` PDF points). Applies from that heading through the next heading of the same or higher level. Absent → profile body size; leading scales with the section ratio. Helpers: `heading_sized` / `heading_dest_sized` (THI-435, **0.2.15**) |
+| Mid-doc run size | Optional `TextRun.size_milli_pt` (`u32`, 12000 = 12pt) overrides that run's layout size (THI-713, **0.2.16**) |
+| Pack Page setup | Sparse `[page.setup]` in pack `weave.toml`: `margin` / `body_pt` / `leading_factor` on top of the profile (THI-722, **0.2.16**) |
 
 See [`layout-knobs.md`](layout-knobs.md).
 

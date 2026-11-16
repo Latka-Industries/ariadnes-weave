@@ -251,6 +251,9 @@ fn current_section_body(section_stack: &[(u8, f32)], doc_metrics: &ProfileMetric
 }
 
 /// Clone layout metrics with section-scaled body size and leading (THI-435).
+///
+/// Leading is scaled from the **document** profile ratio (not the already-scaled
+/// layout metrics), matching pre-0.2.16 behavior when `[page.setup]` is unset.
 fn effective_section_metrics(
     layout_metrics: &ProfileMetrics,
     doc_metrics: &ProfileMetrics,
@@ -258,7 +261,9 @@ fn effective_section_metrics(
 ) -> ProfileMetrics {
     let mut m = *layout_metrics;
     m.body_size = section_body;
-    m.body_leading = doc_metrics.body_leading * (section_body / doc_metrics.body_size);
+    if doc_metrics.body_size > 0.0 {
+        m.body_leading = doc_metrics.body_leading * (section_body / doc_metrics.body_size);
+    }
     m
 }
 

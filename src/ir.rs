@@ -818,11 +818,10 @@ impl TextRun {
         self.size_milli_pt.map(|m| m as f32 / 1000.0)
     }
 
-    /// Plain (unstyled) run.
-    pub fn plain(text: impl Into<String>) -> Self {
+    fn with_style(text: impl Into<String>, style: InlineStyle) -> Self {
         Self {
             text: text.into(),
-            style: InlineStyle::default(),
+            style,
             face: None,
             size_milli_pt: None,
             link_uri: None,
@@ -830,45 +829,41 @@ impl TextRun {
         }
     }
 
+    /// Plain (unstyled) run.
+    pub fn plain(text: impl Into<String>) -> Self {
+        Self::with_style(text, InlineStyle::default())
+    }
+
     /// Strong / bold run (figure titles, emphasis without other flags).
     pub fn strong(text: impl Into<String>) -> Self {
-        Self {
-            text: text.into(),
-            style: InlineStyle {
+        Self::with_style(
+            text,
+            InlineStyle {
                 strong: true,
                 ..InlineStyle::default()
             },
-            face: None,
-            size_milli_pt: None,
-            link_uri: None,
-            note_id: None,
-        }
+        )
     }
 
     /// Plain run that uses a pinned face id from [`crate::EmitOptions`].
     pub fn pinned(text: impl Into<String>, face: impl Into<String>) -> Self {
         Self {
-            text: text.into(),
-            style: InlineStyle::default(),
             face: Some(face.into()),
-            size_milli_pt: None,
-            link_uri: None,
-            note_id: None,
+            ..Self::plain(text)
         }
     }
 
     /// Linked run (URI + `style.link`).
     pub fn link(text: impl Into<String>, uri: impl Into<String>) -> Self {
         Self {
-            text: text.into(),
-            style: InlineStyle {
-                link: true,
-                ..InlineStyle::default()
-            },
-            face: None,
-            size_milli_pt: None,
             link_uri: Some(uri.into()),
-            note_id: None,
+            ..Self::with_style(
+                text,
+                InlineStyle {
+                    link: true,
+                    ..InlineStyle::default()
+                },
+            )
         }
     }
 

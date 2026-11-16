@@ -68,10 +68,11 @@ impl DocumentSetupKnobs {
             metrics.margin = m;
         }
         if let Some(body) = self.body_pt.filter(|b| *b > 0.0) {
-            if self.leading_factor.is_none() && metrics.body_size > 0.0 {
-                metrics.body_leading *= body / metrics.body_size;
+            if self.leading_factor.is_none() {
+                metrics.scale_body_size(body);
+            } else {
+                metrics.body_size = body;
             }
-            metrics.body_size = body;
         }
         if let Some(factor) = self.leading_factor.filter(|f| *f > 0.0) {
             metrics.body_leading = metrics.body_size * factor;
