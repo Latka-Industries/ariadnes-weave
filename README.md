@@ -32,7 +32,9 @@ crates.io. Local suite work can still path-dep when cutting paired releases.
   titled bands, math, and tables stay in-column; figures still span);
   figure/table `dest_id` stamps for LOF/LOT; optional `Heading.body_size`
   (PDF points) for per-section body type from that heading through the next
-  same-or-higher-level heading (absent → profile body size; THI-435)
+  same-or-higher-level heading (absent → profile body size; THI-435);
+  mid-doc `TextRun.size_milli_pt` (THI-713); pack `[page.setup]` sparse
+  `margin` / `body_pt` / `leading_factor` for Tesscriptor Page setup (THI-722)
 - Faces: Liberation Sans (R/B/I/BI), Serif (R/B/I/BI) for `manuscript@0`, Mono
   for `code`; optional Font Awesome Free behind `--features icons`; optional
   sealed CJK / emoji subsets behind `--features cjk` / `emoji` (script fallback)
@@ -47,9 +49,10 @@ crates.io. Local suite work can still path-dep when cutting paired releases.
   `deck@0` (16:9); axes in [`docs/profiles.md`](docs/profiles.md) /
   [D-print-profile-axes](docs/decisions/D-print-profile-axes.md)
 - Layout knobs: named optical defaults in `defaults/*.toml` (prose / table /
-  deck / math / page), overridable via `EmitOptions.layout`; quote body italic
-  by default (`[quote].italic`); figure captions via `[caption]` (`italic`,
-  `size_factor` vs body, `gap_after`); figure horizontal band via
+  deck / math / page), overridable via `EmitOptions.layout`; pack
+  `[page.setup]` for document margin / body size / leading (THI-722); quote
+  body italic by default (`[quote].italic`); figure captions via `[caption]`
+  (`italic`, `size_factor` vs body, `gap_after`); figure horizontal band via
   `[figure].align` / `[figure].max_width_factor` / `[figure].title_align` /
   `title_text_align` and `[caption].band` / `text_align` (`left` / `center` /
   `right` / `justify` / `follow`) / `overflow`; body
@@ -109,7 +112,7 @@ Ubuntu · macOS · Windows (+ `--features icons`, `cjk`, `emoji`), plus an MSRV
 `cargo check` on 1.95. Path filters skip docs-only pushes. SHA-256 fixtures live in
 `tests/determinism.rs`.
 
-**Release:** push a `v*` tag that matches `Cargo.toml` (e.g. `v0.2.15`).
+**Release:** push a `v*` tag that matches `Cargo.toml` (e.g. `v0.2.16`).
 `.github/workflows/release.yml` publishes a GitHub Release (not a draft) with
 generated notes and `cargo publish --locked` to crates.io. `workflow_dispatch`
 from a branch does not publish.

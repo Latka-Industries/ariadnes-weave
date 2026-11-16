@@ -37,9 +37,14 @@ A4 as default — keep both explicit while both markets matter.
 
 ## Later
 
-* Expose page size / margins as fields (or composed profile) on the IR if hosts
-  need arbitrary combinations without new ids
+* Full page-size axis on pack / IR (hosts still pick a coupled id today)
 * Chromium CSS `@page` parity is out of scope
+
+## Pack overrides (shipped **0.2.16** / THI-722)
+
+Uniform `margin`, `body_pt`, and `leading_factor` may sparsely override the
+coupled profile via pack `weave.toml` `[page.setup]` ([`DocumentSetupKnobs`]).
+Page size remains profile-owned. See [`layout-knobs.md`](../layout-knobs.md).
 
 ## Related
 

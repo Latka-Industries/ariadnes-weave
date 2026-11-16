@@ -49,6 +49,17 @@ impl ProfileMetrics {
     pub fn content_height(self) -> f32 {
         self.page_h - 2.0 * self.margin
     }
+
+    /// Set body size and scale leading by the size ratio (keep factor).
+    ///
+    /// Used by section `Heading.body_size` and pack `[page.setup].body_pt`
+    /// when `leading_factor` is omitted.
+    pub fn scale_body_size(&mut self, new_body: f32) {
+        if self.body_size > 0.0 {
+            self.body_leading *= new_body / self.body_size;
+        }
+        self.body_size = new_body;
+    }
 }
 
 /// Page geometry axis (PDF points). Orthogonal to [`DocMode`].
