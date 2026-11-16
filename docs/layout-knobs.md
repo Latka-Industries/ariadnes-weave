@@ -79,7 +79,11 @@ Figure vertical stack:
 
 Figure title lives on `PrintBlock::Figure.title` (empty = none). Prefer that over a prior `Paragraph`+strong stand-in so title can share the figure band.
 
-Size is **`size_factor` vs body**, not absolute points — profiles keep owning body size.
+Category / caption size is **`size_factor` vs body**, not absolute points — profiles keep owning default body size.
+
+### Mid-document run size (THI-713)
+
+`TextRun.size_milli_pt` (`Option<u32>`, 12000 = 12pt) overrides the active `RunLayout.font_size` for that run only. When unset, category/section knobs apply as before. Tessera maps `\size{N}{…}` into this field.
 
 ## Math knobs (`defaults/math.toml`)
 

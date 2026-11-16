@@ -406,12 +406,13 @@ fn append_styled_run(
         underline = true;
     }
     let hyphenate = ctx.knobs.prose.wrap.hyphenate;
+    let font_size = run.size_pt().unwrap_or(layout.font_size);
     let mut wrap = WrapCtx {
         line,
         ctx,
         paint: RunPaint {
             face,
-            font_size: layout.font_size,
+            font_size,
             fill,
             underline,
             link_uri: run.link_uri.as_deref(),

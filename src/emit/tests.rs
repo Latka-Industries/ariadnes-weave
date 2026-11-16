@@ -38,6 +38,7 @@ fn hello_doc() -> PrintDocument {
                     text: "Hello, ariadnes-weave".into(),
                     style: InlineStyle::default(),
                     face: None,
+                    size_milli_pt: None,
                     link_uri: None,
                     note_id: None,
                 }],
@@ -395,6 +396,34 @@ fn pinned_face_from_emit_options() {
 }
 
 #[test]
+fn mid_doc_size_milli_pt_emits() {
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "Sized run".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::Paragraph {
+            runs: vec![
+                TextRun::plain("normal "),
+                TextRun::plain("fourteen").with_size_milli_pt(14_000),
+                TextRun::plain(" again"),
+            ],
+            indent: 0,
+            text_align: None,
+        }],
+    };
+    let bytes = emit_pdf(&doc).expect("emit sized");
+    assert!(bytes.starts_with(b"%PDF-"));
+    assert_eq!(
+        TextRun::plain("x").with_size_milli_pt(12_000).size_pt(),
+        Some(12.0)
+    );
+}
+
+#[test]
 fn unknown_pinned_face_errors() {
     let doc = PrintDocument {
         meta: PrintMeta {
@@ -534,6 +563,7 @@ fn category_cite_font_pin() {
                     ..InlineStyle::default()
                 },
                 face: None,
+                size_milli_pt: None,
                 link_uri: None,
                 note_id: None,
             }],
@@ -704,6 +734,7 @@ fn styled_runs_embed_bold_font() {
                     ..InlineStyle::default()
                 },
                 face: None,
+                size_milli_pt: None,
                 link_uri: None,
                 note_id: None,
             },
@@ -911,6 +942,7 @@ fn manuscript_emphasis_uses_serif_italic() {
                         ..InlineStyle::default()
                     },
                     face: None,
+                    size_milli_pt: None,
                     link_uri: None,
                     note_id: None,
                 },
@@ -922,6 +954,7 @@ fn manuscript_emphasis_uses_serif_italic() {
                         ..InlineStyle::default()
                     },
                     face: None,
+                    size_milli_pt: None,
                     link_uri: None,
                     note_id: None,
                 },
@@ -1017,6 +1050,7 @@ fn aesthetic_colors_and_cite_underline_affect_emit() {
                         ..InlineStyle::default()
                     },
                     face: None,
+                    size_milli_pt: None,
                     link_uri: None,
                     note_id: None,
                 }],
@@ -1470,6 +1504,7 @@ fn inline_style_underline_without_cite() {
                     ..InlineStyle::default()
                 },
                 face: None,
+                size_milli_pt: None,
                 link_uri: None,
                 note_id: None,
             }],

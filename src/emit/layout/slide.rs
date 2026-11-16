@@ -326,6 +326,7 @@ fn slide_run(text: impl Into<String>, style: InlineStyle) -> TextRun {
         text: text.into(),
         style,
         face: None,
+        size_milli_pt: None,
         link_uri: None,
         note_id: None,
     }
