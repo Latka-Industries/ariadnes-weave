@@ -32,6 +32,7 @@ fn prose_doc() -> PrintDocument {
                             ..InlineStyle::default()
                         },
                         face: None,
+                        size_milli_pt: None,
                         link_uri: None,
                         note_id: None,
                     },
@@ -43,6 +44,7 @@ fn prose_doc() -> PrintDocument {
                             ..InlineStyle::default()
                         },
                         face: None,
+                        size_milli_pt: None,
                         link_uri: None,
                         note_id: None,
                     },

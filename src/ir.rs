@@ -793,6 +793,12 @@ pub struct TextRun {
     /// mapping. Unknown ids fail emit with [`crate::WeaveError::Font`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub face: Option<String>,
+    /// Optional mid-document size in milli-points (12000 = 12pt).
+    ///
+    /// When set, layout uses this size instead of the category/section
+    /// `RunLayout.font_size`. Tessera maps `\size{N}{…}` here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size_milli_pt: Option<u32>,
     /// External URI for clickable PDF link annotations (`http` / `https` / `mailto`).
     ///
     /// When set, emit paints with the cite/link color and writes a `/Link`
@@ -806,12 +812,19 @@ pub struct TextRun {
 }
 
 impl TextRun {
+    /// Size in PDF points when [`Self::size_milli_pt`] is set.
+    #[must_use]
+    pub fn size_pt(&self) -> Option<f32> {
+        self.size_milli_pt.map(|m| m as f32 / 1000.0)
+    }
+
     /// Plain (unstyled) run.
     pub fn plain(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
             style: InlineStyle::default(),
             face: None,
+            size_milli_pt: None,
             link_uri: None,
             note_id: None,
         }
@@ -826,6 +839,7 @@ impl TextRun {
                 ..InlineStyle::default()
             },
             face: None,
+            size_milli_pt: None,
             link_uri: None,
             note_id: None,
         }
@@ -837,6 +851,7 @@ impl TextRun {
             text: text.into(),
             style: InlineStyle::default(),
             face: Some(face.into()),
+            size_milli_pt: None,
             link_uri: None,
             note_id: None,
         }
@@ -851,9 +866,17 @@ impl TextRun {
                 ..InlineStyle::default()
             },
             face: None,
+            size_milli_pt: None,
             link_uri: Some(uri.into()),
             note_id: None,
         }
+    }
+
+    /// Override mid-document size (milli-points; 12000 = 12pt).
+    #[must_use]
+    pub fn with_size_milli_pt(mut self, milli: u32) -> Self {
+        self.size_milli_pt = Some(milli);
+        self
     }
 
     /// Attach a footnote/endnote id (superscript at layout).
