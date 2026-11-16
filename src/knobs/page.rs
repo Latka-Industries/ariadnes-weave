@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::profile::ProfileMetrics;
+
 /// Page chrome knobs (`defaults/page.toml`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PageKnobs {
@@ -20,6 +22,128 @@ pub struct PageKnobs {
     /// Page-number style for `{page}` / TOC labels (THI-413).
     #[serde(default)]
     pub numbers: PageNumbersKnobs,
+    /// Sparse profile overrides for Tesscriptor Page setup (THI-722).
+    ///
+    /// Pack `weave.toml` `[page.setup]` — not sealed into `.tes`. Absent keys
+    /// keep the coupled profile metrics (`print@0`, …).
+    #[serde(default, skip_serializing_if = "DocumentSetupKnobs::is_default")]
+    pub setup: DocumentSetupKnobs,
+}
+
+/// Vault Page setup overrides on top of a coupled [`crate::PrintProfileId`].
+///
+/// Written by Tesscriptor into pack `weave.toml` under `[page.setup]`. Profiles
+/// still own the baseline; these keys sparsely replace uniform margin, body
+/// size, and/or body leading factor (THI-722).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct DocumentSetupKnobs {
+    /// Uniform page margin in PDF points (all four sides).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub margin: Option<f32>,
+    /// Default body size in PDF points (`body_pt` in pack TOML).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body_pt: Option<f32>,
+    /// Body leading as a factor of body size (`leading = body_pt × factor`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub leading_factor: Option<f32>,
+}
+
+impl DocumentSetupKnobs {
+    /// True when every field is unset (bundled / omit from dumps).
+    #[must_use]
+    pub fn is_default(&self) -> bool {
+        self.margin.is_none() && self.body_pt.is_none() && self.leading_factor.is_none()
+    }
+
+    /// Apply sparse overrides onto resolved profile metrics.
+    ///
+    /// - `margin` replaces uniform inset when `Some` and `> 0`.
+    /// - `body_pt` replaces body size when `Some` and `> 0`; if `leading_factor`
+    ///   is unset, leading scales by the size ratio (same idea as section
+    ///   `Heading.body_size`).
+    /// - `leading_factor` sets `body_leading = body_size × factor` when `Some`
+    ///   and `> 0` (uses the post-`body_pt` size).
+    pub fn apply_to(&self, metrics: &mut ProfileMetrics) {
+        if let Some(m) = self.margin.filter(|m| *m > 0.0) {
+            metrics.margin = m;
+        }
+        if let Some(body) = self.body_pt.filter(|b| *b > 0.0) {
+            if self.leading_factor.is_none() && metrics.body_size > 0.0 {
+                metrics.body_leading *= body / metrics.body_size;
+            }
+            metrics.body_size = body;
+        }
+        if let Some(factor) = self.leading_factor.filter(|f| *f > 0.0) {
+            metrics.body_leading = metrics.body_size * factor;
+        }
+    }
+}
+
+#[cfg(test)]
+mod document_setup_tests {
+    use super::DocumentSetupKnobs;
+    use crate::ir::PrintProfileId;
+    use crate::profile::resolve_metrics;
+
+    #[test]
+    fn apply_margin_body_and_leading() {
+        let mut m = resolve_metrics(&PrintProfileId::print_v0()).expect("print@0");
+        assert_eq!(m.margin, 72.0);
+        assert_eq!(m.body_size, 11.0);
+        assert!((m.body_leading - 11.0 * 1.4).abs() < f32::EPSILON);
+
+        DocumentSetupKnobs {
+            margin: Some(54.0),
+            body_pt: Some(12.0),
+            leading_factor: Some(1.5),
+        }
+        .apply_to(&mut m);
+
+        assert_eq!(m.margin, 54.0);
+        assert_eq!(m.body_size, 12.0);
+        assert!((m.body_leading - 18.0).abs() < f32::EPSILON);
+        assert!((m.content_width() - (595.0 - 2.0 * 54.0)).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn body_pt_alone_scales_leading() {
+        let mut m = resolve_metrics(&PrintProfileId::print_v0()).expect("print@0");
+        DocumentSetupKnobs {
+            margin: None,
+            body_pt: Some(22.0),
+            leading_factor: None,
+        }
+        .apply_to(&mut m);
+        assert_eq!(m.body_size, 22.0);
+        assert!((m.body_leading - 22.0 * 1.4).abs() < 0.01);
+    }
+
+    #[test]
+    fn non_positive_values_ignored() {
+        let mut m = resolve_metrics(&PrintProfileId::print_v0()).expect("print@0");
+        let before = m;
+        DocumentSetupKnobs {
+            margin: Some(0.0),
+            body_pt: Some(-1.0),
+            leading_factor: Some(0.0),
+        }
+        .apply_to(&mut m);
+        assert_eq!(m, before);
+    }
+
+    #[test]
+    fn setup_toml_round_trips_sparse() {
+        let setup: DocumentSetupKnobs = toml::from_str(
+            r#"
+margin = 48.0
+body_pt = 10.0
+"#,
+        )
+        .expect("toml");
+        assert_eq!(setup.margin, Some(48.0));
+        assert_eq!(setup.body_pt, Some(10.0));
+        assert!(setup.leading_factor.is_none());
+    }
 }
 
 /// Minimum vertical reserve (pt) when a chrome band is enabled.

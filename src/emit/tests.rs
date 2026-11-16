@@ -1607,6 +1607,33 @@ fn cite_link_color_does_not_leak_across_lines() {
 }
 
 #[test]
+fn page_setup_overrides_change_emit() {
+    // THI-722: pack `[page.setup]` must affect native PDF (margin / body).
+    let doc = PrintDocument {
+        meta: PrintMeta {
+            title: "Setup".into(),
+            doc_kind: "note".into(),
+            language: None,
+            source_doc_id: None,
+        },
+        profile: PrintProfileId::print_v0(),
+        blocks: vec![PrintBlock::paragraph(vec![TextRun::plain(
+            "Body under Page setup overrides.",
+        )])],
+    };
+    let baseline = emit_pdf(&doc).expect("baseline");
+    let mut opts = EmitOptions::bundled_only();
+    opts.layout.page.setup.margin = Some(36.0);
+    opts.layout.page.setup.body_pt = Some(14.0);
+    opts.layout.page.setup.leading_factor = Some(1.6);
+    let overridden = emit_pdf_with(&doc, &opts).expect("setup emit");
+    assert_ne!(
+        baseline, overridden,
+        "[page.setup] margin/body_pt/leading_factor should change PDF bytes"
+    );
+}
+
+#[test]
 fn link_auto_underline_is_opt_in() {
     let linked = PrintDocument {
         meta: PrintMeta {
