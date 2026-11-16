@@ -1,31 +1,25 @@
 name: Build
 
-# Run only when Rust / fonts / this workflow change. Docs-only pushes skip the matrix.
-# Markdown under matching trees is excluded with `!**/*.md` (GitHub forbids pairing `paths`
-# with `paths-ignore` on the same event — use `!` negation instead).
+# Prefer `paths` (allowlist) over `paths-ignore`: run only when Rust / fonts / CI change.
+# Docs-only PRs skip the suite (required checks stay pending — merge with admin bypass
+# or drop the required-check gate for docs PRs).
 on:
   push:
     branches: [main, master]
     paths:
-      - "src/**"
-      - "examples/**"
-      - "tests/**"
+      - "**/*.rs"
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
       - "fonts/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
       - ".github/workflows/ci.yml"
-      - "!**/*.md"
   pull_request:
     branches: [main, master]
     paths:
-      - "src/**"
-      - "examples/**"
-      - "tests/**"
+      - "**/*.rs"
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
       - "fonts/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
       - ".github/workflows/ci.yml"
-      - "!**/*.md"
 
 env:
   CARGO_TERM_COLOR: always
@@ -47,9 +41,16 @@ jobs:
           toolchain: "1.95"
           components: rustfmt, clippy
 
-      - uses: Swatinem/rust-cache@v2
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v5
         with:
-          shared-key: "ci-${{ matrix.os }}"
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -83,9 +84,16 @@ jobs:
         with:
           toolchain: "1.95"
 
-      - uses: Swatinem/rust-cache@v2
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v5
         with:
-          shared-key: "ci-ubuntu-latest"
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-msrv-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Check MSRV
         run: cargo check --all-targets
