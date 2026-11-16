@@ -67,8 +67,11 @@ pub fn emit_pdf(doc: &PrintDocument) -> Result<Vec<u8>, WeaveError> {
 pub fn emit_pdf_with(doc: &PrintDocument, opts: &EmitOptions) -> Result<Vec<u8>, WeaveError> {
     let fonts = build_font_bag(doc, opts)?;
 
-    let metrics = profile::resolve_metrics(&doc.profile)?;
+    let mut metrics = profile::resolve_metrics(&doc.profile)?;
     let mut layout = opts.layout.clone();
+    // Pack `[page.setup]` sparsely overrides profile margin / body / leading
+    // (THI-722). Apply before resume densify so optical knobs still win.
+    layout.page.setup.apply_to(&mut metrics);
     if doc.profile.name == "resume" {
         layout.densify_resume();
     }

@@ -1,7 +1,9 @@
 //! Named layout optical defaults (per-category TOML under `defaults/`).
 //!
-//! Profiles own page size / margins / body size ([`crate::profile`]). These knobs
-//! are the hard-coded paddings, gaps, and scale factors inside emit.
+//! Profiles own baseline page size / margins / body size ([`crate::profile`]).
+//! Pack `[page.setup]` ([`DocumentSetupKnobs`]) sparsely overrides margin /
+//! `body_pt` / `leading_factor` for Tesscriptor Page setup (THI-722). Other
+//! knobs are paddings, gaps, and scale factors inside emit.
 
 mod align;
 mod color;
@@ -179,6 +181,14 @@ mod tests {
                 || dump.contains("page.footer.format = {page} / {pages}")
         );
         assert!(dump.contains("page.header.enabled = false"));
+        assert!(
+            k.page.setup.is_default(),
+            "bundled page.setup should be empty (sparse Page setup only)"
+        );
+        assert!(
+            !dump.contains("page.setup."),
+            "empty setup must not appear in dump: {dump}"
+        );
         assert!(dump.contains("prose.wrap.hyphenate = true"));
         assert!(dump.contains("prose.heading.leading_factor = 1.35"));
         assert!(k.prose.quote.italic);

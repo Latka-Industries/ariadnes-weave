@@ -7,6 +7,10 @@ Versioned metrics resolved by [`resolve_metrics`](../src/profile.rs). Unknown
 [D-print-profile-axes](decisions/D-print-profile-axes.md). MVP **couples** them
 into one id; internals compose via `PageSize` + mode rhythm. No `draft` profile.
 
+Pack `[page.setup]` may sparsely override uniform `margin`, `body_pt`, and
+`leading_factor` on top of these baselines (THI-722 / Tesscriptor Page setup).
+See [`layout-knobs.md`](layout-knobs.md#page-setup-pagesetup-in-pack-weavetoml).
+
 **Versioning:** bump `PrintProfileId.version` when any **stable** pagination or
 geometry rule for that id changes. Heuristics listed as best-effort in
 [D-literary-unfolding](decisions/D-literary-unfolding.md) may change under the

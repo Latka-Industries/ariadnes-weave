@@ -10,7 +10,7 @@ Emit uses named optical defaults from per-category TOML files under `defaults/`:
 | `math.toml` | math | Fractions, `\bar` accent, scripts, big-op limits, matrices, arrows, display gaps |
 | `page.toml` | page | Footer/header format+align, even-page overrides, `[numbers].style`, clearance, math stroke gray |
 
-Profiles (`print@0`, `deck@0`, …) still own page size, margins, and body font size. Knobs are the hard-coded paddings, gaps, and scale factors inside emit. Rust types live under `src/knobs/` (`prose.rs` / `table.rs` / `deck.rs` / `math.rs` / `page.rs`), re-exported from [`LayoutKnobs`](../src/knobs/mod.rs).
+Profiles (`print@0`, `deck@0`, …) own **baseline** page size, margins, and body font size. Pack `[page.setup]` sparsely overrides margin / `body_pt` / `leading_factor` for Tesscriptor Page setup (THI-722) — see below. Other knobs are paddings, gaps, and scale factors inside emit. Rust types live under `src/knobs/` (`prose.rs` / `table.rs` / `deck.rs` / `math.rs` / `page.rs`), re-exported from [`LayoutKnobs`](../src/knobs/mod.rs).
 
 ## Aesthetic colors (optional)
 
@@ -191,6 +191,30 @@ Not knob-driven; IR + emit behavior:
 | PDF `/Outlines` | Built from headings that carry a resolvable `dest_id` (same Fit dests as TOC `GoTo`) |
 
 Tessera owns `\toc` / `\lof` / `\lot` expansion into these blocks; weave only paints and links.
+
+## Page setup (`[page.setup]` in pack `weave.toml`)
+
+Vault-editable document metrics for Tesscriptor **Page setup** (THI-722). Live in
+pack `weave.toml` under `[page.setup]` (D23 — never sealed into `.tes`). Absent
+keys keep the coupled profile (`print@0`, `print-letter@0`, …).
+
+| Key | Meaning |
+|-----|---------|
+| `margin` | Uniform page inset in PDF points (all sides). Must be `> 0` to apply |
+| `body_pt` | Default body size in PDF points. Must be `> 0`. If `leading_factor` is omitted, leading scales by the size ratio vs the profile body |
+| `leading_factor` | Body leading = `body_size × factor` (uses post-`body_pt` size). Must be `> 0` |
+
+Example:
+
+```toml
+[page.setup]
+margin = 54.0
+body_pt = 12.0
+leading_factor = 1.5
+```
+
+Rust: [`DocumentSetupKnobs`](../src/knobs/page.rs) on [`PageKnobs::setup`](../src/knobs/page.rs);
+applied in `emit_pdf_with` after [`resolve_metrics`](../src/profile.rs).
 
 ## Page chrome (`defaults/page.toml`)
 

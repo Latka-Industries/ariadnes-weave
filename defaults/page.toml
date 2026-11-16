@@ -3,6 +3,12 @@
 # {page} follows [numbers].style; {page_roman}/{page_Roman} always roman (THI-413).
 # Optional format_even / align_even on header/footer for twoside chrome.
 # Footnote band sits above footer chrome (THI-410).
+#
+# Sparse Page setup overrides (THI-722) — omit for profile defaults:
+# [setup]
+# margin = 72.0          # uniform inset, PDF points
+# body_pt = 11.0         # default body size
+# leading_factor = 1.4    # body_leading = body_pt × factor
 
 [footer]
 font_size = 9.0

@@ -38,9 +38,9 @@ pub use ir::{
     SlideRegionContent, TableRow, TextRun, VspaceAmount,
 };
 pub use knobs::{
-    CaptionBand, CaptionOverflow, ChromeAlign, DeckKnobs, FigureAlign, FigureTextAlign,
-    FigureTitleAlign, HexColor, LayoutKnobs, MathKnobs, MathOpKnobs, MathParenStyle,
-    PageChromeBand, PageKnobs, PageNumberStyle, ProseCaptionKnobs, ProseCiteKnobs,
+    CaptionBand, CaptionOverflow, ChromeAlign, DeckKnobs, DocumentSetupKnobs, FigureAlign,
+    FigureTextAlign, FigureTitleAlign, HexColor, LayoutKnobs, MathKnobs, MathOpKnobs,
+    MathParenStyle, PageChromeBand, PageKnobs, PageNumberStyle, ProseCaptionKnobs, ProseCiteKnobs,
     ProseFontCategory, ProseKnobs, ProseLinkKnobs, ProsePaintCategory, ProseTextKnobs, TableKnobs,
     TextAlign, expand_chrome_format,
 };
